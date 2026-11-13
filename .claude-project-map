@@ -1,0 +1,6 @@
+pyproject.toml            uv project, deps (pydantic, httpx, mwparserfromhell, pyarrow, python-dotenv), mypy strict
+palimpsest/schema.py      Section 10 AuditOutput + enums, Case, SourceWindow, CaseResult wrapper, jsonl load/dump
+tests/test_schema.py      Schema roundtrip and validation tests
+docs/superpowers/         Design spec and implementation plan (source of truth for tasks)
+data/ cache/              Gitignored datasets and Exa cache
+eval/                     (planned) case builders, cases/*.jsonl, runs/

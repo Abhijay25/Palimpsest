@@ -1,0 +1,8 @@
+Goal: measure Stage 0->1->2 diff verification on EN+FI test set; pass bar <=5% clean controls flagged, >=80% labelled violations caught.
+Flag = any FLAG_G1/G2/G3 verdict; EXPAND_CONTEXT is an abstention, counted separately.
+Section 10 output schema is a fixed contract; metadata lives in the CaseResult wrapper only.
+Judge: Haiku/Sonnet via Claude Code subagents (two-phase prepare -> dispatch -> ingest); backend interface must allow Gemini and a classify-only backend later.
+Judge only from the cited source window, never world knowledge; real edits without source are kept with source_unavailable stated.
+Datasets from MariaDB/mariadb-wikipedia-datasets GitHub releases into gitignored data/; no MariaDB server.
+Exa cache-first (gitignored cache/); unit tests never hit the network (httpx.MockTransport).
+Python 3.12, uv, mypy strict, ruff, no Dict[str, Any].
