@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import TypedDict
 
-import pyarrow.parquet as pq  # type: ignore[import-untyped]  # pyarrow ships no stubs
+import pyarrow.parquet as pq  # pyarrow ships no stubs
 
 SEED = 1114
 DATA_DIR = Path("data/s")
