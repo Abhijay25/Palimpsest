@@ -1,0 +1,171 @@
+from pathlib import Path
+
+from palimpsest.judge import PreparedCase
+from palimpsest.report import render_report
+from palimpsest.schema import (
+    AuditOutput,
+    Case,
+    CaseResult,
+    ExpandDirection,
+    FlaggedSpan,
+    Guideline,
+    SourceWindow,
+    Verdict,
+)
+from palimpsest.scoring import agreement, score
+from palimpsest.stage0 import Stage0Result
+
+
+def _prepared(
+    case_id: str,
+    expected: Verdict,
+    new_text: str = "He admitted it.",
+    stage0_clean: bool = False,
+) -> PreparedCase:
+    return PreparedCase(
+        case=Case(
+            case_id=case_id,
+            lang="en",
+            bucket="t",
+            provenance="t",
+            page_title="P",
+            old_text="He said it.",
+            new_text=new_text,
+            ref_urls=[],
+            expected=expected,
+        ),
+        stage0=Stage0Result(clean=stage0_clean, reasons=["r"], latency_ms=1.0),
+        window=None
+        if stage0_clean
+        else SourceWindow(url=None, status="fixed", text="He said it.", latency_ms=0),
+    )
+
+
+def _output(verdict: Verdict, spans: list[FlaggedSpan] | None = None) -> AuditOutput:
+    return AuditOutput(
+        verdict=verdict,
+        confidence=0.9,
+        expand_direction=ExpandDirection.NONE,
+        atomic_propositions=[],
+        flagged_spans=spans or [],
+        neutral_rewrite=None,
+    )
+
+
+def _result(
+    case_id: str, output: AuditOutput | None, error: str | None = None
+) -> CaseResult:
+    return CaseResult(
+        case_id=case_id,
+        model="m",
+        prompt_version="stage2_v1",
+        stage_reached=2,
+        stage0_ms=1.0,
+        stage1_ms=2.0,
+        source_status="fixed",
+        output=output,
+        parse_error=error,
+    )
+
+
+def test_clean_flag_rate() -> None:
+    prepared = [
+        _prepared("a", Verdict.CLEAN_PASS),
+        _prepared("b", Verdict.CLEAN_PASS),
+    ]
+    results = {
+        "m": [
+            _result("a", _output(Verdict.CLEAN_PASS)),
+            _result("b", _output(Verdict.FLAG_G2_FRAMING)),
+        ]
+    }
+    assert score(prepared, results)["m"].clean_flag_rate == 0.5
+
+
+def test_recall_counts_wrong_category_as_caught() -> None:
+    prepared = [
+        _prepared("a", Verdict.FLAG_G1_FACT),
+        _prepared("b", Verdict.FLAG_G2_FRAMING),
+    ]
+    results = {
+        "m": [
+            _result("a", _output(Verdict.FLAG_G3_MOTIVE)),
+            _result("b", _output(Verdict.FLAG_G2_FRAMING)),
+        ]
+    }
+    metrics = score(prepared, results)["m"]
+    assert metrics.violation_recall == 1.0
+    assert metrics.category_accuracy == 0.5
+
+
+def test_parse_error_excluded_from_recall_denominator_but_counted() -> None:
+    prepared = [
+        _prepared("a", Verdict.FLAG_G1_FACT),
+        _prepared("b", Verdict.FLAG_G1_FACT),
+    ]
+    results = {
+        "m": [
+            _result("a", _output(Verdict.FLAG_G1_FACT)),
+            _result("b", None, error="bad json"),
+        ]
+    }
+    metrics = score(prepared, results)["m"]
+    assert metrics.violation_recall == 1.0
+    assert metrics.parse_error_rate == 0.5
+
+
+def test_stage0_false_pass_and_exit_rate() -> None:
+    prepared = [
+        _prepared("a", Verdict.FLAG_G1_FACT, stage0_clean=True),
+        _prepared("b", Verdict.CLEAN_PASS),
+    ]
+    results = {
+        "m": [
+            _result("a", _output(Verdict.CLEAN_PASS)),
+            _result("b", _output(Verdict.CLEAN_PASS)),
+        ]
+    }
+    metrics = score(prepared, results)["m"]
+    assert metrics.stage0_false_pass == 1
+    assert metrics.stage0_exit_rate == 0.5
+    assert not metrics.passes_bar
+
+
+def test_agreement() -> None:
+    a = [_result("a", _output(Verdict.CLEAN_PASS)), _result("b", None, "x")]
+    b = [_result("a", _output(Verdict.CLEAN_PASS)), _result("b", None, "x")]
+    assert agreement(a, b) == 1.0
+
+
+def _report(tmp_path: Path, new_text: str, spans: list[FlaggedSpan]) -> str:
+    prepared = [_prepared("a", Verdict.FLAG_G2_FRAMING, new_text=new_text)]
+    results = {"m": [_result("a", _output(Verdict.FLAG_G2_FRAMING, spans))]}
+    path = render_report(tmp_path, prepared, results, score(prepared, results))
+    return path.read_text()
+
+
+def test_report_escapes_html(tmp_path: Path) -> None:
+    html = _report(tmp_path, "<script>alert(1)</script>", [])
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_span_not_in_text_listed_not_crash(tmp_path: Path) -> None:
+    span = FlaggedSpan(
+        exact_substring="not present <b>",
+        guideline_violated=Guideline.G2_FRAMING,
+        explanation="why",
+    )
+    html = _report(tmp_path, "He admitted it.", [span])
+    assert "not present &lt;b&gt;" in html
+    assert "unmatched" in html.lower()
+
+
+def test_span_highlighted_when_present(tmp_path: Path) -> None:
+    span = FlaggedSpan(
+        exact_substring="admitted",
+        guideline_violated=Guideline.G2_FRAMING,
+        explanation="why",
+    )
+    html = _report(tmp_path, "He admitted it.", [span])
+    assert "<mark" in html

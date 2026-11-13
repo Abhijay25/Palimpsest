@@ -7,7 +7,18 @@ from typing import Final
 from pydantic import BaseModel
 
 from palimpsest.judge import PROMPT_VERSION, FileExchangeBackend, PreparedCase
-from palimpsest.schema import Case, SourceWindow, dump_jsonl, load_cases
+from palimpsest.report import render_report
+from palimpsest.schema import (
+    AuditOutput,
+    Case,
+    CaseResult,
+    ExpandDirection,
+    SourceWindow,
+    Verdict,
+    dump_jsonl,
+    load_cases,
+)
+from palimpsest.scoring import score
 from palimpsest.sources import SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import prefilter, strip_wikitext
 
@@ -65,3 +76,63 @@ async def prepare(cases_paths: list[Path], run_dir: Path, models: list[str]) -> 
         f"{len(prepared)} cases, {clean} stage-0 clean, "
         f"{len(batches)} batch files in {run_dir / 'batches'}"
     )
+
+
+def _stage0_clean_output() -> AuditOutput:
+    return AuditOutput(
+        verdict=Verdict.CLEAN_PASS,
+        confidence=1.0,
+        expand_direction=ExpandDirection.NONE,
+        atomic_propositions=[],
+        flagged_spans=[],
+        neutral_rewrite=None,
+    )
+
+
+def _case_result(
+    pc: PreparedCase, model: str, judged: dict[str, AuditOutput | str]
+) -> CaseResult:
+    window = pc.window
+    base = {
+        "case_id": pc.case.case_id,
+        "model": model,
+        "prompt_version": PROMPT_VERSION,
+        "stage0_ms": pc.stage0.latency_ms,
+        "stage1_ms": window.latency_ms if window else 0.0,
+        "source_status": window.status if window else "skipped",
+    }
+    if pc.stage0.clean:
+        return CaseResult(
+            **base, stage_reached=0, output=_stage0_clean_output(), parse_error=None
+        )
+    outcome = judged.get(pc.case.case_id, "no result line for this case")
+    if isinstance(outcome, str):
+        return CaseResult(**base, stage_reached=1, output=None, parse_error=outcome)
+    return CaseResult(**base, stage_reached=2, output=outcome, parse_error=None)
+
+
+def ingest(run_dir: Path, compare_to: Path | None = None) -> None:
+    prepared = [
+        PreparedCase.model_validate_json(line)
+        for line in (run_dir / "prepared.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
+    backend = FileExchangeBackend()
+    results: dict[str, list[CaseResult]] = {}
+    for model in manifest.models:
+        judged = backend.read_results(run_dir, model)
+        results[model] = [_case_result(pc, model, judged) for pc in prepared]
+    metrics = score(prepared, results)
+    dump_jsonl(
+        run_dir / "results.jsonl", [r for rows in results.values() for r in rows]
+    )
+    path = render_report(run_dir, prepared, results, metrics, compare_to)
+    for model, m in metrics.items():
+        print(
+            f"{model}: recall={m.violation_recall:.0%} clean_flag={m.clean_flag_rate:.0%} "
+            f"parse_err={m.parse_error_rate:.0%} pass={m.passes_bar}"
+        )
+    print(f"report: {path}")

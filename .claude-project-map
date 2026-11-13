@@ -12,3 +12,5 @@ palimpsest/prompts/       stage2_v1.txt (spec s10 prompt verbatim), subagent_jud
 palimpsest/judge.py       PreparedCase, render_case_payload, FileExchangeBackend (write_batches/read_results)
 palimpsest/pipeline.py    prepare(): Stage 0 + concurrent Stage 1 (sem 8) + batch files; ingest() (Task 5)
 palimpsest/__main__.py    CLI: prepare / ingest
+palimpsest/scoring.py     Metrics, score(), agreement(); pass bar constants
+palimpsest/report.py      render_report(): static HTML (diff, span highlight, metrics, compare)

@@ -4,7 +4,7 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from palimpsest.pipeline import prepare
+from palimpsest.pipeline import ingest, prepare
 
 
 def main() -> None:
@@ -14,9 +14,14 @@ def main() -> None:
     prep.add_argument("--cases", nargs="+", type=Path, required=True)
     prep.add_argument("--run", type=Path, required=True)
     prep.add_argument("--models", nargs="+", default=["haiku", "sonnet"])
+    ing = sub.add_parser("ingest", help="Read judge results, score, render report.html")
+    ing.add_argument("--run", type=Path, required=True)
+    ing.add_argument("--compare", type=Path, default=None)
     args = parser.parse_args()
     if args.command == "prepare":
         asyncio.run(prepare(args.cases, args.run, args.models))
+    elif args.command == "ingest":
+        ingest(args.run, args.compare)
 
 
 if __name__ == "__main__":
