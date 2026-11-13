@@ -4,3 +4,7 @@ tests/test_schema.py      Schema roundtrip and validation tests
 docs/superpowers/         Design spec and implementation plan (source of truth for tasks)
 data/ cache/              Gitignored datasets and Exa cache
 eval/                     (planned) case builders, cases/*.jsonl, runs/
+palimpsest/sources.py: Stage 1 Exa source windows + cache (tests/test_sources.py)
+palimpsest/wordlists.py   Stage 0 EN/FI watch-lists (exact tokens, FI stem prefixes, phrases)
+palimpsest/stage0.py      Stage 0 deterministic pre-filter (prefilter, extract_ref_urls, strip_wikitext)
+tests/test_stage0.py      Stage 0 tests
