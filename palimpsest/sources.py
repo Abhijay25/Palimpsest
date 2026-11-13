@@ -1,0 +1,138 @@
+"""Stage 1: Exa-backed citation source windows with a JSON-file cache."""
+
+import hashlib
+import os
+import re
+import time
+from pathlib import Path
+from typing import Final
+
+import httpx
+from dotenv import load_dotenv
+from pydantic import BaseModel, ValidationError
+
+from palimpsest.schema import SourceWindow
+
+EXA_CONTENTS_URL: Final = "https://api.exa.ai/contents"
+REQUEST_TIMEOUT_S: Final = 10.0
+MIN_TEXT_CHARS: Final = 200
+_SENTENCE_SPLIT: Final = re.compile(r"(?<=[.!?])\s+")
+_TOKEN: Final = re.compile(r"\w+")
+_HEADING: Final = re.compile(r"^#{1,6}\s")
+
+
+class _CachedText(BaseModel):
+    text: str
+
+
+class _ExaResult(BaseModel):
+    text: str | None = None
+
+
+class _ExaResponse(BaseModel):
+    results: list[_ExaResult] = []
+
+
+def load_exa_api_key() -> str | None:
+    """Read EXA_API_KEY from .env / environment; empty string counts as missing."""
+    load_dotenv()
+    return os.environ.get("EXA_API_KEY") or None
+
+
+def _tokens(text: str) -> set[str]:
+    return {t.lower() for t in _TOKEN.findall(text)}
+
+
+def discourse_window(text: str, claim: str, radius: int = 3) -> str:
+    """Best-overlap sentence +/- radius sentences, prefixed by nearest preceding heading."""
+    sentences: list[str] = []
+    heading_for: list[str | None] = []
+    heading: str | None = None
+    for line in text.splitlines():
+        if _HEADING.match(line):
+            heading = line.strip()
+            continue
+        for sentence in _SENTENCE_SPLIT.split(line.strip()):
+            if sentence:
+                sentences.append(sentence)
+                heading_for.append(heading)
+    if not sentences:
+        return ""
+    claim_tokens = _tokens(claim)
+    best = max(
+        range(len(sentences)), key=lambda i: len(claim_tokens & _tokens(sentences[i]))
+    )
+    start = max(0, best - radius)
+    window = " ".join(sentences[start : best + radius + 1])
+    heading_line = heading_for[start]
+    return f"{heading_line}\n{window}" if heading_line else window
+
+
+class SourceFetcher:
+    def __init__(
+        self,
+        api_key: str | None,
+        cache_dir: Path,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._api_key = api_key or None
+        self._cache_dir = cache_dir
+        self._client = client
+
+    def _cache_path(self, url: str) -> Path:
+        return self._cache_dir / f"{hashlib.sha256(url.encode()).hexdigest()}.json"
+
+    def _read_cache(self, url: str) -> str | None:
+        path = self._cache_path(url)
+        if not path.exists():
+            return None
+        try:
+            return _CachedText.model_validate_json(path.read_text()).text
+        except (OSError, ValidationError):
+            return None
+
+    def _write_cache(self, url: str, text: str) -> None:
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_path(url).write_text(_CachedText(text=text).model_dump_json())
+
+    async def _fetch_text(self, url: str) -> str | None:
+        """Return page text from Exa, or None on any failure."""
+        if self._api_key is None:
+            return None
+        client = self._client or httpx.AsyncClient()
+        try:
+            response = await client.post(
+                EXA_CONTENTS_URL,
+                headers={"x-api-key": self._api_key},
+                json={"urls": [url], "text": True},
+                timeout=REQUEST_TIMEOUT_S,
+            )
+            response.raise_for_status()
+            parsed = _ExaResponse.model_validate_json(response.content)
+        except (httpx.HTTPError, ValidationError):
+            return None
+        finally:
+            if self._client is None:
+                await client.aclose()
+        if not parsed.results:
+            return None
+        return parsed.results[0].text
+
+    async def window(self, url: str, claim: str, radius: int = 3) -> SourceWindow:
+        started = time.perf_counter()
+        text = self._read_cache(url)
+        if text is None:
+            text = await self._fetch_text(url)
+            if text is not None and len(text) >= MIN_TEXT_CHARS:
+                self._write_cache(url, text)
+        latency_ms = (time.perf_counter() - started) * 1000
+        if text is None or len(text) < MIN_TEXT_CHARS:
+            return SourceWindow(
+                url=url, status="unavailable", text="", latency_ms=latency_ms
+            )
+        return SourceWindow(
+            url=url,
+            status="ok",
+            text=discourse_window(text, claim, radius),
+            latency_ms=latency_ms,
+        )
