@@ -41,3 +41,8 @@ Specs: `wikipedia_bias_osint_verification_spec.md` (verifier) and
 The specs give it two roles. Neither is in the running pipeline, and this key cannot access the model.
 - Verifier rubric classifier (a second call per edit): not built. One Hydrogen call already returns verdict, spans and rewrite (14/14 on the g02 set at HIGH), so a second classifier would add a call per edit with no measured accuracy gap to close. Remove unless a gap appears.
 - Stealth triage of hidden-channel items: needed (s05ml: the deterministic layer escalates 4/23 attacks alone, triage the other 19, 0/71 benign escalated), but any capable model can do it; Haiku stands in today. Candidates to test: gemini-3.5-flash-lite, Hydrogen LOW. `GEMINI_TRIAGE_MODEL` defaults to `gemini-decision-1` until then.
+
+## Citation integrity (B2, A1): modules committed, not wired
+
+- B2 `palimpsest/cherry_pick.py`: language-neutral evidence selection (cited chunk, source conclusion by position, closest chunks) + one Hydrogen LOW call. No English discourse-marker lists (no-language-tricks rule).
+- A1 `palimpsest/citation_lifecycle.py`: snapshots in SQLite with history (MariaDB system-versioned DDL included), six drift states, Wayback baseline and simulated mutations. Live check on a stable SVT article (2021 snapshot vs now) reported SEMANTIC_RUGPULL at drift 0.47 and 4 hidden-text vectors: whole-page raw-HTML comparison with the offline hashing embedder is noise. Before A1 can route anything: compare only the claim's discourse window (Stage 1 selection) on both versions, real embeddings, and a Hydrogen "still supports the claim?" check as the deciding signal.
