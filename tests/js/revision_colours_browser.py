@@ -42,8 +42,8 @@ def fixture():
     for revision_id, parent, timestamp, user in [
         (388, 387, "2025-12-01T00:00:00Z", "Prior editor"),
         (390, 389, "2025-12-02T00:00:00Z", "Unrelated editor"),
-        (392, 391, "2025-12-03T00:00:00Z", "Same editor"),
-        (393, 392, "2025-12-04T00:00:00Z", "Same editor"),
+        (392, 391, "2025-12-05T00:00:00Z", "Same editor"),
+        (393, 392, "2025-12-05T00:00:00Z", "Same editor"),
         (394, 393, "2025-12-05T00:00:00Z", "Same editor"),
     ]:
         revisions.append({
@@ -241,6 +241,9 @@ def main():
         full_event_ids = page.locator(".pb-event").evaluate_all("nodes => nodes.map(node => node.dataset.pbRevisionId)")
         assert set(full_event_ids) == {"392", "393", "394", "388", "389", "395"}, full_event_ids
         assert "390" not in full_event_ids, "the full selected-wording history must remain scoped to selected lineage"
+        event_labels = page.locator(".pb-event").evaluate_all("nodes => nodes.map(node => [node.dataset.pbRevisionId, node.querySelector('summary').textContent])")
+        assert all(f"Revision {revision_id}" in label for revision_id, label in event_labels), event_labels
+        assert len({label for revision_id, label in event_labels if revision_id in {"392", "393", "394"}}) == 3, "same-editor, same-timestamp revisions must remain individually identifiable in text"
 
         group_trigger = page.locator('.pb-revision-group[data-pb-revision-id="393"] .pb-revision-group-focus')
         group_trigger.focus()

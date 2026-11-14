@@ -1087,7 +1087,7 @@
 			details.dataset.pbRevisionId = String( change.revision_id );
 			applyRevisionColor( details, change.revision_id );
 			var revision = revisions.get( String( change.revision_id ) );
-			var description = revision ? formatUtc( revision.timestamp ) + ' · ' + ( revision.user || 'Identity unavailable' ) : 'Revision ' + change.revision_id;
+			var description = 'Revision ' + change.revision_id + ( revision ? ' · ' + formatUtc( revision.timestamp ) + ' · ' + ( revision.user || 'Identity unavailable' ) : '' );
 			if ( change.ambiguous ) {
 				description += ' · lineage uncertain';
 			}
