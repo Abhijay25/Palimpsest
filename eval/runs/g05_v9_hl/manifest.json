@@ -1,0 +1,15 @@
+{
+  "prompt_version": "stage2_v9",
+  "models": [
+    "gemini-4-hydrogen"
+  ],
+  "case_files": [
+    "eval/cases/en_reverts3.jsonl",
+    "eval/cases/en_controls3.jsonl",
+    "eval/cases/fi_blind_reverts.jsonl",
+    "eval/cases/fi_blind_controls.jsonl",
+    "eval/cases/blp_silence.jsonl"
+  ],
+  "source_mode": "highlights",
+  "followup": false
+}
