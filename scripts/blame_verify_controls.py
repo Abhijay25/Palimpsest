@@ -123,6 +123,14 @@ def main() -> int:
             require_unavailable(result(api, page["title"], target), "provenance-record-does-not-match-local-revision")
             cases.append("forged revision inside checksummed bundle")
 
+            bad = copy.deepcopy(bundle)
+            bad["payload"]["pages"][0]["history_complete"] = False
+            checksum(bad)
+            replace_file(path, json.dumps(bad, ensure_ascii=False).encode(), mode)
+            wait_visible(lang, path.read_bytes())
+            require_unavailable(result(api, page["title"], target), "imported-history-incomplete")
+            cases.append("explicitly incomplete imported history")
+
             path.unlink()
             wait_visible(lang, None)
             require_unavailable(result(api, page["title"], target), "provenance-bundle-missing-or-too-large")
