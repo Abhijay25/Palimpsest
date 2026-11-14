@@ -14,6 +14,7 @@ from palimpsest.schema import (
 )
 from palimpsest.scoring import agreement, score
 from palimpsest.stage0 import Stage0Result
+from palimpsest.stealth.models import ScanResult, StealthStatus
 
 
 def _prepared(
@@ -181,3 +182,25 @@ def test_uncited_rate() -> None:
     metrics = score(prepared, {"m": results})["m"]
     assert metrics.uncited_rate == 0.5
     assert metrics.source_unavailable_rate == 0.0
+
+
+def test_stealth_flag_metrics() -> None:
+    def scan(status: StealthStatus) -> ScanResult:
+        return ScanResult(
+            scan_id="s",
+            target_type="WIKIPEDIA_DIFF",
+            stealth_status=status,
+            scan_latency_ms=1.0,
+            sanitized_human_text="",
+            hidden_findings=[],
+        )
+
+    prepared = [_prepared(c, Verdict.CLEAN_PASS) for c in "abcd"]
+    prepared[0].diff_scan = scan(StealthStatus.CRITICAL_AI_POISONING)
+    prepared[1].diff_scan = scan(StealthStatus.BENIGN_NOTES_ONLY)
+    prepared[2].ref_scan = scan(StealthStatus.CRITICAL_AI_POISONING)
+    prepared[3].diff_scan = scan(StealthStatus.CLEAN)
+    results = {"m": [_result(c, _output(Verdict.CLEAN_PASS)) for c in "abcd"]}
+    metrics = score(prepared, results)["m"]
+    assert metrics.stealth_flags == 1
+    assert metrics.stealth_flag_rate == 0.75

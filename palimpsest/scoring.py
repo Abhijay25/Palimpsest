@@ -7,9 +7,17 @@ from pydantic import BaseModel
 
 from palimpsest.judge import PreparedCase
 from palimpsest.schema import CaseResult, Verdict
+from palimpsest.stealth.models import StealthStatus
 
 MAX_CLEAN_FLAG_RATE: Final = 0.05
 MIN_VIOLATION_RECALL: Final = 0.80
+ADMIN_FLAG_STATUSES: Final = frozenset(
+    {
+        StealthStatus.CRITICAL_AI_POISONING,
+        StealthStatus.CSS_CLOAKING_DETECTED,
+        StealthStatus.HOMOGLYPH_SPOOFING,
+    }
+)
 PARSE_ERROR_LABEL: Final = "PARSE_ERROR"
 FLAGS: Final = frozenset(
     {Verdict.FLAG_G1_FACT, Verdict.FLAG_G2_FRAMING, Verdict.FLAG_G3_MOTIVE}
@@ -28,6 +36,8 @@ class Metrics(BaseModel):
     stage0_false_pass: int
     source_unavailable_rate: float
     uncited_rate: float
+    stealth_flag_rate: float
+    stealth_flags: int
     stage0_ms_p50: float
     stage1_ms_p50: float
     confusion: dict[str, dict[str, int]]
@@ -58,6 +68,20 @@ def agreement(results_a: list[CaseResult], results_b: list[CaseResult]) -> float
         both += 1
         same += a.output.verdict == b.output.verdict
     return _ratio(same, both)
+
+
+def _stealth_flagged(pc: PreparedCase) -> bool:
+    return any(
+        s.stealth_status != StealthStatus.CLEAN
+        for s in (pc.diff_scan, pc.ref_scan)
+        if s is not None
+    )
+
+
+def _diff_admin_flag(pc: PreparedCase) -> bool:
+    return (
+        pc.diff_scan is not None and pc.diff_scan.stealth_status in ADMIN_FLAG_STATUSES
+    )
 
 
 def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Metrics:
@@ -111,6 +135,10 @@ def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Met
         ),
         source_unavailable_rate=_ratio(unavailable, len(stage1)),
         uncited_rate=_ratio(uncited, len(stage1)),
+        stealth_flag_rate=_ratio(
+            sum(1 for pc, _ in paired if _stealth_flagged(pc)), len(paired)
+        ),
+        stealth_flags=sum(1 for pc, _ in paired if _diff_admin_flag(pc)),
         stage0_ms_p50=_p50([r.stage0_ms for _, r in paired]),
         stage1_ms_p50=_p50([r.stage1_ms for r in stage1]),
         confusion=confusion,

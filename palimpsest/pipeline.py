@@ -1,6 +1,7 @@
 """Pipeline orchestration: Stage 0 -> Stage 1 -> batch files."""
 
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
@@ -26,6 +27,8 @@ from palimpsest.schema import (
 from palimpsest.scoring import score
 from palimpsest.sources import SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import prefilter, strip_wikitext
+from palimpsest.stealth.models import ScanResult, StealthStatus
+from palimpsest.stealth.scanner import scan, worst_status
 
 STAGE1_CONCURRENCY: Final = 8
 MAX_SOURCE_URLS: Final = 3
@@ -38,7 +41,38 @@ class Manifest(BaseModel):
     case_files: list[str]
 
 
-async def _window_for(case: Case, fetcher: SourceFetcher) -> SourceWindow:
+def _ref_scanner(
+    ref_scans: list[ScanResult] | None,
+) -> Callable[[str], str | None] | None:
+    """Scan fetched page text; withhold pages flagged CRITICAL from windowing."""
+    if ref_scans is None:
+        return None
+
+    def on_text(text: str) -> str | None:
+        result = scan(text, "EXTERNAL_REF_PAGE")
+        ref_scans.append(result)
+        if result.stealth_status == StealthStatus.CRITICAL_AI_POISONING:
+            return None
+        return result.sanitized_human_text
+
+    return on_text
+
+
+def _worst_scan(scans: list[ScanResult]) -> ScanResult | None:
+    if not scans:
+        return None
+    worst = worst_status(s.stealth_status for s in scans)
+    return next(s for s in scans if s.stealth_status == worst)
+
+
+def _sanitized(text: str) -> tuple[str, float]:
+    result = scan(text, "WIKIPEDIA_DIFF")
+    return result.sanitized_human_text, result.scan_latency_ms
+
+
+async def _window_for(
+    case: Case, fetcher: SourceFetcher, ref_scans: list[ScanResult] | None = None
+) -> SourceWindow:
     if case.source_window is not None:
         return SourceWindow(
             url=None, status="fixed", text=case.source_window, latency_ms=0.0
@@ -49,7 +83,9 @@ async def _window_for(case: Case, fetcher: SourceFetcher) -> SourceWindow:
     claim = strip_wikitext(case.new_text)
     best: tuple[SourceWindow, int] | None = None
     for url in urls[:MAX_SOURCE_URLS]:
-        scored = await fetcher.window_scored(url, claim)
+        scored = await fetcher.window_scored(
+            url, claim, on_text=_ref_scanner(ref_scans)
+        )
         if scored[0].status == "ok" and (best is None or scored[1] > best[1]):
             best = scored
     if best is not None:
@@ -74,12 +110,35 @@ async def prepare(
     semaphore = asyncio.Semaphore(STAGE1_CONCURRENCY)
 
     async def prepare_one(case: Case) -> PreparedCase:
+        diff_scan = scan(
+            case.new_wikitext or case.new_text,
+            "WIKIPEDIA_DIFF",
+            old_text=case.old_wikitext or case.old_text,
+        )
+        old_text, old_ms = _sanitized(case.old_text)
+        new_text, new_ms = _sanitized(case.new_text)
+        stealth_ms = diff_scan.scan_latency_ms + old_ms + new_ms
+        case = case.model_copy(update={"old_text": old_text, "new_text": new_text})
         stage0 = prefilter(case.old_text, case.new_text, case.lang)
         if stage0.clean:
-            return PreparedCase(case=case, stage0=stage0, window=None)
+            return PreparedCase(
+                case=case,
+                stage0=stage0,
+                window=None,
+                diff_scan=diff_scan,
+                stealth_ms=stealth_ms,
+            )
+        ref_scans: list[ScanResult] = []
         async with semaphore:
-            window = await _window_for(case, fetcher)
-        return PreparedCase(case=case, stage0=stage0, window=window)
+            window = await _window_for(case, fetcher, ref_scans)
+        return PreparedCase(
+            case=case,
+            stage0=stage0,
+            window=window,
+            diff_scan=diff_scan,
+            ref_scan=_worst_scan(ref_scans),
+            stealth_ms=stealth_ms + sum(s.scan_latency_ms for s in ref_scans),
+        )
 
     prepared = list(await asyncio.gather(*(prepare_one(c) for c in cases.values())))
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -112,6 +171,21 @@ def _stage0_clean_output() -> AuditOutput:
     )
 
 
+def _scans(pc: PreparedCase) -> list[ScanResult]:
+    return [s for s in (pc.diff_scan, pc.ref_scan) if s is not None]
+
+
+def _stealth_status(pc: PreparedCase) -> str | None:
+    scans = _scans(pc)
+    if not scans:
+        return None
+    return worst_status(s.stealth_status for s in scans).value
+
+
+def _stealth_vectors(pc: PreparedCase) -> list[str]:
+    return sorted({f.vector_type.value for s in _scans(pc) for f in s.hidden_findings})
+
+
 def _case_result(
     pc: PreparedCase,
     model: str,
@@ -126,6 +200,9 @@ def _case_result(
         "stage0_ms": pc.stage0.latency_ms,
         "stage1_ms": window.latency_ms if window else 0.0,
         "source_status": window.status if window else "skipped",
+        "stealth_status": _stealth_status(pc),
+        "stealth_vectors": _stealth_vectors(pc),
+        "stealth_ms": pc.stealth_ms,
     }
     if pc.stage0.clean:
         return CaseResult(

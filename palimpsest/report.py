@@ -9,6 +9,7 @@ from typing import Final
 from palimpsest.judge import PreparedCase
 from palimpsest.schema import AuditOutput, CaseResult, FlaggedSpan, Verdict
 from palimpsest.scoring import FLAGS, Metrics
+from palimpsest.stealth.models import StealthStatus
 
 NO_LINK_BUCKET_MARKERS: Final = ("spec", "synthetic", "wnc")
 
@@ -149,6 +150,25 @@ def _sort_tier(pc: PreparedCase, rows: list[CaseResult | None]) -> int:
     return 4
 
 
+def _stealth_html(pc: PreparedCase) -> str:
+    scans = [s for s in (pc.diff_scan, pc.ref_scan) if s is not None]
+    flagged = [s for s in scans if s.stealth_status != StealthStatus.CLEAN]
+    if not flagged:
+        return ""
+    parts = []
+    for s in flagged:
+        findings = "".join(
+            f"<li>{_e(f.vector_type.value)}: {_e(f.explanation)} "
+            f"<code>{_e(f.decoded_hidden_text or f.raw_snippet)}</code></li>"
+            for f in s.hidden_findings
+        )
+        parts.append(
+            f'<div><span class="badge fail">STEALTH {_e(s.stealth_status.value)}</span> '
+            f'<span class="meta">{_e(s.target_type)}</span><ul>{findings}</ul></div>'
+        )
+    return "".join(parts)
+
+
 def _case_card(
     pc: PreparedCase,
     models: list[str],
@@ -175,6 +195,7 @@ def _case_card(
         f'<div class="card{" wrong" if tier == 0 else ""}" id="{_e(case.case_id)}">'
         f"<b>{_e(case.case_id)}</b> "
         f'<span class="meta">{_e(case.bucket)} · {case.lang} · expected {_e(expected)} · {title}</span>'
+        f"{_stealth_html(pc)}"
         f'<div class="text">{word_diff_html(case.old_text, case.new_text)}</div>{gloss}'
         f"<details><summary>Source window ({_e(status)})</summary>"
         f'<div class="text">{_e(window)}</div></details>{blocks}</div>'
@@ -195,6 +216,8 @@ def _metrics_table(metrics: dict[str, Metrics]) -> str:
         ("Source unavailable", ""),
         ("Uncited", ""),
         ("Stage 0 / 1 p50 ms", ""),
+        ("Stealth flagged", ""),
+        ("Stealth admin flags", ""),
     ]
     head = "".join(f"<th>{_e(m)}</th>" for m in metrics)
 
@@ -223,6 +246,8 @@ def _metrics_table(metrics: dict[str, Metrics]) -> str:
         cells(lambda m: pct(m.source_unavailable_rate)),
         cells(lambda m: pct(m.uncited_rate)),
         cells(lambda m: f"{m.stage0_ms_p50:.1f} / {m.stage1_ms_p50:.0f}"),
+        cells(lambda m: pct(m.stealth_flag_rate)),
+        cells(lambda m: str(m.stealth_flags)),
     ]
     body = "".join(
         f"<tr><th>{_e(label)}</th>{value}</tr>"

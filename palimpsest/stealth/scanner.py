@@ -1,5 +1,6 @@
 import time
 import uuid
+from collections.abc import Iterable
 from typing import Literal
 
 from palimpsest.stealth.models import (
@@ -26,6 +27,10 @@ _RANK: dict[StealthStatus, int] = {
     StealthStatus.CSS_CLOAKING_DETECTED: 3,
     StealthStatus.CRITICAL_AI_POISONING: 4,
 }
+
+
+def worst_status(statuses: Iterable[StealthStatus]) -> StealthStatus:
+    return max(statuses, key=_RANK.__getitem__, default=StealthStatus.CLEAN)
 
 
 def scan(text: str, target_type: TargetType, old_text: str | None = None) -> ScanResult:

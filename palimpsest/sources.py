@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
@@ -163,15 +164,25 @@ class SourceFetcher:
         return (await self.window_scored(url, claim, radius))[0]
 
     async def window_scored(
-        self, url: str, claim: str, radius: int = 3
+        self,
+        url: str,
+        claim: str,
+        radius: int = 3,
+        on_text: Callable[[str], str | None] | None = None,
     ) -> tuple[SourceWindow, int]:
-        """Window for url plus its claim-overlap score (0 when unavailable)."""
+        """Window for url plus its claim-overlap score (0 when unavailable).
+
+        on_text sees the raw page text and returns the text to window over,
+        or None to treat the page as unavailable.
+        """
         started = time.perf_counter()
         text = self._read_cache(url)
         if text is None:
             text = await self._fetch_text(url)
             if text is not None and len(text) >= MIN_TEXT_CHARS:
                 self._write_cache(url, text)
+        if text is not None and on_text is not None:
+            text = on_text(text)
         latency_ms = (time.perf_counter() - started) * 1000
         if text is None or len(text) < MIN_TEXT_CHARS:
             return (

@@ -104,6 +104,9 @@ class CaseResult(BaseModel):
     source_status: str
     output: AuditOutput | None
     parse_error: str | None
+    stealth_status: str | None = None
+    stealth_vectors: list[str] = []
+    stealth_ms: float = 0.0
 
 
 def load_cases(path: Path) -> list[Case]:

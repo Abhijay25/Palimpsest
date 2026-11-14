@@ -8,6 +8,7 @@ from pydantic import BaseModel, ValidationError
 
 from palimpsest.schema import AuditOutput, Case, SourceWindow
 from palimpsest.stage0 import Stage0Result
+from palimpsest.stealth.models import ScanResult
 
 PROMPT_VERSION: Final = "stage2_v1"
 PROMPTS_DIR: Final = Path(__file__).parent / "prompts"
@@ -26,6 +27,9 @@ class PreparedCase(BaseModel):
     case: Case
     stage0: Stage0Result
     window: SourceWindow | None
+    diff_scan: ScanResult | None = None
+    ref_scan: ScanResult | None = None
+    stealth_ms: float = 0.0
 
 
 class _ResultLine(BaseModel):
