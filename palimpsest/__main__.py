@@ -1,4 +1,4 @@
-"""CLI entry point: python -m palimpsest prepare|ingest|diagnose."""
+"""CLI entry point: python -m palimpsest prepare|ingest|diagnose|audit-page."""
 
 import argparse
 import asyncio
@@ -14,6 +14,10 @@ def main() -> None:
         from palimpsest.diagnose import main as diagnose_main
 
         raise SystemExit(diagnose_main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "audit-page":
+        from palimpsest.page_audit import main as page_audit_main
+
+        raise SystemExit(page_audit_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(prog="palimpsest")
     sub = parser.add_subparsers(dest="command", required=True)
     prep = sub.add_parser("prepare", help="Run stages 0-1 and write judge batches")
@@ -32,6 +36,7 @@ def main() -> None:
     ing.add_argument("--run", type=Path, required=True)
     ing.add_argument("--compare", type=Path, default=None)
     sub.add_parser("diagnose", help="Run one edit through audit-diff in-process")
+    sub.add_parser("audit-page", help="Audit the current version of a Wikipedia page")
     args = parser.parse_args()
     if args.command == "prepare":
         asyncio.run(

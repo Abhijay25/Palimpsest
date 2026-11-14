@@ -74,6 +74,14 @@ curl -s localhost:8000/api/v1/audit-diff -H 'content-type: application/json' -d 
 }'
 ```
 
+## Live-page audit
+
+`python -m palimpsest audit-page --lang sv --title Tornedalingar --max-paragraphs 12 --json report.json`
+audits the current revision. It always scans the whole wikitext for stealth content
+and checks rendered dates using month names supplied by that wiki's interface messages.
+It also compares dates beside historical Wikipedia revision links. Add `--no-judge`
+for deterministic checks only; otherwise cited paragraphs use the existing source/judge path.
+
 ## Design notes
 
 - A CRITICAL ref page routes the case to admin review but does not change the editor trust delta; only the editor's own diff does. This is intentional.

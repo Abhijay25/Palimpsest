@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from palimpsest.judge import AsyncJudge, PreparedCase, judge_with_latencies
 from palimpsest.pipeline import _window_for
-from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
+from palimpsest.schema import AuditOutput, Case, FlaggedSpan, SourceWindow, Verdict
 from palimpsest.sources import SourceFetcher
 from palimpsest.stage0 import extract_ref_urls, prefilter, strip_wikitext
 
@@ -33,6 +33,8 @@ class LanguageAuditState(BaseModel):
     confidence: float | None = None
     latency_ms: float
     reason: str | None = None
+    flagged_spans: list[FlaggedSpan] = []
+    neutral_rewrite: str | None = None
 
 
 class CrossLingualReport(BaseModel):
@@ -213,6 +215,8 @@ async def audit_single_language_claim(
         verdict=output.verdict,
         confidence=output.confidence,
         latency_ms=(time.perf_counter() - started) * 1000,
+        flagged_spans=output.flagged_spans,
+        neutral_rewrite=output.neutral_rewrite,
     )
 
 
