@@ -45,18 +45,17 @@
 	function error( message ) { root.dataset.pfState = 'error'; summary.replaceChildren(); summary.append( chip( 'warning', message ), retryButton() ); rail.replaceChildren( list ); tray.hidden = true; setLive( message ); }
 	function retryButton() { var b = button( 'cdx-button cdx-button--weight-quiet', 'Retry' ); b.addEventListener( 'click', function () { api( true ); } ); return b; }
 	function chip( status, label ) { var c = el( 'span', 'cdx-info-chip cdx-info-chip--' + status ); if ( Vue && Codex && Codex.CdxInfoChip ) { Vue.createApp( { render: function () { return Vue.h( Codex.CdxInfoChip, { status: status }, { default: function () { return label; } } ); } } ).mount( c ); } else { c.appendChild( el( 'span', 'cdx-info-chip__text', label ) ); } return c; }
-	function kbd( text ) { return el( 'kbd', 'pf-kbd', text ); }
 	function renderSummary() {
 		summary.replaceChildren(); var brand = el( 'span', 'pf-brand', 'Palimpsest' ); summary.append( brand );
 		if ( !state.flags.length ) { summary.append( el( 'span', 'pf-summary__text pf-summary__text--ok', '✓ No issues flagged in this edit' ) ); floatBar(); return; }
 		var admins = state.flags.filter( function ( f ) { return f.tier === 'admin'; } ).length, reviews = state.flags.length - admins, parts = [];
 		if ( admins ) { parts.push( admins + ' for admin review' ); } if ( reviews ) { parts.push( reviews + ' worth a look' ); }
 		summary.append( el( 'span', 'pf-summary__text', state.flags.length + ( state.flags.length === 1 ? ' flag' : ' flags' ) + ' · ' + parts.join( ' · ' ) ) );
-		var filters = el( 'div', 'pf-filters' ); filters.setAttribute( 'role', 'group' ); filters.setAttribute( 'aria-label', 'Filter flags by type' );
+		var filters = el( 'div', 'pf-filters' ); filters.setAttribute( 'role', 'group' ); filters.setAttribute( 'aria-label', 'Filter flags by type' ); filters.append( el( 'span', 'pf-filters__label', 'Show:' ) ); var all = button( 'pf-filter pf-filter--all', 'All ' + state.flags.length ); all.setAttribute( 'aria-pressed', String( !state.filter ) ); all.addEventListener( 'click', function () { state.filter = null; renderSummary(); renderCards(); } ); filters.appendChild( all );
 		Object.keys( kindLabel ).forEach( function ( kind ) { var count = state.flags.filter( function ( f ) { return f.kind === kind; } ).length; if ( !count ) { return; } var b = button( 'pf-filter pf-kind--' + kind.toLowerCase(), '' ); b.append( el( 'span', 'pf-dot' ), document.createTextNode( kindLabel[ kind ] + ' ' + count ) ); b.title = 'Show only ' + kindLabel[ kind ].toLowerCase() + ' flags'; b.setAttribute( 'aria-pressed', String( state.filter === kind ) ); b.addEventListener( 'click', function () { state.filter = state.filter === kind ? null : kind; renderSummary(); renderCards(); } ); filters.appendChild( b ); } );
 		summary.append( filters );
 		var nav = el( 'div', 'pf-nav' ), previous = button( 'cdx-button cdx-button--weight-quiet pf-nav__btn', '' ), next = button( 'cdx-button cdx-button--action-progressive cdx-button--weight-primary pf-nav__btn', '' );
-		previous.append( document.createTextNode( '‹ Prev ' ), kbd( '[' ) ); next.append( document.createTextNode( 'Next › ' ), kbd( ']' ) ); previous.title = 'Previous flag ([ or k)'; next.title = 'Next flag (] or j)';
+		previous.textContent = '‹ Prev'; next.textContent = 'Next ›'; previous.title = 'Previous flag (shortcut: [ or k)'; next.title = 'Next flag (shortcut: ] or j)';
 		previous.addEventListener( 'click', function () { navigate( -1 ); } ); next.addEventListener( 'click', function () { navigate( 1 ); } );
 		nav.append( previous, el( 'span', 'pf-counter', counter() ), next ); summary.append( nav );
 		if ( state.response && state.response.partial ) { summary.append( chip( 'warning', 'Partial check (some sources timed out)' ), retryButton() ); }

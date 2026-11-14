@@ -48,3 +48,14 @@ html.skin-theme-clientpref-night .pf-card .pf-chip.cdx-info-chip:not( [ data-tie
 .pf-kind--fact { --pf-kind-accent: #b32424; } .pf-kind--motive { --pf-kind-accent: #6b4ba1; } .pf-kind--framing { --pf-kind-accent: #a66200; } .pf-kind--removed_context { --pf-kind-accent: #b95000; } .pf-kind--hidden_text { --pf-kind-accent: #101418; } .pf-kind--citation_date { --pf-kind-accent: #3366cc; } .pf-kind--cited_page { --pf-kind-accent: #0e7369; }
 html.skin-theme-clientpref-night { .pf-summary-bar .pf-filter, .pf-summary-bar .pf-filter[ aria-pressed="true" ] { color: var( --color-base, #eaecf0 ); } .pf-kind--hidden_text { --pf-kind-accent: #eaecf0; } .pf-kind--framing { --pf-kind-accent: #eeb533; } }
 @media ( prefers-color-scheme: dark ) { html.skin-theme-clientpref-os { .pf-summary-bar .pf-filter, .pf-summary-bar .pf-filter[ aria-pressed="true" ] { color: var( --color-base, #eaecf0 ); } .pf-kind--hidden_text { --pf-kind-accent: #eaecf0; } .pf-kind--framing { --pf-kind-accent: #eeb533; } } }
+// Filter group: explicit label, an "All" option, and a filled state for the selected type.
+.pf-filters { align-items: center; }
+.pf-filters__label { font-size: 12px; color: var( --color-subtle, #54595d ); margin-inline-end: 2px; }
+.pf-summary-bar .pf-filter--all { --pf-kind-accent: var( --color-progressive, #36c ); }
+.pf-summary-bar .pf-filter[ aria-pressed="true" ] { background: var( --pf-kind-accent ); border-color: var( --pf-kind-accent ); color: #fff; box-shadow: none; }
+.pf-summary-bar .pf-filter[ aria-pressed="true" ] .pf-dot { background: #fff; }
+.pf-summary-bar .pf-filter:hover:not( [ aria-pressed="true" ] ) { border-color: var( --pf-kind-accent ); }
+html.skin-theme-clientpref-night .pf-summary-bar .pf-filter[ aria-pressed="true" ] { color: #101418; }
+html.skin-theme-clientpref-night .pf-summary-bar .pf-filter[ aria-pressed="true" ] .pf-dot { background: #101418; }
+@media ( prefers-color-scheme: dark ) { html.skin-theme-clientpref-os .pf-summary-bar .pf-filter[ aria-pressed="true" ] { color: #101418; .pf-dot { background: #101418; } } }
+.pf-nav__btn { min-width: 80px; }
