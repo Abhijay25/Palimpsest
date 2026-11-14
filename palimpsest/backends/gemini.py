@@ -1,0 +1,221 @@
+"""Direct Gemini API backends (google-genai 3.3.0) replacing the file exchange."""
+
+import asyncio
+import os
+import time
+from typing import Final, Protocol, TypeVar
+
+from dotenv import load_dotenv
+from google.genai import Client, errors, types
+from pydantic import BaseModel, ValidationError
+
+from palimpsest.judge import (
+    PROMPT_VERSION,
+    PROMPTS_DIR,
+    PreparedCase,
+    render_case_payload,
+)
+from palimpsest.schema import AuditOutput
+from palimpsest.stealth.models import HiddenFinding
+from palimpsest.stealth.triage import (
+    TRIAGE_PROMPT_PATH,
+    TriageVerdict,
+    render_triage_batch,
+)
+
+DEFAULT_JUDGE_MODEL: Final = "gemini-4-hydrogen"
+# TODO: the Decisions API may expose its own endpoint/SDK surface. Until that is
+# documented and verified, triage goes through the same generate_content path.
+DEFAULT_TRIAGE_MODEL: Final = "gemini-decision-1"
+DEFAULT_CONCURRENCY: Final = 8
+DEFAULT_TIMEOUT_SECONDS: Final = 60.0
+DEFAULT_BACKOFF_SECONDS: Final = 2.0
+RETRYABLE_STATUS: Final = 429
+TRIAGE_DIRECT_SUFFIX: Final = (
+    "\n\nDIRECT API MODE: ignore any instruction about writing files or replying "
+    "DONE. Classify the single item and return only its JSON object."
+)
+
+T = TypeVar("T", bound=BaseModel)
+
+
+class _Models(Protocol):
+    async def generate_content(
+        self, *, model: str, contents: str, config: types.GenerateContentConfig
+    ) -> types.GenerateContentResponse: ...
+
+
+class _Aio(Protocol):
+    @property
+    def models(self) -> _Models: ...
+
+
+class GeminiClient(Protocol):
+    @property
+    def aio(self) -> _Aio: ...
+
+
+def load_gemini_api_key() -> str:
+    """Read GEMINI_API_KEY from .env / environment; exit with a clear message if absent."""
+    load_dotenv()
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        raise SystemExit(
+            "GEMINI_API_KEY is not set (put it in .env or the environment)"
+        )
+    return key
+
+
+def _env_number(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, default))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _thinking_config() -> types.ThinkingConfig | None:
+    """GEMINI_THINKING_LEVEL (ThinkingConfig.thinking_level); unset means SDK default."""
+    level = os.environ.get("GEMINI_THINKING_LEVEL", "").strip().upper()
+    if not level:
+        return None
+    try:
+        return types.ThinkingConfig(thinking_level=types.ThinkingLevel(level))
+    except ValueError:
+        valid = ", ".join(t.value for t in types.ThinkingLevel)
+        raise SystemExit(
+            f"invalid GEMINI_THINKING_LEVEL {level!r}; use one of: {valid}"
+        )
+
+
+class _GeminiCaller:
+    def __init__(
+        self,
+        model: str,
+        client: GeminiClient | None,
+        backoff_seconds: float,
+    ) -> None:
+        self.model = model
+        self.client: GeminiClient = (
+            client if client is not None else Client(api_key=load_gemini_api_key())
+        )
+        self.backoff_seconds = backoff_seconds
+        self.timeout = _env_number("GEMINI_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)
+        self.semaphore = asyncio.Semaphore(
+            int(_env_number("GEMINI_CONCURRENCY", DEFAULT_CONCURRENCY))
+        )
+        self.thinking = _thinking_config()
+
+    async def _call(
+        self, system: str, contents: str, schema: type[BaseModel]
+    ) -> str | None:
+        config = types.GenerateContentConfig(
+            system_instruction=system,
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=0,
+            thinking_config=self.thinking,
+        )
+        response = await asyncio.wait_for(
+            self.client.aio.models.generate_content(
+                model=self.model, contents=contents, config=config
+            ),
+            timeout=self.timeout,
+        )
+        return response.text
+
+    async def generate(
+        self, system: str, contents: str, schema: type[T]
+    ) -> tuple[T | str, float]:
+        """Validated model output or an error string, plus wall-clock ms."""
+        started = time.perf_counter()
+        async with self.semaphore:
+            text: str | None = None
+            error: str | None = None
+            for attempt in range(2):
+                try:
+                    text = await self._call(system, contents, schema)
+                    error = None
+                    break
+                except errors.APIError as exc:
+                    error = f"{type(exc).__name__}: {str(exc)[:200]}"
+                    retryable = exc.code == RETRYABLE_STATUS or exc.code >= 500
+                    if attempt == 0 and retryable:
+                        await asyncio.sleep(self.backoff_seconds)
+                        continue
+                    break
+                except TimeoutError:
+                    error = f"TimeoutError: no response within {self.timeout}s"
+                    break
+                except Exception as exc:  # noqa: BLE001 - SDK/transport failures must not abort a run
+                    error = f"{type(exc).__name__}: {str(exc)[:200]}"
+                    break
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        if error is not None:
+            return error, elapsed_ms
+        if not text:
+            return "EmptyResponse: model returned no text", elapsed_ms
+        try:
+            return schema.model_validate_json(text), elapsed_ms
+        except ValidationError as exc:
+            return f"{type(exc).__name__}: {str(exc)[:200]}", elapsed_ms
+
+
+class GeminiJudgeBackend:
+    name = "gemini"
+
+    def __init__(
+        self,
+        client: GeminiClient | None = None,
+        prompt_version: str = PROMPT_VERSION,
+        backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    ) -> None:
+        self.model = os.environ.get("GEMINI_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL
+        self._caller = _GeminiCaller(self.model, client, backoff_seconds)
+        self._system = (PROMPTS_DIR / f"{prompt_version}.txt").read_text()
+        self.latencies_ms: dict[str, float] = {}
+
+    async def judge(self, cases: list[PreparedCase]) -> dict[str, AuditOutput | str]:
+        async def one(pc: PreparedCase) -> tuple[str, AuditOutput | str]:
+            result, ms = await self._caller.generate(
+                self._system, render_case_payload(pc), AuditOutput
+            )
+            self.latencies_ms[pc.case.case_id] = ms
+            return pc.case.case_id, result
+
+        return dict(await asyncio.gather(*(one(pc) for pc in cases)))
+
+
+class GeminiTriageBackend:
+    name = "gemini"
+
+    def __init__(
+        self,
+        client: GeminiClient | None = None,
+        backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    ) -> None:
+        self.model = os.environ.get("GEMINI_TRIAGE_MODEL") or DEFAULT_TRIAGE_MODEL
+        self._caller = _GeminiCaller(self.model, client, backoff_seconds)
+        self.latencies_ms: dict[str, float] = {}
+
+    async def triage(
+        self, items: list[tuple[str, HiddenFinding]]
+    ) -> dict[str, TriageVerdict | str]:
+        async def one(
+            item: tuple[str, HiddenFinding],
+        ) -> tuple[str, TriageVerdict | str]:
+            finding_id = item[0]
+            system = (
+                TRIAGE_PROMPT_PATH.read_text(encoding="utf-8").replace(
+                    "{RESULTS_PATH}", "(unused)"
+                )
+                + TRIAGE_DIRECT_SUFFIX
+            )
+            contents = render_triage_batch([item], TRIAGE_PROMPT_PATH).split(
+                "========== ITEMS ==========", 1
+            )[-1]
+            result, ms = await self._caller.generate(system, contents, TriageVerdict)
+            self.latencies_ms[finding_id] = ms
+            return finding_id, result
+
+        return dict(await asyncio.gather(*(one(i) for i in items)))

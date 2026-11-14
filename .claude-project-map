@@ -22,3 +22,4 @@ palimpsest/pipeline.py: _window_for picks best-overlap window over changed_ref_u
 palimpsest/scoring.py: Metrics.uncited_rate; judge.py UNCITED_LINE payload
 eval/build/fi_dataset_m.py, en_reverts.py: emit old_wikitext/new_wikitext/changed_ref_urls; argparse --reverts/--controls
 palimpsest/pipeline.py: stealth pre-hook in prepare (diff scan + sanitize old/new_text before Stage 0; ref scan via SourceFetcher.window_scored(on_text=), CRITICAL ref -> unavailable); PreparedCase.diff_scan/ref_scan/stealth_ms; CaseResult.stealth_status/vectors/ms; Metrics.stealth_flag_rate/stealth_flags; report stealth badge
+palimpsest/backends/gemini.py: GeminiJudgeBackend/GeminiTriageBackend (google-genai 3.3.0 generate_content); prepare --backend gemini writes file-exchange-format results + stage2_ms (tests/test_gemini_backend.py)

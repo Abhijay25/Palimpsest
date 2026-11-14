@@ -9,6 +9,7 @@ dependencies = [
     "mwparserfromhell",
     "pyarrow",
     "python-dotenv",
+    "google-genai==3.3.0",
 ]
 
 [dependency-groups]

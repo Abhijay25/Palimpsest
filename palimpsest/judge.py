@@ -93,6 +93,17 @@ class FileExchangeBackend:
                 written.append(batch_path)
         return written
 
+    def read_stage2_ms(self, run_dir: Path, model: str) -> dict[str, float]:
+        latencies: dict[str, float] = {}
+        for path in sorted((run_dir / "results" / model).glob("*.jsonl")):
+            for line in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    raw = json.loads(line)
+                    latencies[raw["case_id"]] = float(raw["stage2_ms"])
+                except (ValueError, KeyError, TypeError):
+                    continue
+        return latencies
+
     def read_results(self, run_dir: Path, model: str) -> dict[str, AuditOutput | str]:
         results: dict[str, AuditOutput | str] = {}
         for path in sorted((run_dir / "results" / model).glob("*.jsonl")):
@@ -105,6 +116,9 @@ class FileExchangeBackend:
                     continue
                 try:
                     raw = json.loads(line)
+                    if isinstance(raw, dict) and "error" in raw:
+                        results[case_id] = str(raw["error"])
+                        continue
                     results[case_id] = AuditOutput.model_validate(raw["output"])
                 except (ValueError, KeyError, ValidationError) as exc:
                     results[case_id] = f"{type(exc).__name__}: {str(exc)[:200]}"

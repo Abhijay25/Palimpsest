@@ -1,12 +1,14 @@
 """Pipeline orchestration: Stage 0 -> Stage 1 -> batch files."""
 
 import asyncio
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
 from pydantic import BaseModel
 
+from palimpsest.backends.gemini import GeminiJudgeBackend
 from palimpsest.judge import (
     PROMPT_VERSION,
     PROMPTS_DIR,
@@ -99,9 +101,15 @@ async def prepare(
     models: list[str],
     prompt_version: str = PROMPT_VERSION,
     batch_size: int = 10,
+    backend: str = "file",
+    gemini_backend: GeminiJudgeBackend | None = None,
 ) -> None:
     if not (PROMPTS_DIR / f"{prompt_version}.txt").is_file():
         raise SystemExit(f"unknown prompt version: {prompt_version}")
+    if backend not in ("file", "gemini"):
+        raise SystemExit(f"unknown backend: {backend}")
+    if backend == "gemini" and gemini_backend is None:
+        gemini_backend = GeminiJudgeBackend(prompt_version=prompt_version)
     cases: dict[str, Case] = {}
     for path in cases_paths:
         for case in load_cases(path):
@@ -143,21 +151,52 @@ async def prepare(
     prepared = list(await asyncio.gather(*(prepare_one(c) for c in cases.values())))
     run_dir.mkdir(parents=True, exist_ok=True)
     dump_jsonl(run_dir / "prepared.jsonl", prepared)
+    if gemini_backend is not None:
+        models = [gemini_backend.model]
     manifest = Manifest(
         prompt_version=prompt_version,
         models=models,
         case_files=[str(p) for p in cases_paths],
     )
     (run_dir / "manifest.json").write_text(manifest.model_dump_json(indent=2))
-    batches = FileExchangeBackend().write_batches(
-        prepared, run_dir, models, batch_size=batch_size, prompt_version=prompt_version
-    )
+    if gemini_backend is not None:
+        await _judge_with_gemini(gemini_backend, prepared, run_dir)
+        batches: list[Path] = []
+    else:
+        batches = FileExchangeBackend().write_batches(
+            prepared,
+            run_dir,
+            models,
+            batch_size=batch_size,
+            prompt_version=prompt_version,
+        )
     print(f"Exa calls: {fetcher.calls}, cost ${fetcher.cost_dollars:.4f}")
     clean = sum(1 for pc in prepared if pc.stage0.clean)
     print(
         f"{len(prepared)} cases, {clean} stage-0 clean, "
         f"{len(batches)} batch files in {run_dir / 'batches'}"
     )
+
+
+async def _judge_with_gemini(
+    backend: GeminiJudgeBackend, prepared: list[PreparedCase], run_dir: Path
+) -> None:
+    """Judge inline and write results in the file-exchange format ingest reads."""
+    judged = await backend.judge([pc for pc in prepared if not pc.stage0.clean])
+    lines: list[str] = []
+    for case_id, outcome in judged.items():
+        row: dict[str, object] = {
+            "case_id": case_id,
+            "stage2_ms": backend.latencies_ms.get(case_id, 0.0),
+        }
+        if isinstance(outcome, str):
+            row["error"] = outcome
+        else:
+            row["output"] = outcome.model_dump(mode="json")
+        lines.append(json.dumps(row))
+    path = run_dir / "results" / backend.model / "batch_001.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
 
 
 def _stage0_clean_output() -> AuditOutput:
@@ -191,6 +230,7 @@ def _case_result(
     model: str,
     judged: dict[str, AuditOutput | str],
     prompt_version: str,
+    stage2_ms: float = 0.0,
 ) -> CaseResult:
     window = pc.window
     base = {
@@ -203,6 +243,7 @@ def _case_result(
         "stealth_status": _stealth_status(pc),
         "stealth_vectors": _stealth_vectors(pc),
         "stealth_ms": pc.stealth_ms,
+        "stage2_ms": 0.0 if pc.stage0.clean else stage2_ms,
     }
     if pc.stage0.clean:
         return CaseResult(
@@ -227,8 +268,16 @@ def ingest(run_dir: Path, compare_to: Path | None = None) -> None:
     results: dict[str, list[CaseResult]] = {}
     for model in manifest.models:
         judged = backend.read_results(run_dir, model)
+        stage2_ms = backend.read_stage2_ms(run_dir, model)
         results[model] = [
-            _case_result(pc, model, judged, manifest.prompt_version) for pc in prepared
+            _case_result(
+                pc,
+                model,
+                judged,
+                manifest.prompt_version,
+                stage2_ms.get(pc.case.case_id, 0.0),
+            )
+            for pc in prepared
         ]
     metrics = score(prepared, results)
     dump_jsonl(

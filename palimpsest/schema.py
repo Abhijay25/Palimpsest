@@ -101,6 +101,7 @@ class CaseResult(BaseModel):
     stage_reached: int
     stage0_ms: float
     stage1_ms: float
+    stage2_ms: float = 0.0
     source_status: str
     output: AuditOutput | None
     parse_error: str | None
