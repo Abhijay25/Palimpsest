@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static',filename='discrepancy-explorer.css') }}">
 
 
-<link rel="stylesheet" href="{{ url_for('static',filename='skyline.css') }}"><script src="{{ url_for('static',filename='skyline-model.js') }}" defer></script><script src="{{ url_for('static',filename='skyline.js') }}" defer></script></head>
+<link rel="stylesheet" href="{{ url_for('static',filename='constellation.css') }}"><script src="{{ url_for('static',filename='constellation.js') }}" defer></script></head>
 <body>
 <a class="skip" href="#main">Skip to explorer</a>
 <svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
@@ -26,6 +26,7 @@
  <a href="/explore" class="brand" aria-label="NeoWiki explorer"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M5 9h19v22H5zM11 5h19v22M17 1h18v21"/><path d="M10 15h9m-9 5h9m-9 5h5"/></svg><span>NeoWiki</span></a>
  <span class="header-description">Divergence explorer</span>
  <button id="edit-query" class="graph-query" type="button" hidden><span id="query-summary"></span><span id="query-languages"></span><svg class="icon"><use href="#i-down"/></svg></button>
+ <button id="open-search" type="button" class="icon-button" aria-label="Search articles and questions" aria-expanded="false" aria-controls="explorer-search" hidden><svg class="icon"><use href="#i-search"/></svg></button>
  <button id="guide-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="reading-guide">About this view</button>
 </header>
 <main id="main">
@@ -36,17 +37,20 @@
   </form>
   <p class="prompt-description">The same question. Across languages. Over time.</p>
   <div class="example-prompts"><span>Explore real data</span><button data-example="Q134949" type="button">Winter War <small>EN · FI · SV</small></button></div>
-  <p class="prompt-note">Explore how English, Finnish and Swedish accounts differ over time.</p>
+  <p class="prompt-note">Choose a dataset article and the language editions you want to compare.</p>
  </section>
 
  <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
- <section id="skyline-screen" class="skyline-screen" aria-label="Divergence skyline" hidden>
-  <div class="skyline-heading"><div><h1 id="topic-title">Winter War</h1><p id="skyline-subtitle"></p></div><div class="skyline-tools"><label for="kind-filter" class="sr-only">Difference category</label><select id="kind-filter"><option value="all">All differences</option><option value="contradiction">Possible contradiction</option><option value="framing">Different framing</option><option value="coverage">Additional context</option></select><button id="skyline-reset" type="button">Reset view</button></div></div>
-  <div class="skyline-chart-region"><p class="skyline-axis-title">Questions with differences</p><div id="timeline-chart" class="skyline-chart" aria-busy="false"></div></div>
-  <aside id="question-panel" class="question-panel" aria-label="Questions at the selected observation" hidden><div class="question-panel-top"><h2 id="questions-heading" tabindex="-1">Questions</h2><button id="close-questions" type="button" aria-label="Close questions">×</button></div><p id="questions-context"></p><button type="button" id="zoom-period">Zoom into this period</button><div id="question-list" aria-live="polite"></div><div id="question-pagination"><button id="questions-previous" type="button">Previous</button><span id="questions-page"></span><button id="questions-next" type="button">Next</button></div></aside>
-  <div class="skyline-bottom"><div class="skyline-legend"><span><i class="key coverage"></i>Additional context</span><span><i class="key framing"></i>Different framing</span><span><i class="key contradiction"></i>Possible contradiction</span><span><i class="key unknown"></i>Not observed</span><div class="skyline-zoom"><button id="skyline-zoom-out" type="button" aria-label="Zoom out">−</button><button id="skyline-zoom-in" type="button" aria-label="Zoom in">+</button></div></div><div class="skyline-window"><span id="window-label"></span><span id="resolution-label"></span></div><div class="skyline-brush"><div id="brush-selection"></div><input id="window-start" type="range" min="0" max="100" value="0" aria-label="Timeline window start"><input id="window-end" type="range" min="0" max="100" value="100" aria-label="Timeline window end"></div><div class="skyline-caption"><span id="skyline-status">Real historical comparisons</span><span>Latest assessed observation in each period · gaps are unknown</span></div></div>
+ <section id="constellation-screen" class="constellation-screen" aria-label="Semantic divergence explorer" hidden>
+  <div class="explorer-heading"><div><h1>Where do the accounts differ?</h1><p id="article-description"></p></div><div class="observation-heading"><strong id="period-heading"></strong><span id="period-description"></span></div></div>
+  <div class="explorer-navigation"><nav id="zoom-breadcrumb" aria-label="Visualization level"></nav><button id="zoom-out" type="button"><svg class="icon"><use href="#i-minus"/></svg>Zoom out</button></div>
+  <p id="canvas-instruction" class="canvas-instruction">Each dot is one question. Select one to read its evidence.</p>
+  <div id="explorer-search" class="explorer-search" hidden><form id="canvas-search-form" role="search"><label class="sr-only" for="canvas-search-input">Search articles or questions</label><select id="search-scope" aria-label="Search scope"><option value="questions">These questions</option><option value="articles">Articles</option></select><input id="canvas-search-input" type="search" maxlength="240" autocomplete="off" placeholder="Search questions or source evidence…"><button type="submit" class="search-action">Search</button><button type="button" id="close-search" class="icon-button" aria-label="Close search"><svg class="icon"><use href="#i-close"/></svg></button></form><p id="search-feedback" role="status"></p><div id="article-search-results"></div></div>
+  <div id="constellation-canvas" class="constellation-canvas" tabindex="0" role="region" aria-label="Questions and assessed periods" aria-busy="false"></div>
+  <div id="canvas-tooltip" class="canvas-tooltip" role="tooltip" hidden></div>
+  <div id="canvas-message" class="canvas-message" role="status"></div>
+  <div class="explorer-bottom"><div id="category-legend" class="category-legend"></div><div class="observation-controls"><button id="previous-observation" type="button" class="icon-button" aria-label="Previous assessed observation"><svg class="icon"><use href="#i-left"/></svg></button><label for="observation-select" class="sr-only">Assessed date</label><select id="observation-select"></select><button id="next-observation" type="button" class="icon-button" aria-label="Next assessed observation"><svg class="icon"><use href="#i-right"/></svg></button><span id="question-total"></span></div><p class="sampling-note" id="sampling-note">Only observed findings are shown. Gaps have not been assessed.</p></div>
  </section>
- <aside id="reading-guide" class="reading-guide" hidden><button type="button" id="close-guide" aria-label="Close guide">Close</button><h2>Where do the editions differ?</h2><p>Each column counts distinct semantic questions at one observed date. A question counts once even if several passages or language pairs differ.</p><p>Select a column to read its questions. Select a question to open the article’s discrepancy tracker, focused on its exact historical evidence.</p><p>Columns use the latest assessed observation within each calendar period. Missing observations are unknown, not agreement or resolution. Colors describe model-assessed differences, not truth, bias or reliability.</p><p id="run-warning"></p></aside>
- <div id="chart-tooltip" class="skyline-tooltip" role="tooltip" hidden></div>
+ <aside id="reading-guide" class="reading-guide" hidden><button type="button" id="close-guide" class="text-button">Close</button><h2>One question, across editions</h2><p>Zoom out to see months, then years. Each blob counts distinct questions observed in that period, once across passages and language pairs. A question can recur in several months, so monthly counts do not add up to the yearly count.</p><p>Select a month to see its questions. Each equal-size dot represents one provisional underlying question; its position is only for browsing. Colors show additional context, different framing or possible contradiction, not truth or reliability.</p><p>Search first uses keywords and then refines with local multilingual vectors. Selecting a question opens exact historical evidence in the article tracker. Unassessed periods are unknown; missing findings do not prove agreement or resolution.</p></aside>
 </main><footer class="landing-footer"><span>Independent research prototype</span><span>Wikipedia contributors · CC BY-SA 4.0 · No automatic edits</span></footer>
 <noscript><p>Enable JavaScript to explore cached historical comparisons.</p></noscript></body></html>

@@ -3,7 +3,7 @@
 Illustrative intervals are isolated from both the real showcase and edit timeline.
 The existing engine yields snapshot findings, not verified lifetime histories.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone,timedelta
 import hashlib
 import json
 import re
@@ -34,6 +34,61 @@ def skyline_overview():
     except Exception:return jsonify(error='The comparison database is unavailable. Retry when it is ready.'),503
 
 
+@bp.get('/explore/api/articles')
+def zoom_articles():
+    from zoom_read import article_lookup
+    try:return jsonify(article_lookup(request.args.get('q','')))
+    except Exception:return jsonify(error='The local article catalogue is temporarily unavailable.'),503
+
+
+@bp.get('/explore/api/showcase')
+def history_showcase():
+    from article_pipeline import showcase_articles
+    try:return jsonify(articles=showcase_articles())
+    except Exception:return jsonify(error='The prepared history collection is temporarily unavailable.'),503
+
+
+@bp.get('/explore/api/periods')
+def zoom_periods():
+    from zoom_read import periods
+    try:
+        data,languages=skyline_run()
+        return jsonify(periods(data,languages,request.args.get('level','year'),request.args.get('year'),
+            request.args.get('q','').strip(),request.args.get('search_mode','keyword'),request.args.get('current','en')))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Stored period observations are temporarily unavailable.'),503
+
+
+@bp.get('/explore/api/constellation')
+def zoom_constellation():
+    from zoom_read import constellation
+    try:
+        data,languages=skyline_run()
+        return jsonify(constellation(data,languages,request.args.get('period'),request.args.get('stamp'),
+            int(request.args.get('page','1')),request.args.get('current','en'),request.args.get('q','').strip(),
+            request.args.get('search_mode','keyword'),request.args.get('back','')))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Stored constellation questions are temporarily unavailable.'),503
+
+
+@bp.get('/explore/api/lab-search')
+def lab_question_search():
+    from zoom_read import union_questions,parse_date
+    from question_search import search
+    try:
+        data,languages=skyline_run()
+        start=parse_date(request.args.get('from',data['bounds'][0]))
+        end=parse_date(request.args['to']) if request.args.get('to') else parse_date(data['bounds'][1])+timedelta(microseconds=1)
+        if end<=start:raise ValueError('Choose a valid search interval.')
+        eligible=union_questions(data,languages,start,end,request.args.get('current','en'))
+        return jsonify(search(data['topic']['id'],languages,[i['id'] for i in eligible],request.args.get('q','').strip(),request.args.get('search_mode','keyword')))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Question search is temporarily unavailable. Clear the search to see stored findings.'),503
+
+
 @bp.get('/explore/api/questions')
 def skyline_questions():
     from skyline import question_page
@@ -44,6 +99,47 @@ def skyline_questions():
     except ValueError as error:return jsonify(error=str(error)),400
     except LookupError as error:return jsonify(error=str(error)),404
     except Exception:return jsonify(error='Stored question evidence is temporarily unavailable.'),503
+
+
+@bp.get('/explore/api/matrix')
+def heatmap_matrix():
+    from heatmap import public_catalog
+    try:
+        data,languages=skyline_run()
+        return jsonify(public_catalog(data,languages))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Stored question matrix is temporarily unavailable.'),503
+
+
+@bp.get('/explore/api/cell')
+def heatmap_cell():
+    from heatmap import cell_detail
+    try:
+        if not detail_args(request.args):raise ValueError('Invalid historical cell identity.')
+        if len(request.args.get('back',''))>2500:raise ValueError('Invalid return context.')
+        identity=request.args.get('occurrence')
+        if identity and not re.fullmatch(r'[a-f0-9]{64}',identity):raise ValueError('Invalid source occurrence.')
+        data,languages=skyline_run()
+        return jsonify(cell_detail(data,languages,request.args['group'],request.args['stamp'],request.args.get('current','en'),request.args.get('back',''),request.args.get('pair','all'),request.args.get('kind','all'),identity))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Stored cell evidence is temporarily unavailable.'),503
+
+
+@bp.post('/explore/api/search')
+def heatmap_search():
+    if request.headers.get('Sec-Fetch-Site')=='cross-site' or not secrets.compare_digest(request.headers.get('X-Review-Token',''),session.get('review_token','invalid')):
+        return jsonify(error='Reload this local page before searching.'),403
+    from heatmap import catalog,hybrid_search
+    try:
+        data,languages=skyline_run()
+        query=(request.get_json(silent=True) or {}).get('query','')
+        if not isinstance(query,str):raise ValueError('Enter a search phrase.')
+        return jsonify(hybrid_search(catalog(data,languages)['rows'],query))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Search is temporarily unavailable. Clear the search to explore all questions.'),503
 
 
 @bp.get('/explore/api/history')
@@ -65,7 +161,7 @@ def historical():
 @bp.get('/explore')
 def page():
     session.setdefault('review_token',secrets.token_hex(24))
-    return render_template('discrepancy_explorer.html')
+    return render_template('lab_explorer.html')
 
 
 def detail_args(data):

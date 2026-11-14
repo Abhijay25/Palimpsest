@@ -2,6 +2,7 @@
 import hashlib,json,os,time,re,math
 from pathlib import Path
 import requests
+from contextlib import contextmanager
 from core import ROOT,connect
 
 MODEL='gpt-6-luna'
@@ -40,9 +41,34 @@ def init():
           output_tokens INT DEFAULT 0, latency_ms INT DEFAULT 0, result LONGTEXT,
           created TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''')
 
+@contextmanager
+def provider_slot(stage):
+    """Database-backed limits apply across the preparation and naming processes."""
+    held=[]
+    with connect() as db,db.cursor() as cursor:
+        try:
+            pools=[('neowiki_title_worker_',2)] if stage=='question_titles' else []
+            pools.append(('neowiki_provider_worker_',6))
+            for prefix,capacity in pools:
+                deadline=time.monotonic()+180
+                while True:
+                    acquired=False
+                    for index in range(capacity):
+                        name=prefix+str(index)
+                        cursor.execute('SELECT GET_LOCK(%s,0) locked',(name,))
+                        if cursor.fetchone()['locked']==1:
+                            held.append(name);acquired=True;break
+                    if acquired:break
+                    if time.monotonic()>deadline:raise APIError('Preparation workers are busy; request reservation retained.')
+                    time.sleep(.15)
+            yield
+        finally:
+            for name in reversed(held):cursor.execute('SELECT RELEASE_LOCK(%s)',(name,))
+
+
 def call(endpoint,payload,stage):
-    if endpoint!='decisions':
-        raise APIError('Only the Decisions API is enabled. Text generation is disabled.')
+    if endpoint!='decisions' and not (endpoint=='responses' and stage=='question_titles'):
+        raise APIError('Text generation is enabled only for cached question naming.')
     body=json.dumps(payload,ensure_ascii=False)
     identity=hashlib.sha256((endpoint+body).encode()).hexdigest()
     # UTF-8 byte count bounds token count conservatively. Use long-context rates,
@@ -62,9 +88,10 @@ def call(endpoint,payload,stage):
         finally: c.execute("SELECT RELEASE_LOCK('language_gap_api_budget')")
     started=time.monotonic()
     try:
-        response=requests.post('https://api.openai.com/v1/'+endpoint,
-          headers={'Authorization':'Bearer '+key(),'Content-Type':'application/json'},
-          data=body.encode(),timeout=(15,120))
+        with provider_slot(stage):
+            response=requests.post('https://api.openai.com/v1/'+endpoint,
+              headers={'Authorization':'Bearer '+key(),'Content-Type':'application/json'},
+              data=body.encode(),timeout=(15,120))
         if not response.ok:
             try: detail=response.json().get('error',{}).get('message','Request rejected.')
             except ValueError: detail='Request rejected.'
@@ -88,7 +115,8 @@ def call(endpoint,payload,stage):
 
 def structured(instructions,evidence,schema,stage):
     result=call('responses',{'model':MODEL,'instructions':instructions,
-      'input':json.dumps(evidence,ensure_ascii=False),'max_output_tokens':4096,
+      'input':json.dumps(evidence,ensure_ascii=False),'max_output_tokens':8192,
+      'reasoning':{'effort':'low'},
       'text':{'format':{'type':'json_schema','name':stage,'strict':True,'schema':schema}}},stage)
     texts=[p['text'] for item in result.get('output',[]) for p in item.get('content',[]) if p.get('type')=='output_text']
     if result.get('status')!='completed' or not texts: raise APIError('Generation incomplete or refused.')

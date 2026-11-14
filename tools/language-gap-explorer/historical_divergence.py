@@ -141,20 +141,21 @@ def ensure_vectors(texts,model):
             for identity,vector in zip(pending,vectors):c.execute('INSERT IGNORE INTO divergence_vector VALUES(%s,%s,%s)',(identity,unique[identity],vector_bytes(vector)))
 
 
-def index_revision(lang,meta,model):
-    identity=digest([VERSION,TOPIC,lang,meta['revid']])
+def index_revision(lang,meta,model,topic=None,source_loader=None):
+    topic=topic or TOPIC
+    identity=digest([VERSION,topic,lang,meta['revid']])
     with connect() as db,db.cursor() as c:
         c.execute('SELECT ready FROM divergence_revision WHERE id=%s',(identity,));old=c.fetchone()
     if old and old['ready']:return identity
     from pipeline import split_article
-    text=source_text(lang,meta['revid'])
+    text=(source_loader or source_text)(lang,meta['revid'])
     parts=[p for p in split_article(dict(lang=lang,rev_id=meta['revid'],text=text),model.model.tokenizer)
            if p['heading'].casefold() not in EXCLUDED and len(p['text'])>=40]
     ensure_vectors([p['text'] for p in parts],model)
     with connect() as db,db.cursor() as c:
         db.begin()
         try:
-            c.execute('INSERT IGNORE INTO divergence_revision(id,topic,lang,rev_id,stamp) VALUES(%s,%s,%s,%s,%s)',(identity,TOPIC,lang,meta['revid'],meta['timestamp']))
+            c.execute('INSERT IGNORE INTO divergence_revision(id,topic,lang,rev_id,stamp) VALUES(%s,%s,%s,%s,%s)',(identity,topic,lang,meta['revid'],meta['timestamp']))
             for p in parts:c.execute('INSERT IGNORE INTO divergence_passage VALUES(%s,%s,%s,%s,%s,%s,%s)',(digest([identity,p['ordinal']]),identity,vector_id(p['text']),p['ordinal'],p['heading'],p['start'],p['end']))
             c.execute('UPDATE divergence_revision SET ready=TRUE WHERE id=%s',(identity,));db.commit()
         except Exception:db.rollback();raise

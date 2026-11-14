@@ -70,6 +70,24 @@ def question_label(occurrence):
     return section+' · '+QUESTIONS.get(occurrence.get('question'),QUESTIONS['account'])
 
 
+def assessment_warning(occurrence):
+    """Expose contradictory classifier signals without rewriting stored findings."""
+    compatible=occurrence.get('scores',{}).get('compatible',{}).get('probability')
+    if occurrence.get('kind')=='contradiction' and isinstance(compatible,(int,float)) and compatible>=.8:
+        return 'Conflicting model signals: this pair was also classified as compatible. Treat the flag as uncertain and check the original passages.'
+    return ''
+
+
+def evidence_highlight_note(occurrence):
+    status=occurrence.get('highlight_status')
+    if status=='ready':return 'Highlighted statements were selected by Decisions as relevant evidence for review, not verified errors.'
+    if status=='partial':return 'Some relevant statements are highlighted; statement selection is incomplete.'
+    if status=='none':return 'No high-confidence supporting statements were identified for highlighting. Review the full passages and the model label.'
+    if status in ('unassessed','failed','invalid_cache'):return 'Statement highlighting is unavailable for this pair. The exact source passages remain available for review.'
+    if status in ('pending','not_prepared'):return 'Statement highlights are not prepared for this source pair. The full passages are shown.'
+    return ''
+
+
 def question_page(data,languages,stamp,page=1,kind='all',current='en',back_query=''):
     from paired_history import detail
     if stamp not in {o['stamp'] for o in data.get('observations',[])}:raise ValueError('Choose a stored observation.')
@@ -111,6 +129,8 @@ def tracker_context(topic,args):
     if not stored:raise LookupError('Stored historical source occurrences are unavailable.')
     occurrence=occurrence_choice(stored['occurrences'],languages,args.get('lang','en'),kind,args.get('occurrence'))
     if not occurrence:raise LookupError('That source occurrence does not belong to this historical selection.')
+    from evidence_highlights import enrich
+    occurrence=enrich(topic,group,occurrence)
     current=left_language(occurrence,args.get('lang','en'))
     evidence=[]
     for source in occurrence['evidence']:
@@ -120,10 +140,14 @@ def tracker_context(topic,args):
     back=args.get('skyline','')
     # The return target is always our own explorer, never a supplied URL.
     if len(back)>2500:raise ValueError('Invalid skyline return context.')
+    from question_titles import labels
+    generated=labels(topic,[group]).get(group,{})
     return dict(historical=True,topic=topic,title=data['topic']['title'],current_lang=current,source=current,
                 selected_languages=languages,langs=list(NAMES),historical_run=run,historical_group=group,
                 historical_stamp=stamp,historical_date=datetime.fromisoformat(stamp.replace('Z','+00:00')).strftime('%d %b %Y'),
-                historical_title=question_label(occurrence),historical_label=LABELS[occurrence['kind']],
+                historical_title=generated['title'] if generated.get('status')=='accepted' else question_label(occurrence),historical_label=LABELS[occurrence['kind']],
                 historical_evidence=evidence,historical_occurrences=stored['occurrences'],historical_occurrence=occurrence['id'],
                 historical_reason=phase['reason'],historical_action=phase['action'],historical_back='/explore'+('?' + back if back else ''),
+                historical_assessment_warning=assessment_warning(occurrence),
+                historical_highlight_note=evidence_highlight_note(occurrence),
                 historical_sampled=phase.get('sampled',False),demo=False)
