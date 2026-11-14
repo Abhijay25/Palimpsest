@@ -1,0 +1,342 @@
+"""Opt-in MediaWiki browser acceptance for three isolated local wikis.
+
+Run only against a disposable worker-C runtime. The tests create local accounts,
+pages and one upload; they use no external credentials or production endpoints.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import argparse
+import re
+import tempfile
+from pathlib import Path
+from urllib.parse import quote, urlsplit, urlunsplit
+import uuid
+
+from playwright.sync_api import Browser, BrowserContext, Page, expect, sync_playwright
+
+
+LANGUAGES = ("fi", "sv", "en")
+API_MANIFEST = Path(os.environ.get("PALIMPSEST_C1_MANIFEST", "/test-data/runtime.json"))
+TEST_HOST = os.environ.get("PALIMPSEST_TEST_HOST", "host.docker.internal")
+RUN_ID = uuid.uuid4().hex[:10]
+
+
+def site_root(api_url: str) -> str:
+    parsed = urlsplit(api_url)
+    return urlunsplit((parsed.scheme, f"{TEST_HOST}:{parsed.port}", parsed.path.rsplit("/", 1)[0], "", ""))
+
+
+def english_ui(url: str) -> str:
+    return url + ("&" if "?" in url else "?") + "uselang=en"
+
+
+def assert_image_loaded(page: Page, image_selector: str) -> None:
+    image = page.locator(image_selector)
+    expect(image).to_be_visible(timeout=30_000)
+    page.wait_for_function(
+        "selector => { const image = document.querySelector(selector); return !!image && image.complete && image.naturalWidth > 0; }",
+        arg=image_selector,
+        timeout=30_000,
+    )
+
+
+def route_localhost_to_gateway(route) -> None:
+    """Rewrite canonical loopback URLs to the host gateway visible to this container."""
+    parsed = urlsplit(route.request.url)
+    if parsed.hostname in ("localhost", "127.0.0.1", "::1"):
+        target = urlunsplit((parsed.scheme, f"{TEST_HOST}:{parsed.port}", parsed.path, parsed.query, parsed.fragment))
+        route.continue_(url=target)
+    else:
+        route.continue_()
+
+
+def create_account(page: Page, root: str, username: str, password: str) -> None:
+    page.goto(english_ui(f"{root}/index.php?title=Special:CreateAccount"), wait_until="domcontentloaded")
+    page.locator("#wpName2").fill(username)
+    page.locator("#wpPassword2").fill(password)
+    if page.locator("#wpRetype").count():
+        page.locator("#wpRetype").fill(password)
+    submit = page.locator("#wpCreateaccount")
+    if submit.count() == 0:
+        submit = page.get_by_role("button", name=re.compile("create account", re.I))
+    submit.first.click()
+    expect(page.locator("body")).not_to_contain_text(re.compile("already exists|captcha|error", re.I))
+
+
+def login(page: Page, root: str, username: str, password: str) -> None:
+    page.goto(english_ui(f"{root}/index.php?title=Special:UserLogin"), wait_until="domcontentloaded")
+    page.locator("#wpName1").fill(username)
+    page.locator("#wpPassword1").fill(password)
+    submit = page.locator("#wpLoginAttempt")
+    if submit.count() == 0:
+        submit = page.get_by_role("button", name=re.compile("log in|login", re.I))
+    submit.first.click()
+    expect(page.locator("#wpName1")).to_have_count(0)
+
+
+def logout(page: Page, root: str) -> None:
+    page.goto(english_ui(f"{root}/index.php?title=Special:UserLogout"), wait_until="domcontentloaded")
+    confirm = page.locator("#mw-content-text button[type=submit], #mw-content-text input[type=submit]")
+    if confirm.count():
+        confirm.first.click()
+    page.goto(english_ui(f"{root}/index.php?title=Special:UserLogin"), wait_until="domcontentloaded")
+    expect(page.locator("#wpName1")).to_be_visible()
+
+
+def save_source(page: Page, root: str, title: str, content: str, summary: str) -> None:
+    page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&action=edit"), wait_until="domcontentloaded")
+    textarea = page.locator("#wpTextbox1")
+    expect(textarea).to_be_visible()
+    textarea.fill(content)
+    page.locator("#wpSummary").fill(summary)
+    page.locator("#wpSave").click()
+    expect(page.locator("#mw-content-text")).to_contain_text(content.splitlines()[0])
+
+
+def save_visual(page: Page, root: str, title: str, marker: str) -> None:
+    page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&veaction=edit"), wait_until="domcontentloaded")
+    surface = page.locator(".ve-ce-surface[contenteditable=true]").first
+    expect(surface).to_be_visible(timeout=60_000)
+    surface.click()
+    page.keyboard.press("End")
+    page.keyboard.type(f"\n{marker}")
+    save_button = page.get_by_role("button", name=re.compile("save changes|publish changes|save page", re.I))
+    expect(save_button.last).to_be_visible()
+    save_button.last.click()
+    save_dialog = page.locator(".ve-ui-mwSaveDialog")
+    if save_dialog.count() and save_dialog.is_visible():
+        dialog_save = save_dialog.get_by_role("button", name=re.compile("publish changes|save changes", re.I))
+        if dialog_save.count():
+            dialog_save.last.click()
+    expect(page.locator(".ve-ui-toolbar")).to_have_count(0, timeout=60_000)
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=30_000)
+
+
+def history_and_diff(page: Page, root: str, title: str) -> None:
+    page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&action=history"), wait_until="domcontentloaded")
+    rows = page.locator("#pagehistory li, .mw-history-compare li")
+    expect(rows.first).to_be_visible(timeout=30_000)
+    assert rows.count() >= 2, "history must expose at least two revisions"
+    diff = page.locator("a[href*='diff=']").first
+    expect(diff).to_be_visible()
+    diff.click()
+    expect(page.locator("table.diff")).to_be_visible()
+
+
+def create_talk_post_and_reply(page: Page, root: str, title: str, token: str) -> None:
+    talk = f"Talk:{title}"
+    first = f"== Acceptance topic {token} ==\nInitial local discussion post {token}. ~~~~"
+    edit_url = english_ui(f"{root}/index.php?title={quote(talk, safe=':')}&action=edit")
+    page.goto(edit_url, wait_until="domcontentloaded")
+    textarea = page.locator("#wpTextbox1")
+    expect(textarea).to_be_visible()
+    textarea.fill(first)
+    page.locator("#wpSummary").fill("Create acceptance discussion topic")
+    page.locator("#wpSave").click()
+    expect(page.locator("#mw-content-text h2")).to_contain_text(f"Acceptance topic {token}")
+
+    reply_link = page.locator(".ext-discussiontools-init-replylink")
+    if reply_link.count() == 0:
+        reply_link = page.get_by_role("button", name=re.compile("^Reply$", re.I))
+    expect(reply_link.first).to_be_visible(timeout=30_000)
+    reply_link.first.click()
+    reply_widget = page.locator(".ext-discussiontools-replywidget")
+    expect(reply_widget).to_be_visible(timeout=30_000)
+    marker = f"DiscussionTools reply acceptance {token}"
+    visual_editor = reply_widget.locator("[contenteditable=true]").last
+    if visual_editor.count():
+        visual_editor.click()
+        page.keyboard.type(marker)
+    else:
+        reply_text = reply_widget.locator("textarea").last
+        expect(reply_text).to_be_visible()
+        reply_text.fill(marker)
+    submit_reply = reply_widget.get_by_role("button", name=re.compile("^Reply$", re.I))
+    if submit_reply.count() == 0:
+        submit_reply = reply_widget.get_by_role("button", name=re.compile("publish|post", re.I))
+    submit_reply.last.click()
+    expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=60_000)
+    page.reload(wait_until="domcontentloaded")
+    expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=30_000)
+
+
+def watch_and_check_second_user_edit(
+    browser: Browser, watcher_context: BrowserContext, root: str, title: str,
+    user_one: tuple[str, str], user_two: tuple[str, str], token: str
+) -> None:
+    watcher = watcher_context.new_page()
+    login(watcher, root, *user_one)
+    watcher.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&action=watch"), wait_until="domcontentloaded")
+    watcher.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}"), wait_until="domcontentloaded")
+    expect(watcher.locator("a[href*='action=unwatch'], a[title*='Unwatch']")).to_be_visible()
+
+    second_context = browser.new_context()
+    editor = second_context.new_page()
+    login(editor, root, *user_two)
+    editor.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&action=edit"), wait_until="domcontentloaded")
+    textarea = editor.locator("#wpTextbox1")
+    textarea.fill(textarea.input_value() + f"\nSecond user watchlist marker {token}")
+    editor.locator("#wpSummary").fill("Second user watchlist acceptance edit")
+    editor.locator("#wpSave").click()
+    expect(editor.locator("#mw-content-text")).to_contain_text(f"Second user watchlist marker {token}")
+    logout(editor, root)
+    editor.close()
+    second_context.close()
+
+    watcher.goto(english_ui(f"{root}/index.php?title=Special:Watchlist"), wait_until="domcontentloaded")
+    expect(watcher.locator("#mw-content-text")).to_contain_text(title)
+    expect(watcher.locator("#mw-content-text")).to_contain_text(user_two[0])
+    expect(watcher.locator("#mw-content-text")).to_contain_text("Second user watchlist acceptance edit")
+    watcher.close()
+
+
+def upload_and_render_image(page: Page, root: str, title: str, token: str) -> None:
+    # A valid one-pixel PNG, generated in a private temp directory for this run.
+    png = bytes.fromhex(
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+        "0000000b49444154789c636000020000050001a5f645400000000049454e44ae426082"
+    )
+    filename = f"InfraAcceptance{token}.png"
+    with tempfile.TemporaryDirectory(prefix="palimpsest-c-upload-") as temp_dir:
+        local_file = Path(temp_dir) / filename
+        local_file.write_bytes(png)
+        page.goto(english_ui(f"{root}/index.php?title=Special:Upload"), wait_until="domcontentloaded")
+        page.locator("#wpUploadFile").set_input_files(str(local_file))
+        page.locator("#wpDestFile").fill(filename)
+        submit = page.locator("#wpUpload")
+        if submit.count() == 0:
+            submit = page.get_by_role("button", name=re.compile("upload", re.I))
+        submit.first.click()
+        expect(page.locator("#mw-content-text")).to_contain_text(filename, timeout=60_000)
+    page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&action=edit"), wait_until="domcontentloaded")
+    current = page.locator("#wpTextbox1")
+    current.fill(current.input_value() + f"\n[[File:{filename}|thumb|local upload {token}]]")
+    page.locator("#wpSummary").fill("Render uploaded acceptance image")
+    page.locator("#wpSave").click()
+    assert_image_loaded(page, f"img[src*='{quote(filename)}']")
+
+
+def assert_anonymous_read_and_edit_boundary(context: BrowserContext, root: str, title: str) -> None:
+    page = context.new_page()
+    page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}"), wait_until="domcontentloaded")
+    expect(page.locator("#mw-content-text")).to_be_visible()
+    page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&action=protect"), wait_until="domcontentloaded")
+    # Protect is core administrator-only; do not assume anonymous edit policy.
+    expect(page.locator("#wpProtectSettings")).to_have_count(0)
+    expect(page.locator("#mw-content-text")).to_contain_text(re.compile("permission|not allowed|log in|cannot", re.I))
+    page.close()
+
+
+def run_language(browser: Browser, language: str, runtime: dict) -> dict:
+    token = f"{language}-{RUN_ID}"
+    root = site_root(runtime["languages"][language]["api_url"])
+    password = f"T08-{uuid.uuid4().hex}-A9!"
+    # Reusing account and page names across wikis proves identity/data isolation:
+    # a shared user table or shared page store would collide or overwrite content.
+    users = (f"InfraA{RUN_ID}", f"InfraB{RUN_ID}")
+    title = f"Infra acceptance {RUN_ID}"
+
+    context = browser.new_context()
+    context.route("**/*", route_localhost_to_gateway)
+    page = context.new_page()
+    api_response = page.goto(english_ui(f"{root}/api.php?action=query&meta=siteinfo&siprop=general&format=json"), wait_until="domcontentloaded")
+    assert api_response is not None and api_response.status == 200, f"{language} API is not reachable through host gateway"
+    general = json.loads(page.locator("body").inner_text())["query"]["general"]
+    assert general.get("lang") == language, f"expected site language {language}, got {general.get('lang')!r}"
+    expected_db = runtime["languages"][language]["database"]
+    assert general.get("dbname") == expected_db, f"C1/API database mismatch for {language}: {general.get('dbname')!r} != {expected_db!r}"
+    create_account(page, root, users[0], password)
+    logout(page, root)
+    create_account(page, root, users[1], password)
+    logout(page, root)
+    login(page, root, users[0], password)
+    first_body = f"Source editor acceptance {token}.\nInitial durable text."
+    save_source(page, root, title, first_body, "Create source edit acceptance page")
+    save_visual(page, root, title, f"Visual editor acceptance marker {token}")
+    history_and_diff(page, root, title)
+    create_talk_post_and_reply(page, root, title, token)
+    upload_and_render_image(page, root, title, token)
+    logout(page, root)
+
+    watch_and_check_second_user_edit(browser, context, root, title, (users[0], password), (users[1], password), token)
+    logout(page, root)
+    assert_anonymous_read_and_edit_boundary(context, root, title)
+    context.close()
+    print(f"PASS {language}: account/login/logout, source+visual saves, history/diff, talk, watchlist, upload and permissions")
+    return {
+        "language": language,
+        "root": root,
+        "users": users,
+        "password": password,
+        "title": title,
+        "source_marker": f"Source editor acceptance {token}.",
+        "visual_marker": f"Visual editor acceptance marker {token}",
+        "talk": f"Talk:{title}",
+        "talk_marker": f"DiscussionTools reply acceptance {token}",
+        "watch_summary": "Second user watchlist acceptance edit",
+        "second_user_marker": f"Second user watchlist marker {token}",
+        "filename": f"InfraAcceptance{token}.png",
+    }
+
+
+def verify_persistence(browser: Browser, records: list[dict]) -> None:
+    for record in records:
+        language = record["language"]
+        context = browser.new_context()
+        context.route("**/*", route_localhost_to_gateway)
+        page = context.new_page()
+        login(page, record["root"], record["users"][0], record["password"])
+        page.goto(english_ui(f"{record['root']}/index.php?title={quote(record['title'], safe=':')}"), wait_until="domcontentloaded")
+        for marker in (record["source_marker"], record["visual_marker"], record["second_user_marker"]):
+            expect(page.locator("#mw-content-text")).to_contain_text(marker)
+        assert_image_loaded(page, f"img[src*='{quote(record['filename'])}']")
+        page.goto(english_ui(f"{record['root']}/index.php?title={quote(record['talk'], safe=':')}"), wait_until="domcontentloaded")
+        expect(page.locator("#mw-content-text")).to_contain_text(record["talk_marker"])
+        page.goto(english_ui(f"{record['root']}/index.php?title=Special:Watchlist"), wait_until="domcontentloaded")
+        expect(page.locator("#mw-content-text")).to_contain_text(record["users"][1])
+        expect(page.locator("#mw-content-text")).to_contain_text(record["watch_summary"])
+        page.goto(english_ui(f"{record['root']}/index.php?title={quote(record['title'], safe=':')}&action=history"), wait_until="domcontentloaded")
+        history_rows = page.locator("#pagehistory li, .mw-history-compare li")
+        expect(history_rows.first).to_be_visible()
+        assert history_rows.count() >= 3, f"{language} history did not survive restart"
+        logout(page, record["root"])
+        assert_anonymous_read_and_edit_boundary(context, record["root"], record["title"])
+        context.close()
+        print(f"PASS {language}: account, edits, history, discussion, watchlist and upload survived down/setup")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--verify-state", help="verify previously created browser state after runtime restart")
+    args = parser.parse_args()
+    if not API_MANIFEST.is_file():
+        raise SystemExit(f"C1 runtime manifest not found: {API_MANIFEST}")
+    runtime = json.loads(API_MANIFEST.read_text(encoding="utf-8"))
+    if runtime.get("schema_version") != 1 or set(runtime.get("languages", {})) != set(LANGUAGES):
+        raise SystemExit("C1 manifest must be schema v1 and contain fi, sv, en")
+    databases = [runtime["languages"][language].get("database") for language in LANGUAGES]
+    if not all(databases) or len(set(databases)) != len(LANGUAGES):
+        raise SystemExit("C1 must declare a distinct database identity for each language")
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            if args.verify_state:
+                records = json.loads(Path(args.verify_state).read_text(encoding="utf-8"))
+                if {row.get("language") for row in records} != set(LANGUAGES):
+                    raise SystemExit("persistence state must contain fi, sv and en")
+                verify_persistence(browser, records)
+            else:
+                records = [run_language(browser, language, runtime) for language in LANGUAGES]
+                state_path = Path(os.environ.get("PALIMPSEST_BROWSER_STATE", "/test-data/browser-state.json"))
+                state_path.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+        finally:
+            browser.close()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
