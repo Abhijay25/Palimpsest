@@ -111,6 +111,52 @@ def main():
         assert sent_ranges == '[{"start":1,"end":4}]', sent_ranges
 
         page.get_by_role("button", name="Close history").click()
+        mixed_selection = page.evaluate(
+            """() => {
+                const alpha = document.querySelector('[data-pb-start="0"]');
+                const beta = document.querySelector('[data-pb-start="6"]');
+                alpha.after(document.createTextNode('UNMAPPED_SENTINEL'));
+                const selection = window.getSelection();
+                selection.setBaseAndExtent(alpha.firstChild, 0, beta.firstChild, 4);
+                const snapshot = window.PalimpsestBlameHelpers.selectionRanges(selection);
+                return { quote: snapshot.exactText, ranges: snapshot.ranges, unmapped: snapshot.unmapped };
+            }"""
+        )
+        assert "UNMAPPED_SENTINEL" in mixed_selection["quote"]
+        assert mixed_selection["ranges"] == [{"start": 0, "end": 5}, {"start": 6, "end": 10}]
+        assert any("UNMAPPED_SENTINEL" in item["text"] for item in mixed_selection["unmapped"])
+        analyze_count = page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length")
+        page.get_by_role("button", name="Inspect selected article text").click()
+        first_guard_message = page.get_by_role("alert").inner_text()
+        assert "No partial attribution was requested" in first_guard_message, first_guard_message
+        assert page.locator(".pb-selected-text").text_content() == mixed_selection["quote"]
+        assert page.locator(".pb-breakdown").count() == 0
+        assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analyze_count
+
+        phrase_quote = page.evaluate(
+            """() => {
+                const alpha = document.querySelector('[data-pb-start="0"]');
+                const beta = document.querySelector('[data-pb-start="6"]');
+                const selection = window.getSelection();
+                selection.setBaseAndExtent(alpha.firstChild, 0, beta.firstChild, 4);
+                return selection.toString();
+            }"""
+        )
+        page.locator('[data-pb-start="0"]').click()
+        assert "No partial attribution was requested" in page.get_by_role("alert").inner_text()
+        assert page.locator(".pb-selected-text").text_content() == phrase_quote
+        assert page.locator(".pb-breakdown").count() == 0
+        assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analyze_count, "phrase activation must share the unmapped-text analysis guard"
+        page.evaluate(
+            """() => {
+                const walker = document.createTreeWalker(document.querySelector('.mw-parser-output'), NodeFilter.SHOW_TEXT);
+                let text;
+                while ((text = walker.nextNode())) {
+                    if (text.nodeValue === 'UNMAPPED_SENTINEL') text.remove();
+                }
+            }"""
+        )
+
         page.evaluate(
             """() => {
                 const article = document.querySelector('.mw-parser-output');
@@ -125,22 +171,26 @@ def main():
             }"""
         )
         for reverse in [False, True]:
-            native_quote = page.evaluate(
+            native_selection = page.evaluate(
                 """reverse => {
                     const selection = window.getSelection();
                     const alpha = document.querySelector('[data-pb-start="0"]').firstChild;
                     const beta = document.querySelector('[data-pb-start="6"]').firstChild;
                     if (reverse) selection.setBaseAndExtent(beta, 2, alpha, 1);
                     else selection.setBaseAndExtent(alpha, 1, beta, 2);
-                    return selection.toString();
+                    return { quote: selection.toString(), snapshot: window.PalimpsestBlameHelpers.selectionRanges(selection) };
                 }""",
                 reverse,
             )
+            native_quote = native_selection["quote"]
+            assert native_selection["snapshot"]["unmapped"] == [], native_selection["snapshot"]["unmapped"]
             page.get_by_role("button", name="Inspect selected article text").click()
             page.wait_for_selector(".pb-breakdown")
             actual_quote = page.locator(".pb-selected-text").text_content()
             assert actual_quote == native_quote, f"the inline quote must preserve the exact native cross-paragraph selection: {actual_quote!r} != {native_quote!r}"
             assert page.locator("#palimpsest-blame").evaluate("node => node.previousElementSibling.id") == "paragraph-two", "forward and reverse selections must place the panel after the last selected block"
+            assert page.locator(".pb-selection-incomplete").count() == 0, "inter-paragraph whitespace must not invalidate mapped text"
+            assert page.evaluate("window.__requests.filter(r => r.params.ranges).at(-1).params.ranges") == '[{"start":1,"end":5},{"start":6,"end":8}]', "mapped ranges on both sides of a newline must remain available"
             page.get_by_role("button", name="Close history").click()
 
         boundary_quote = page.evaluate(

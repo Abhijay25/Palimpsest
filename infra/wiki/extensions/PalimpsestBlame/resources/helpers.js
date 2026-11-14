@@ -176,7 +176,9 @@
 				walkedText += selected;
 				var mapped = closestMapped( node );
 				if ( !mapped ) {
-					unmapped.push( { text: selected, reason: 'This text has no verified source offset.' } );
+					if ( /\S/u.test( selected ) ) {
+						unmapped.push( { text: selected, reason: 'This text has no verified source offset.' } );
+					}
 					return;
 				}
 				var startWithin;
@@ -201,7 +203,7 @@
 					ranges.push( { start: start, end: end } );
 				}
 			} );
-			if ( walkedText !== range.toString() ) {
+			if ( walkedText.replace( /\s/gu, '' ) !== range.toString().replace( /\s/gu, '' ) ) {
 				unmapped.push( { text: '', reason: 'The selection includes rendered content without a verified source text node.' } );
 			}
 		}

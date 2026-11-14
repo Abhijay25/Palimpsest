@@ -292,6 +292,11 @@
 			root.appendChild( element( 'p', 'pb-warning', 'This selection contains more than 64 separate verified source ranges. Select a smaller passage; no partial analysis was requested.' ) );
 			return;
 		}
+		if ( selection && selection.unmapped && selection.unmapped.length ) {
+			retainedArticleSelection = null;
+			showIncompleteSelection( selection );
+			return;
+		}
 		retainedArticleSelection = null;
 		var request = beginRequest();
 		setState( 'loading', 'Loading verified revision history…' );
@@ -925,6 +930,20 @@
 		updateManualLabels();
 		section.append( preview, results );
 		root.appendChild( section );
+	}
+
+	function showIncompleteSelection( selection ) {
+		if ( selection.statement ) {
+			placeInline( selection.statement );
+		}
+		buildActionBar();
+		root.setAttribute( 'data-state', 'incomplete' );
+		root.appendChild( element( 'blockquote', 'pb-selected-text', selection.exactText || 'Selected wording unavailable' ) );
+		var warning = element( 'p', 'pb-warning pb-selection-incomplete', 'Some selected visible text has no verified source mapping. No partial attribution was requested; select a passage whose full visible text has verified source offsets.' );
+		warning.setAttribute( 'role', 'alert' );
+		root.appendChild( warning );
+		buildDateForm();
+		addLatestButton();
 	}
 
 	function showDateError( preview, message ) {
