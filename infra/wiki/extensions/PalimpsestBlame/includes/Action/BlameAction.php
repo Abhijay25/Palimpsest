@@ -18,6 +18,8 @@ final class BlameAction extends Action {
 			$this->getOutput()->addWikiMsg( 'noarticletext' );
 			return;
 		}
+		$output = $this->getOutput();
+		$output->setPageTitle( Html::element( 'span', [], $title->getPrefixedText() ) );
 
 		$rawOldId = $this->getRequest()->getVal( 'oldid' );
 		if ( $rawOldId !== null && ( !ctype_digit( (string)$rawOldId ) || (int)$rawOldId < 1 ) ) {
@@ -28,13 +30,13 @@ final class BlameAction extends Action {
 		$revision = \MediaWiki\MediaWikiServices::getInstance()->getRevisionLookup()->getRevisionByTitle(
 			$this->getTitle(), $requested
 		);
-		if ( !$revision || $revision->isDeleted( \MediaWiki\Revision\RevisionRecord::DELETED_TEXT ) ) {
+		if ( !$revision || $revision->getPageId() !== $title->getArticleID() || $revision->isDeleted( \MediaWiki\Revision\RevisionRecord::DELETED_TEXT ) ) {
 			$this->getOutput()->addWikiMsg( 'palimpsestblame-revision-unavailable' );
 			return;
 		}
-		$this->getOutput()->setRevisionId( $revision->getId() );
-		$this->getOutput()->addModules( [ 'ext.palimpsestBlame' ] );
-		$this->getOutput()->addHTML( Html::element( 'div', [
+		$output->setRevisionId( $revision->getId() );
+		$output->addModules( [ 'ext.palimpsestBlame' ] );
+		$output->addHTML( Html::element( 'div', [
 			'id' => 'palimpsest-blame',
 			'data-page' => $this->getTitle()->getPrefixedDBkey(),
 			'data-revision' => (string)$revision->getId(),
