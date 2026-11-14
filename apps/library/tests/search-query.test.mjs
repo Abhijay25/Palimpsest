@@ -45,4 +45,3 @@ test('related search excludes selected topic with a bound parameter', () => {
 test('repeated catalog entries do not multiply bindings', () => {
   assert.deepEqual(catalogVectorQuery([...catalog, ...catalog], [1]), catalogVectorQuery(catalog, [1]));
 });
-
