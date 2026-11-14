@@ -10,6 +10,7 @@ from palimpsest.backends.gemini import (
     GeminiClient,
     GeminiJudgeBackend,
     GeminiTriageBackend,
+    gemini_enabled,
     load_gemini_api_key,
 )
 from palimpsest.judge import PreparedCase
@@ -199,3 +200,14 @@ def test_prepare_gemini_roundtrips_through_ingest(
     assert rows[0]["model"] == "gemini-4-hydrogen"
     assert rows[0]["stage_reached"] == 2
     assert rows[0]["stage2_ms"] >= 0.0
+
+
+def test_gemini_requires_explicit_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", "set-but-not-approved")
+    monkeypatch.delenv("PALIMPSEST_USE_GEMINI", raising=False)
+    assert not gemini_enabled()
+    with pytest.raises(SystemExit, match="PALIMPSEST_USE_GEMINI"):
+        load_gemini_api_key()
+    monkeypatch.setenv("PALIMPSEST_USE_GEMINI", "1")
+    assert gemini_enabled()
+    assert load_gemini_api_key() == "set-but-not-approved"

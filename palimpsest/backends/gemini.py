@@ -55,9 +55,24 @@ class GeminiClient(Protocol):
     def aio(self) -> _Aio: ...
 
 
+GEMINI_OPT_IN_ENV = "PALIMPSEST_USE_GEMINI"
+
+
+def gemini_enabled() -> bool:
+    """True only when the key is set AND the user opted in (PALIMPSEST_USE_GEMINI=1)."""
+    load_dotenv()
+    return bool(os.environ.get("GEMINI_API_KEY")) and (
+        os.environ.get(GEMINI_OPT_IN_ENV) == "1"
+    )
+
+
 def load_gemini_api_key() -> str:
     """Read GEMINI_API_KEY from .env / environment; exit with a clear message if absent."""
     load_dotenv()
+    if os.environ.get(GEMINI_OPT_IN_ENV) != "1":
+        raise SystemExit(
+            f"Gemini is disabled: set {GEMINI_OPT_IN_ENV}=1 to use GEMINI_API_KEY"
+        )
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise SystemExit(
