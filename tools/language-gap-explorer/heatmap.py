@@ -8,7 +8,7 @@ import threading
 import unicodedata
 from urllib.parse import urlencode
 
-from skyline import RANK, LABELS, question_label, occurrence_choice, left_language
+from skyline import RANK, LABELS, question_label, occurrence_choice, left_language,assessment_warning,evidence_highlight_note
 
 _catalogs={}
 _lock=threading.Lock()
@@ -132,20 +132,32 @@ def hybrid_search(rows,query):
                 searched=len(rows),semantic_candidates=len(ranked_sem))
 
 
-def cell_detail(data,languages,group,stamp,current,back,pair='all',kind='all'):
+def cell_detail(data,languages,group,stamp,current,back,pair='all',kind='all',identity=None):
     from paired_history import detail
     from review_view import highlight_source
     row=next((r for r in catalog(data,languages)['rows'] if r['id']==group),None)
     cell=next((c for c in row['cells'] if c['stamp']==stamp),None) if row else None
     if not cell:raise LookupError('No stored finding for this question at this observation.')
     eligible=[p for p in cell['pair_kinds'] if (pair=='all' or p['pair']==pair) and (kind=='all' or p['kind']==kind)]
-    if not eligible:raise LookupError('No stored finding supports this pair/category selection.')
-    category=max((p['kind'] for p in eligible),key=RANK.get)
-    eligible_pairs={p['pair'] for p in eligible if p['kind']==category}
+    if not identity and not eligible:raise LookupError('No stored finding supports this pair/category selection.')
     stored=detail(data['run'],group,stamp,languages=languages)
-    supported=[o for o in stored['occurrences'] if o['kind']==category and '–'.join(sorted(e['lang'].upper() for e in o['evidence'])) in eligible_pairs] if stored else []
-    occurrence=occurrence_choice(supported,languages,current,category)
+    occurrences=stored['occurrences'] if stored else []
+    if identity:
+        occurrence=occurrence_choice(occurrences,languages,current,identity=identity)
+        if not occurrence:raise LookupError('That source occurrence does not belong to this historical selection.')
+        actual_pair='–'.join(sorted({e['lang'].upper() for e in occurrence['evidence']}))
+        if (pair!='all' and pair!=actual_pair) or (kind!='all' and kind!=occurrence['kind']):
+            raise LookupError('The selected occurrence does not support this pair/category selection.')
+        category=occurrence['kind'];eligible_pairs={actual_pair}
+    else:
+        category=max((p['kind'] for p in eligible),key=RANK.get)
+        eligible_pairs={p['pair'] for p in eligible if p['kind']==category}
+        occurrence=None
+    supported=[o for o in occurrences if o['kind']==category and '–'.join(sorted({e['lang'].upper() for e in o['evidence']})) in eligible_pairs]
+    occurrence=occurrence or occurrence_choice(supported,languages,current,category)
     if not occurrence:raise LookupError('The source occurrence is unavailable.')
+    from evidence_highlights import enrich
+    occurrence=enrich(data['topic']['id'],group,occurrence)
     left=left_language(occurrence,current)
     evidence=sorted(occurrence['evidence'],key=lambda e:(e['lang']!=left,e['lang']))
     for e in evidence:
@@ -156,6 +168,6 @@ def cell_detail(data,languages,group,stamp,current,back,pair='all',kind='all'):
     query.extend(('languages',l) for l in languages)
     from question_titles import labels as stored_labels
     generated=stored_labels(data['topic']['id'],[group]).get(group,{})
-    return dict(id=group,stamp=stamp,title=generated['title'] if generated.get('status')=='accepted' else question_label(occurrence),kind=occurrence['kind'],label=LABELS[occurrence['kind']],
-        evidence=evidence,occurrences=len(supported),destination=' ↔ '.join(e['lang'].upper() for e in evidence),
+    return dict(id=group,stamp=stamp,occurrence=occurrence['id'],title=generated['title'] if generated.get('status')=='accepted' else question_label(occurrence),kind=occurrence['kind'],label=LABELS[occurrence['kind']],
+        evidence=evidence,occurrences=len(supported),assessment_warning=assessment_warning(occurrence),highlight_status=occurrence.get('highlight_status'),highlight_note=evidence_highlight_note(occurrence),destination=' ↔ '.join(e['lang'].upper() for e in evidence),
         href='/langcompare/'+data['topic']['id']+'?'+urlencode(query))

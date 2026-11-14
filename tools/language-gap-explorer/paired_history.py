@@ -136,7 +136,7 @@ def verdict_batch(batch):
         raise
 
 
-def assess(pairs,progress=None,workers=None):
+def assess(pairs,progress=None,workers=None,allow_partial=False,on_error=None):
     if not pairs:return {}
     ids=list(pairs);known={};pending=[]
     with connect() as db,db.cursor() as c:
@@ -152,9 +152,14 @@ def assess(pairs,progress=None,workers=None):
     pending.sort(key=lambda p:(-p['similarity'],p['id']))
     batches=[pending[i:i+16] for i in range(0,len(pending),16)]
     with ThreadPoolExecutor(max_workers=workers or WORKERS) as pool:
-        futures=[pool.submit(verdict_batch,batch) for batch in batches]
+        futures={pool.submit(verdict_batch,batch):batch for batch in batches}
         for future in as_completed(futures):
-            known.update(future.result())
+            try:known.update(future.result())
+            except Exception as error:
+                if not allow_partial:raise
+                batch=futures[future]
+                known.update({p['id']:dict(kind='unassessed',question='account',scores={}) for p in batch})
+                if on_error:on_error(error,batch)
             if progress:progress(len(known),len(pairs),known)
     return known
 
@@ -175,7 +180,9 @@ def group_check_batch(cases,namespace=None):
     out={}
     with connect() as db,db.cursor() as c:
         for i,(identity,_,_) in enumerate(cases):
-            probability=answers.get('same_'+str(i),{}).get('probability',0);out[identity]=probability
+            probability=answers.get('same_'+str(i),{}).get('probability')
+            if not isinstance(probability,(int,float)):probability=None if namespace else 0
+            out[identity]=probability
             c.execute('INSERT IGNORE INTO paired_group_check VALUES(%s,%s)',(identity,probability))
     return out
 

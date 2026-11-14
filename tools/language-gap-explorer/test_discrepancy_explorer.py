@@ -13,11 +13,12 @@ class ExplorerTests(unittest.TestCase):
         self.assertIn(b'Divergence Temporal Matrix',response.data)
         self.assertIn(b'/static/lab-explorer.js',response.data)
 
-    def test_constellation_remains_independently_accessible(self):
+    def test_retired_constellation_query_uses_main_viewer(self):
         with app.test_client() as client:response=client.get('/explore?layout=constellation')
         self.assertEqual(response.status_code,200)
-        self.assertIn(b'id="constellation-screen"',response.data)
-        self.assertIn(b'/static/constellation.js',response.data)
+        self.assertIn(b'/static/lab-explorer.js',response.data)
+        self.assertNotIn(b'id="constellation-screen"',response.data)
+        self.assertNotIn(b'/static/constellation.js',response.data)
 
     def test_invalid_topic_never_reaches_database(self):
         with app.test_client() as client:
