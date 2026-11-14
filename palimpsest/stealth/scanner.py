@@ -116,6 +116,13 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
             contributes = StealthStatus.BENIGN_NOTES_ONLY
             confidence = 0.5
             explanation = "Hidden comment without instruction phrasing; provisional pending triage."
+        elif item.vector_type == VectorType.A11Y_ALT_POISONING:
+            classification = "NEEDS_TRIAGE"
+            contributes = StealthStatus.BENIGN_NOTES_ONLY
+            confidence = 0.4
+            explanation = (
+                "Long alt/aria text without instruction phrasing; pending triage."
+            )
         else:
             classification = "FLAG_CSS_CLOAKING"
             contributes = StealthStatus.CSS_CLOAKING_DETECTED
