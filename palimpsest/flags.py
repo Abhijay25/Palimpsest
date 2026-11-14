@@ -222,6 +222,18 @@ def suppress_out_of_sync_duplicates(flags: list[Flag]) -> list[Flag]:
         for page_flag in out_of_sync:
             page_unit = re.match(r"^o(\d+)-", page_flag.id)
             value = _OUT_OF_SYNC_REASON.match(page_flag.reason)
+            # Paragraph numbering differs between the judge and the page check, so
+            # the same anchor on the same side is enough to call it a duplicate.
+            positioned = (
+                flag.anchor_start is not None and page_flag.anchor_start is not None
+            )
+            if flag.side == page_flag.side and (
+                flag.anchor_start == page_flag.anchor_start
+                if positioned
+                else flag.anchor_text.strip() == page_flag.anchor_text.strip()
+            ):
+                duplicate = True
+                break
             if (
                 page_unit is None
                 or value is None

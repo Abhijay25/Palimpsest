@@ -568,3 +568,15 @@ def test_truncated_template_scan_is_flagged() -> None:
         "remaining content was not inspected."
     )
     assert result.stealth_status != StealthStatus.CLEAN
+
+
+def test_white_header_on_named_dark_background_is_not_hidden() -> None:
+    from palimpsest.stealth.sanitizer import parse_color
+
+    assert parse_color("darkGrey") == (169, 169, 169, 1.0)
+    real = (
+        '{| class="toccolours"\n|-\n! colspan="2" style="background:darkGrey;"| '
+        '<span style="color:white;">Professional Kickboxing Record</span>\n|}'
+    )
+    result = scan(real, "WIKIPEDIA_DIFF", "")
+    assert result.stealth_status == StealthStatus.CLEAN

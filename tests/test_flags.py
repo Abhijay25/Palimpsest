@@ -472,8 +472,8 @@ def test_out_of_sync_suppresses_duplicate_judge_fact() -> None:
         title="Claim contradicts cited source",
         reason="Another issue.",
         anchor_text="18",
-        anchor_start=26,
-        anchor_end=28,
+        anchor_start=60,
+        anchor_end=62,
         check="judge",
         **shared,
     )
@@ -481,3 +481,37 @@ def test_out_of_sync_suppresses_duplicate_judge_fact() -> None:
         page_flag,
         retained,
     ]
+
+
+def test_judge_fact_on_same_anchor_as_out_of_sync_is_dropped() -> None:
+    from palimpsest.flags import suppress_out_of_sync_duplicates
+    from palimpsest.schema import Flag
+
+    def make(fid: str, kind: str, check: str, reason: str, context: str) -> Flag:
+        return Flag(
+            id=fid,
+            kind=kind,
+            tier="admin",
+            title="t",
+            reason=reason,
+            confidence=0.9,
+            side="new",
+            anchor_text="1916",
+            anchor_start=40,
+            anchor_end=44,
+            context_sentence=context,
+            evidence=[],
+            citations=[],
+            neutral_rewrite=None,
+            check=check,
+        )
+
+    page = make(
+        "o3-0",
+        "OUT_OF_SYNC",
+        "consistency",
+        "The edit changes 1906 to 1916, but the section 'A' still says 1906.",
+        "x",
+    )
+    judge = make("u0-s0", "FACT", "judge", "The edit changes the year to 1916.", "y")
+    assert suppress_out_of_sync_duplicates([page, judge]) == [page]
