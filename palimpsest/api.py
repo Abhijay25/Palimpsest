@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from datetime import date
 from functools import cache
 from typing import Annotated, Final, Literal, cast
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from dotenv import load_dotenv
@@ -184,6 +185,20 @@ _REF_TAG_RE: Final = re.compile(r"<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNOREC
 _ARCHIVE_URL_PARAM_RE: Final = re.compile(
     r"\|\s*(?:archive-url|archiveurl|archive_url)\s*=\s*(https?://[^|\s}]+)",
     re.IGNORECASE,
+)
+_WEB_ARCHIVE_HOSTS: Final = frozenset(
+    {
+        "archive.org",
+        "archive.today",
+        "archive.ph",
+        "archive.is",
+        "archive.li",
+        "archive.md",
+        "webcitation.org",
+        "arkisto.fi",
+        "perma.cc",
+        "arquivo.pt",
+    }
 )
 # These are wiki configuration template parameter names, not prose date labels.
 _CITATION_PARAM_RE: Final = re.compile(
@@ -916,38 +931,87 @@ def _access_date(value: str, months: Mapping[str, int] | None = None) -> date | 
     return citation_parameter_date(value, months or {})
 
 
+def _normalised_citation_url(url: str) -> str:
+    """Normalize source URLs enough to compare citation identity across an edit."""
+    parsed = urlsplit(url.strip())
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        return url.strip()
+    netloc = host
+    if port is not None and (parsed.scheme.lower(), port) not in {
+        ("http", 80),
+        ("https", 443),
+    }:
+        netloc = f"{host}:{port}"
+    return urlunsplit(
+        (parsed.scheme.lower(), netloc, parsed.path or "/", parsed.query, "")
+    )
+
+
+def _is_web_archive_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return any(
+        host == archive or host.endswith(f".{archive}")
+        for archive in _WEB_ARCHIVE_HOSTS
+    )
+
+
 def _citation_lifecycle_candidates(
     units: list[EditUnit],
     refs_by_unit: dict[int, list[str] | None],
     months: Mapping[str, int] | None = None,
+    old_wikitext: str | None = None,
 ) -> list[tuple[str, date | None, str]]:
-    """Changed-reference URLs paired with their citation date and local claim text."""
+    """New non-archive reference URLs paired with their local claim text."""
     candidates: list[tuple[str, date | None, str]] = []
     seen: set[str] = set()
+    old_urls = {
+        _normalised_citation_url(url)
+        for url in extract_ref_urls(
+            old_wikitext
+            if old_wikitext is not None
+            else "\n".join(unit.old_wikitext or "" for unit in units)
+        )
+    }
     for unit in units:
         changed = refs_by_unit[unit.index]
         if not changed:
             continue
         wikitext = unit.new_wikitext or unit.new_text
         for ref in _REF_TAG_RE.findall(wikitext):
-            urls = [url for url in extract_ref_urls(ref) if url in changed]
+            changed_urls = {_normalised_citation_url(url) for url in changed}
+            urls = [
+                url
+                for url in extract_ref_urls(ref)
+                if _normalised_citation_url(url) in changed_urls
+            ]
             if not urls:
                 continue
             match = _CITATION_PARAM_RE.search(ref)
             access_date = _access_date(match.group(2), months) if match else None
             for url in urls:
-                if url not in seen:
+                normalised = _normalised_citation_url(url)
+                if (
+                    normalised not in seen
+                    and normalised not in old_urls
+                    and not _is_web_archive_url(url)
+                ):
                     candidates.append((url, access_date, unit.new_text))
-                    seen.add(url)
+                    seen.add(normalised)
     return candidates
 
 
 async def _localized_citation_lifecycle_candidates(
-    units: list[EditUnit], refs_by_unit: dict[int, list[str] | None], lang_code: str
+    units: list[EditUnit],
+    refs_by_unit: dict[int, list[str] | None],
+    lang_code: str,
+    old_wikitext: str | None = None,
 ) -> list[tuple[str, date | None, str]]:
     """Read local MediaWiki month names before parsing citation parameters."""
     if lang_code == "en":
-        return _citation_lifecycle_candidates(units, refs_by_unit, {})
+        return _citation_lifecycle_candidates(units, refs_by_unit, {}, old_wikitext)
     try:
         async with httpx.AsyncClient(
             headers={"User-Agent": MEDIAWIKI_USER_AGENT}
@@ -955,7 +1019,7 @@ async def _localized_citation_lifecycle_candidates(
             months = await month_names(client, lang_code)
     except (httpx.HTTPError, RuntimeError):
         months = {}
-    return _citation_lifecycle_candidates(units, refs_by_unit, months)
+    return _citation_lifecycle_candidates(units, refs_by_unit, months, old_wikitext)
 
 
 def _lifecycle_embedder() -> HashingEmbedder | GeminiEmbedder:
@@ -1413,7 +1477,7 @@ async def audit_diff_logic(
         await citation_dates_started
     lifecycle_candidates = (
         await _localized_citation_lifecycle_candidates(
-            units, refs_by_unit, req.lang_code
+            units, refs_by_unit, req.lang_code, req.old_wikitext or req.old_text
         )
         if any(refs_by_unit.values())
         else []

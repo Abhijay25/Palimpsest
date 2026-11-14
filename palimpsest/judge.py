@@ -151,7 +151,10 @@ def _apply_removal_rule(pc: PreparedCase, output: AuditOutput) -> AuditOutput:
             flagged_spans=[span],
             neutral_rewrite=output.neutral_rewrite,
         )
-    if any(existing.exact_substring == anchor for existing in output.flagged_spans):
+    if any(
+        existing.span_type == SpanType.REMOVED_QUALIFIER
+        for existing in output.flagged_spans
+    ):
         return output
     return output.model_copy(
         update={

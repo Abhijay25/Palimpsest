@@ -817,9 +817,7 @@ async def adjudicate_groups(
         )
     )
     ordered_decisions = [decisions_by_id[group.group_id] for group in groups]
-    return await _verify_conflicts(
-        groups, ordered_decisions, judge, context, started
-    )
+    return await _verify_conflicts(groups, ordered_decisions, judge, context, started)
 
 
 def _deadline_remaining(started: float) -> float:
@@ -855,7 +853,9 @@ async def _verify_conflicts(
         (len(pairs) + MAX_VERIFICATION_BATCHES - 1) // MAX_VERIFICATION_BATCHES,
     )
     batch_size = (len(pairs) + batch_count - 1) // batch_count
-    batches = [pairs[index : index + batch_size] for index in range(0, len(pairs), batch_size)]
+    batches = [
+        pairs[index : index + batch_size] for index in range(0, len(pairs), batch_size)
+    ]
     try:
         results = await asyncio.wait_for(
             asyncio.gather(*(verify(batch, context.sentences) for batch in batches)),
@@ -879,16 +879,18 @@ async def _verify_conflicts(
         }
         if returned_ids != expected:
             raise TypeError("Page-consistency verifier returned incomplete decisions")
-    except Exception as exc:  # noqa: BLE001 - retain only deterministic fallback pairs
+    except Exception as exc:  # Retain only deterministic fallback pairs.
         groups[:] = [
             group
             for group, decision in candidates
             if _deterministically_matching_event_and_section(group)
         ]
         raise PageConsistencyVerificationError(str(exc)) from exc
+    verified_ids = {group.group_id for group in pairs}
     return [
         decision
-        if not decision.conflict or group.group_id in by_id
+        if not decision.conflict
+        or (group.group_id in verified_ids and group.group_id in by_id)
         else decision.model_copy(update={"conflict": False})
         for group, decision in zip(groups, decisions, strict=True)
     ]

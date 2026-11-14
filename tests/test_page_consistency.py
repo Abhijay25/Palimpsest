@@ -13,6 +13,7 @@ from palimpsest.page_consistency import (
     GeminiPageConsistencyJudge,
     PageConsistencyAnswers,
     PageConsistencyDecision,
+    PageConsistencyVerification,
     adjudicate_page,
     candidate_groups,
 )
@@ -110,6 +111,10 @@ def test_page_consistency_schema_is_accepted_by_gemini_response_schema() -> None
         page_consistency.WholePageConsistencyAnswers.model_json_schema()
     )
     assert "additionalProperties" not in page_schema
+    verification_schema = json.dumps(
+        page_consistency.PageConsistencyVerificationAnswers.model_json_schema()
+    )
+    assert "additionalProperties" not in verification_schema
 
 
 class _StubJudge:
@@ -508,6 +513,169 @@ def test_whole_page_failure_returns_partial_grouped_candidates() -> None:
 
     assert response.json()["status"] == "partial"
     assert response.json()["flags"]
+
+
+class _VerifyingJudge:
+    def __init__(
+        self,
+        verdicts: dict[str, PageConsistencyVerification],
+        whole_page_conflicts: list[page_consistency.WholePageConflict] | None = None,
+    ) -> None:
+        self.verdicts = verdicts
+        self.whole_page_conflicts = whole_page_conflicts
+        self.verification_batches: list[tuple[str, ...]] = []
+
+    async def __call__(
+        self, groups: Sequence[CandidateGroup]
+    ) -> list[PageConsistencyDecision]:
+        return [
+            PageConsistencyDecision(
+                group_id=group.group_id,
+                conflict=True,
+                confidence=0.8,
+                reason="Candidate values conflict.",
+            )
+            for group in groups
+        ]
+
+    async def whole_page(self, _: str) -> list[page_consistency.WholePageConflict]:
+        return self.whole_page_conflicts or []
+
+    async def verify(
+        self,
+        groups: Sequence[CandidateGroup],
+        _: Sequence[page_consistency.PageSentence],
+    ) -> list[PageConsistencyVerification]:
+        self.verification_batches.append(tuple(group.group_id for group in groups))
+        return [self.verdicts[group.group_id] for group in groups]
+
+
+def _verification(
+    group_id: str,
+    *,
+    same_event: bool,
+    values_conflict: bool,
+    compatible_explanation: str | None = None,
+) -> PageConsistencyVerification:
+    return PageConsistencyVerification(
+        group_id=group_id,
+        same_event=same_event,
+        values_conflict=values_conflict,
+        compatible_explanation=compatible_explanation,
+    )
+
+
+def test_verification_rejects_different_wars() -> None:
+    first = "The Winter War produced 43,000 prisoners of war."
+    second = "The Continuation War held 64,188 prisoners of war in 1941."
+    judge = _VerifyingJudge(
+        {
+            "g000": _verification(
+                "g000",
+                same_event=False,
+                values_conflict=True,
+                compatible_explanation="The figures concern different wars.",
+            )
+        }
+    )
+    _use_page_judge(judge)
+
+    response = asyncio.run(
+        _post_page(
+            {
+                "lang_code": "en",
+                "page_title": "Winter War",
+                "revision_id": 4,
+                "wikitext": f"{first} {second}",
+            }
+        )
+    )
+
+    assert response.json()["status"] == "ok"
+    assert response.json()["flags"] == []
+    assert judge.verification_batches == [("g000",)]
+
+
+def test_verification_rejects_founding_and_renaming() -> None:
+    first = "The Finnish Senate was set up in 1809."
+    second = "The Finnish Senate was renamed in 1816."
+    judge = _VerifyingJudge(
+        {
+            "p000": _verification(
+                "p000",
+                same_event=True,
+                values_conflict=False,
+                compatible_explanation="The council was founded first and renamed later.",
+            )
+        },
+        [_page_conflict(first, second, "1809", "1816")],
+    )
+    _use_page_judge(judge)
+
+    response = asyncio.run(
+        _post_page(
+            {
+                "lang_code": "en",
+                "page_title": "Senate of Finland",
+                "revision_id": 4,
+                "wikitext": f"{first} {second}",
+            }
+        )
+    )
+
+    assert response.json()["status"] == "ok"
+    assert response.json()["flags"] == []
+    assert judge.verification_batches == [("p000",)]
+
+
+def test_verification_keeps_a_genuine_conflict() -> None:
+    first = "The North Bridge was completed in 1952."
+    second = "The North Bridge was completed in 1954."
+    judge = _VerifyingJudge(
+        {"g000": _verification("g000", same_event=True, values_conflict=True)}
+    )
+    _use_page_judge(judge)
+
+    response = asyncio.run(
+        _post_page(
+            {
+                "lang_code": "en",
+                "page_title": "North Bridge",
+                "revision_id": 4,
+                "wikitext": f"{first}\n\n== History ==\n{second}",
+            }
+        )
+    )
+
+    assert response.json()["status"] == "ok"
+    assert [flag["id"] for flag in response.json()["flags"]] == ["page-g000"]
+
+
+def test_verifier_failure_returns_partial_deterministic_candidates() -> None:
+    class FailingVerifier(_VerifyingJudge):
+        async def verify(
+            self,
+            groups: Sequence[CandidateGroup],
+            sentences: Sequence[page_consistency.PageSentence],
+        ) -> list[PageConsistencyVerification]:
+            del groups, sentences
+            raise TimeoutError("verification timed out")
+
+    _use_page_judge(FailingVerifier({}))
+    response = asyncio.run(
+        _post_page(
+            {
+                "lang_code": "en",
+                "page_title": "North Bridge",
+                "revision_id": 4,
+                "wikitext": "== History ==\nThe North Bridge was completed in 1952. "
+                "The North Bridge was completed in 1954.",
+            }
+        )
+    )
+
+    assert response.json()["status"] == "partial"
+    assert [flag["id"] for flag in response.json()["flags"]] == ["page-g000"]
 
 
 def test_audit_diff_cache_and_fresh_bypass(

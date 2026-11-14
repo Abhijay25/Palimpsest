@@ -517,11 +517,18 @@ def build_flags(
     """Build the complete response flag list from already-computed audit data."""
     flags: list[Flag] = []
     for judge_input in judge_inputs:
+        removal_flag_index: int | None = None
         for span_index, span in enumerate(judge_input.output.flagged_spans):
             policy = span_policy(span, judge_input.tier, judge_input.window)
             if policy.kind is None or policy.tier is None or policy.title is None:
                 continue
             kind = policy.kind
+            if kind == "REMOVED_CONTEXT" and removal_flag_index is not None:
+                existing = flags[removal_flag_index]
+                flags[removal_flag_index] = existing.model_copy(
+                    update={"occurrences": existing.occurrences + 1}
+                )
+                continue
             anchor = _REMOVAL_MARK.sub("", span.exact_substring)
             # The side is wherever the flagged words are: a deletion can be judged as a
             # fact or framing problem, not only as REMOVED_CONTEXT.
@@ -560,6 +567,8 @@ def build_flags(
                     **_before_after(judge_input, anchor, removed),
                 )
             )
+            if kind == "REMOVED_CONTEXT":
+                removal_flag_index = len(flags) - 1
     for index, stealth_input in enumerate(stealth_inputs):
         finding = stealth_input.finding
         anchor = _wikitext_anchor(

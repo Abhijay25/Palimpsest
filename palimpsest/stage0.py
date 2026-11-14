@@ -24,6 +24,20 @@ _REF_NAME_RE = re.compile(r"""\bname\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s/>"']+))"
 _REF_PLACEHOLDER = "\ue000{}\ue001"
 _SENTENCE_END_RE = re.compile(r"(?<!\b[A-ZÅÄÖ])[.!?](?:\ue000\d+\ue001)*\s+")
 _PLACEHOLDER_RE = re.compile(r"\ue000(\d+)\ue001")
+_GALLERY_RE = re.compile(r"<gallery\b[^>]*>.*?</gallery\s*>", re.DOTALL | re.IGNORECASE)
+_FILE_LINK_RE = re.compile(
+    r"\[\[\s*(?:file|image|tiedosto|kuva)\s*:[^\]]*\]\]", re.IGNORECASE
+)
+_CATEGORY_OR_INTERWIKI_LINE_RE = re.compile(
+    r"^\s*\[\[\s*(?:category|luokka|[a-z]{2,12}(?:-[a-z]{2,12})?)\s*:",
+    re.IGNORECASE,
+)
+_HEADING_RE = re.compile(r"^\s*(=+)\s*.*?\s*\1\s*$")
+_REFERENCE_HEADING_RE = re.compile(
+    r"^\s*=+\s*(?:lähteet|viitteet|references|notes|sources|bibliography|"
+    r"kirjallisuus|aiheesta muualla)\s*=+\s*$",
+    re.IGNORECASE,
+)
 _MAX_TYPO_DISTANCE = 2
 _TYPO_RELATIVE_DISTANCE = 0.25
 _MAX_TYPO_LENGTH_DIFF = 2
@@ -95,6 +109,46 @@ def strip_wikitext(wikitext: str) -> str:
     return str(code.strip_code(normalize=True, collapse=True))
 
 
+def _without_reference_lists(wikitext: str) -> str:
+    """Remove bibliography sections, whose citations are not article prose."""
+    kept: list[str] = []
+    reference_level: int | None = None
+    for line in wikitext.splitlines(keepends=True):
+        heading = _HEADING_RE.match(line)
+        if heading:
+            level = len(heading.group(1))
+            if _REFERENCE_HEADING_RE.match(line):
+                reference_level = level
+                continue
+            if reference_level is not None and level <= reference_level:
+                reference_level = None
+        if reference_level is None:
+            kept.append(line)
+    return "".join(kept)
+
+
+def _reader_visible_prose_wikitext(wikitext: str) -> str:
+    """Keep article prose while excluding non-reader-content deletion noise."""
+    wikitext = _without_reference_lists(_GALLERY_RE.sub("", wikitext))
+    wikitext = "\n".join(
+        line
+        for line in wikitext.splitlines()
+        if not _CATEGORY_OR_INTERWIKI_LINE_RE.match(line)
+    )
+    code = _parse(_FILE_LINK_RE.sub("", wikitext))
+    for template in code.filter_templates(recursive=True):
+        try:
+            code.remove(template)
+        except ValueError:
+            continue
+    return str(code)
+
+
+def _reader_visible_prose(wikitext: str) -> str:
+    """Reader-visible prose, without citations or structural wikitext."""
+    return " ".join(strip_wikitext(_reader_visible_prose_wikitext(wikitext)).split())
+
+
 def _ref_name(ref: str) -> str | None:
     match = _REF_NAME_RE.search(ref[: ref.index(">") + 1])
     return next((g for g in match.groups() if g), None) if match else None
@@ -150,11 +204,13 @@ def _deleted_sentence_indexes(old: list[str], new: list[str]) -> list[int]:
 
 
 def removal_summary(old_wikitext: str, new_wikitext: str) -> RemovalSummary:
-    """Describe plain-text loss and cited sentences deleted without replacement."""
-    old_plain = strip_wikitext(old_wikitext)
-    new_plain = strip_wikitext(new_wikitext)
-    old_sentences = _sentences_with_refs(old_wikitext)
-    new_sentences = _sentences_with_refs(new_wikitext)
+    """Describe reader-visible prose loss and cited sentences deleted outright."""
+    old_visible = _reader_visible_prose_wikitext(old_wikitext)
+    new_visible = _reader_visible_prose_wikitext(new_wikitext)
+    old_plain = _reader_visible_prose(old_wikitext)
+    new_plain = _reader_visible_prose(new_wikitext)
+    old_sentences = _sentences_with_refs(old_visible)
+    new_sentences = _sentences_with_refs(new_visible)
     old_keys = [" ".join(sentence.split()) for sentence, _ in old_sentences]
     new_keys = [" ".join(sentence.split()) for sentence, _ in new_sentences]
     removed_cited_sentences = [
