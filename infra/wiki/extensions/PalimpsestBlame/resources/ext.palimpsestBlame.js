@@ -288,8 +288,7 @@
 
 	function startAnalysis( selection ) {
 		if ( selection && selection.ranges.length > 64 ) {
-			buildActionBar();
-			root.appendChild( element( 'p', 'pb-warning', 'This selection contains more than 64 separate verified source ranges. Select a smaller passage; no partial analysis was requested.' ) );
+			showIncompleteSelection( selection, 'This selection contains more than 64 separate verified source ranges. Select a smaller passage; no partial analysis was requested.' );
 			return;
 		}
 		if ( selection && selection.unmapped && selection.unmapped.length ) {
@@ -468,13 +467,15 @@
 				selection = Object.assign( {}, selection, { ranges: selection.ranges.slice(), unmapped: selection.unmapped.slice() } );
 			}
 			if ( !selection || !selection.exactText ) {
-				setState( 'error', 'Select text in the article first.' );
-				buildActionBar();
+				restoreRootPosition();
+				renderFull( currentData );
+				var instruction = element( 'p', 'pb-warning pb-selection-incomplete', 'Select text in the article first.' );
+				instruction.setAttribute( 'role', 'alert' );
+				root.appendChild( instruction );
 				return;
 			}
 			if ( selection.ranges.length === 0 ) {
-				setState( 'error', 'This selection has no verified source offsets. Try a highlighted passage.' );
-				buildActionBar();
+				showIncompleteSelection( selection, 'This selection has no verified source offsets. Try a highlighted passage.' );
 				return;
 			}
 			if ( selection.ranges.length > 64 ) {
@@ -932,12 +933,12 @@
 		root.appendChild( section );
 	}
 
-	function showIncompleteSelection( selection ) {
+	function showIncompleteSelection( selection, message ) {
 		restoreRootPosition();
 		buildActionBar();
 		root.setAttribute( 'data-state', 'incomplete' );
 		root.appendChild( element( 'blockquote', 'pb-selected-text', selection.exactText || 'Selected wording unavailable' ) );
-		var warning = element( 'p', 'pb-warning pb-selection-incomplete', 'Some selected visible text has no verified source mapping. No partial attribution was requested; select a passage whose full visible text has verified source offsets.' );
+		var warning = element( 'p', 'pb-warning pb-selection-incomplete', message || 'Some selected visible text has no verified source mapping. No partial attribution was requested; select a passage whose full visible text has verified source offsets.' );
 		warning.setAttribute( 'role', 'alert' );
 		root.appendChild( warning );
 		buildDateForm();

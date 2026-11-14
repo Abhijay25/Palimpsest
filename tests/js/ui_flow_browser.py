@@ -111,6 +111,27 @@ def main():
         assert sent_ranges == '[{"start":1,"end":4}]', sent_ranges
 
         page.get_by_role("button", name="Close history").click()
+        page.evaluate(
+            """() => {
+                const generated = document.createElement('span');
+                generated.textContent = 'PURE_GENERATED';
+                document.querySelector('.mw-parser-output p').append(generated);
+                const range = document.createRange();
+                range.selectNodeContents(generated.firstChild);
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }"""
+        )
+        analyze_count = page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length")
+        page.get_by_role("button", name="Inspect selected article text").click()
+        assert "no verified source offsets" in page.get_by_role("alert").inner_text()
+        assert page.locator(".pb-selected-text").text_content() == "PURE_GENERATED"
+        assert page.locator(".pb-breakdown").count() == 0
+        assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analyze_count
+        assert page.locator("#mw-content-text").evaluate("content => content.contains(document.getElementById('palimpsest-blame')) && !document.querySelector('.mw-parser-output').contains(document.getElementById('palimpsest-blame'))")
+        page.evaluate("document.querySelector('.mw-parser-output p span:last-child').remove()")
+
         mixed_selection = page.evaluate(
             """() => {
                 const alpha = document.querySelector('[data-pb-start="0"]');
@@ -169,6 +190,12 @@ def main():
         assert page.locator(".pb-selected-text").text_content() == "alpha"
         assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analyze_count + 1, "a fully mapped selection must recover and analyze normally after the guard"
         page.get_by_role("button", name="Close history").click()
+        page.evaluate("window.getSelection().removeAllRanges()")
+        recovery_count = page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length")
+        page.get_by_role("button", name="Inspect selected article text").click()
+        assert "Select text in the article first" in page.get_by_role("alert").inner_text()
+        assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == recovery_count
+        assert page.locator("#mw-content-text").evaluate("content => content.contains(document.getElementById('palimpsest-blame')) && !document.querySelector('.mw-parser-output').contains(document.getElementById('palimpsest-blame'))")
 
         page.evaluate(
             """() => {
