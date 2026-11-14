@@ -2,7 +2,7 @@
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from palimpsest import display_text
 from palimpsest.cherry_pick import CherryPickFinding
@@ -41,6 +41,8 @@ class JudgeFlagInput:
     citations: list[str]
     evidence: list[FlagEvidence]
     window: SourceWindow | None = None
+    linked_evidence: list[FlagEvidence] = field(default_factory=list)
+    changed_wikitext: str | None = None
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,47 @@ def _offsets_from_span(
     if 0 <= start <= end <= len(text) and text[start:end] == anchor:
         return start, end
     return _offsets(text, anchor)
+
+
+def _containing_sentence_or_clause(text: str, span: str) -> str:
+    """Return the complete changed sentence containing a judge-selected span."""
+    start = text.find(span)
+    if start < 0:
+        return text.strip()
+    sentence_start = 0
+    for index in range(start - 1, -1, -1):
+        if text[index] not in ".!?;":
+            continue
+        if index + 1 == len(text) or text[index + 1].isspace():
+            sentence_start = index + 1
+            break
+    sentence_end = len(text)
+    for index in range(start + len(span), len(text)):
+        if text[index] not in ".!?;":
+            continue
+        if index + 1 == len(text) or text[index + 1].isspace():
+            sentence_end = index + 1
+            break
+    return text[sentence_start:sentence_end].strip()
+
+
+def _judge_anchor(judge_input: JudgeFlagInput, span: str) -> str:
+    """Use the changed sentence, not the judge's variable substring, as an anchor."""
+    changed = judge_input.changed_wikitext or judge_input.new_text
+    return _containing_sentence_or_clause(changed, span)
+
+
+def order_flags(flags: list[Flag]) -> list[Flag]:
+    """Keep response order independent of detector and model completion order."""
+    return sorted(
+        flags,
+        key=lambda flag: (
+            flag.anchor_start is None,
+            flag.anchor_start if flag.anchor_start is not None else 0,
+            flag.kind,
+            flag.id,
+        ),
+    )
 
 
 def _judge_kind(reason: ReasonCode | None, verdict: Verdict) -> FlagKind:
@@ -429,10 +472,10 @@ def _highlight_excerpts(text: str) -> list[str]:
 def _judge_evidence(judge_input: JudgeFlagInput) -> list[FlagEvidence]:
     window = judge_input.window
     if window is None or window.method != "highlights":
-        return judge_input.evidence
+        return [*judge_input.evidence, *judge_input.linked_evidence]
     excerpts = _highlight_excerpts(window.text)
     if not excerpts:
-        return []
+        return list(judge_input.linked_evidence)
     cited = [
         proposition.evidence_quote_from_ref
         for proposition in judge_input.output.atomic_propositions
@@ -459,7 +502,7 @@ def _judge_evidence(judge_input: JudgeFlagInput) -> list[FlagEvidence]:
                 url=window.url,
             )
         )
-    return evidence
+    return [*evidence, *judge_input.linked_evidence]
 
 
 def build_flags(
@@ -486,7 +529,7 @@ def build_flags(
                 anchor in judge_input.old_wikitext or kind == "REMOVED_CONTEXT"
             )
             if not removed:
-                anchor = span.exact_substring
+                anchor = _judge_anchor(judge_input, span.exact_substring)
             side: FlagSide = "old" if removed else "new"
             side_text = (
                 judge_input.old_wikitext if removed else judge_input.new_wikitext
@@ -628,4 +671,4 @@ def build_flags(
     flags.extend(
         citation_lifecycle_flags(citation_lifecycle_findings or [], new_wikitext)
     )
-    return _collapse([_readable(flag) for flag in flags])
+    return order_flags(_collapse([_readable(flag) for flag in flags]))

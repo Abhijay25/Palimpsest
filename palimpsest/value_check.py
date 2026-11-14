@@ -278,13 +278,14 @@ async def _cited_check(
     new: str,
 ) -> ValueCheck | None:
     excerpts: list[tuple[str, str]] = []
-    for url in urls:
+    for url in sorted(urls):
         queries = (sentence, f"{_subject(title)} {old}", f"{_subject(title)} {new}")
         found = await asyncio.gather(
             *(fetcher.highlights(url, query) for query in queries)
         )
         for highlights in found:
             excerpts.extend((url, quote) for quote in highlights or [])
+    excerpts.sort(key=lambda excerpt: (excerpt[0], excerpt[1]))
     outcome = evidence_outcome(old, new, [quote for _, quote in excerpts])
     if outcome == "NEITHER":
         return None

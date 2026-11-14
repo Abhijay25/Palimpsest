@@ -1,9 +1,11 @@
 """Find edits whose new value disagrees with another statement on the page."""
 
 import asyncio
+import difflib
 import json
 import re
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from itertools import pairwise
 from typing import Final, Literal, Protocol
@@ -26,12 +28,14 @@ from palimpsest.crosslingual import anchor_terms
 from palimpsest.display_text import plain, sentences
 from palimpsest.segment import EditUnit
 from palimpsest.value_swaps import swaps
+from palimpsest.value_swaps import value_text as visible_value_text
 
 DEADLINE_S: Final = 6.0
 MAX_SEMANTIC_CANDIDATES: Final = 5
 _HEADING: Final = re.compile(r"^={2,}\s*(.*?)\s*={2,}\s*$", re.MULTILINE)
 _TABLE: Final = re.compile(r"{\\|(?P<body>.*?)(?:\n\\|})", re.DOTALL)
 _WORD_VALUE: Final = re.compile(r"[^\W\d_][\w'-]*", re.UNICODE)
+_ORDINAL_PERIOD: Final = re.compile(r"(?<=\d)\.(?=\s+(\S))")
 
 
 class ConsistencyAnswer(BaseModel):
@@ -159,6 +163,10 @@ def _page_sentences(wikitext: str) -> list[_PageSentence]:
     return result
 
 
+def _sentence_counts(wikitext: str) -> Counter[str]:
+    return Counter(_normalise(sentence.text) for sentence in _page_sentences(wikitext))
+
+
 def _params(wikitext: str) -> list[_PageParam]:
     result: list[_PageParam] = []
     for template in mwparserfromhell.parse(wikitext).filter_templates(recursive=True):
@@ -239,8 +247,83 @@ def _temporal_pairs(
 def _value_pairs(
     old: str, new: str, temporal_names: dict[str, int]
 ) -> list[tuple[str, str]]:
+    old = visible_value_text(old)
+    new = visible_value_text(new)
     found = [pair for swap in swaps(old, new) for pair in swap.pairs]
     found.extend(_temporal_pairs(old, new, temporal_names))
+    return list(dict.fromkeys(found))
+
+
+def _sentence_tokens(sentence: str) -> list[str]:
+    return [
+        token.casefold()
+        for token in re.findall(r"\w+", sentence)
+        if not any(character.isdigit() for character in token)
+    ]
+
+
+def _sentences_align(old: str, new: str) -> bool:
+    """Whether two sentences retain enough wording to be the same statement."""
+    old_tokens = _sentence_tokens(old)
+    new_tokens = _sentence_tokens(new)
+    if not old_tokens or not new_tokens:
+        return False
+    similarity = difflib.SequenceMatcher(
+        None, old_tokens, new_tokens, autojunk=False
+    ).ratio()
+    shared = set(old_tokens) & set(new_tokens)
+    return similarity >= 0.5 and (len(shared) >= 2 or similarity >= 0.8)
+
+
+def _comparison_sentences(wikitext: str) -> list[str]:
+    """Split visible prose without treating ordinal dates as sentence endings."""
+    text = _ORDINAL_PERIOD.sub(
+        lambda match: "․" if match.group(1).islower() else ".",
+        visible_value_text(wikitext),
+    )
+    return [sentence.replace("․", ".") for sentence in sentences(text)]
+
+
+def _replaced_value_pairs(
+    old: str,
+    new: str,
+    temporal_names: dict[str, int],
+    old_sentence_counts: Mapping[str, int],
+    new_sentence_counts: Mapping[str, int],
+) -> list[tuple[str, str]]:
+    """Return value pairs only from aligned old/new statement replacements."""
+    old_sentences = _comparison_sentences(old)
+    new_sentences = _comparison_sentences(new)
+    found: list[tuple[str, str]] = []
+    for operation, old_start, old_end, new_start, new_end in difflib.SequenceMatcher(
+        None,
+        [_normalise(sentence) for sentence in old_sentences],
+        [_normalise(sentence) for sentence in new_sentences],
+        autojunk=False,
+    ).get_opcodes():
+        if operation != "replace":
+            continue
+        for old_sentence, new_sentence in zip(
+            old_sentences[old_start:old_end],
+            new_sentences[new_start:new_end],
+            strict=False,
+        ):
+            if not _sentences_align(old_sentence, new_sentence):
+                continue
+            old_key = _normalise(old_sentence)
+            new_key = _normalise(new_sentence)
+            if (
+                old_sentence_counts[old_key] <= new_sentence_counts[old_key]
+                or new_sentence_counts[new_key] <= old_sentence_counts[new_key]
+            ):
+                continue
+            for old_value, new_value in _value_pairs(
+                old_sentence, new_sentence, temporal_names
+            ):
+                if not _contains_value(new_sentence, old_value) and not _contains_value(
+                    old_sentence, new_value
+                ):
+                    found.append((old_value, new_value))
     return list(dict.fromkeys(found))
 
 
@@ -299,6 +382,10 @@ async def check_page_consistency(
         except Exception:  # noqa: BLE001 - locale lookup must never hold up an edit audit
             temporal_names = {}
         page_sentences = _page_sentences(new_wikitext)
+        old_sentence_counts = _sentence_counts(old_wikitext)
+        new_sentence_counts = Counter(
+            _normalise(sentence.text) for sentence in page_sentences
+        )
         new_params = _params(new_wikitext)
         old_params = _params(old_wikitext)
         findings: list[ConsistencyFinding] = []
@@ -306,11 +393,19 @@ async def check_page_consistency(
             remaining = deadline_s - (asyncio.get_running_loop().time() - started)
             if remaining <= 0:
                 break
+            if unit.kind != "changed":
+                continue
             changed = plain(unit.new_text)
             if not changed:
                 continue
             changed_sentence = sentences(changed)[0] if sentences(changed) else changed
-            pairs = _value_pairs(unit.old_text, unit.new_text, temporal_names)
+            pairs = _replaced_value_pairs(
+                unit.old_text,
+                unit.new_text,
+                temporal_names,
+                old_sentence_counts,
+                new_sentence_counts,
+            )
             if not pairs:
                 continue
             anchors = anchor_terms(unit.new_text)

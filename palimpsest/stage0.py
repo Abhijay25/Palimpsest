@@ -1,9 +1,9 @@
 """Stage 0: deterministic pre-filter. Conservative: unsure means NOT clean."""
 
-import difflib
 import re
 import time
 from collections import Counter
+from dataclasses import dataclass
 
 import mwparserfromhell
 from pydantic import BaseModel
@@ -12,10 +12,17 @@ from palimpsest.wordlists import WATCH_LISTS, WordList
 
 _URL_RE = re.compile(r"https?://[^\s|\]<>}\"']+")
 _TOKEN_RE = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*", re.UNICODE)
-_REF_RE = re.compile(r"<ref\b[^>]*?/>|<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE)
+_REF_RE = re.compile(
+    r"<ref\b[^>]*?/\s*>|<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE
+)
+_CITATION_MARKUP_RE = re.compile(
+    r"<ref\b[^>]*?/\s*>|<ref\b[^>]*>.*?</ref>|"
+    r"\{\{\s*(?:cite|citation|sfn)\b(?:[^{}]|\{[^{}]*\})*\}\}",
+    re.DOTALL | re.IGNORECASE,
+)
 _REF_NAME_RE = re.compile(r"""\bname\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s/>"']+))""")
 _REF_PLACEHOLDER = "\ue000{}\ue001"
-_SENTENCE_END_RE = re.compile(r"[.!?](?:\ue000\d+\ue001)*\s+")
+_SENTENCE_END_RE = re.compile(r"(?<!\b[A-ZÅÄÖ])[.!?](?:\ue000\d+\ue001)*\s+")
 _PLACEHOLDER_RE = re.compile(r"\ue000(\d+)\ue001")
 _MAX_TYPO_DISTANCE = 2
 _TYPO_RELATIVE_DISTANCE = 0.25
@@ -27,6 +34,27 @@ class Stage0Result(BaseModel):
     clean: bool
     reasons: list[str]
     latency_ms: float
+
+
+@dataclass(frozen=True)
+class RemovalSummary:
+    """Deterministic evidence for a deletion that needs separate routing."""
+
+    old_plain_size: int
+    new_plain_size: int
+    removed_plain_size: int
+    removed_cited_sentences: list[str]
+
+    @property
+    def most_of_page_removed(self) -> bool:
+        return self.old_plain_size > 0 and (
+            self.new_plain_size == 0
+            or self.removed_plain_size * 2 >= self.old_plain_size
+        )
+
+    @property
+    def has_multiple_cited_removals(self) -> bool:
+        return len(self.removed_cited_sentences) >= 2
 
 
 def _parse(wikitext: str) -> mwparserfromhell.wikicode.Wikicode:
@@ -72,15 +100,27 @@ def _ref_name(ref: str) -> str | None:
     return next((g for g in match.groups() if g), None) if match else None
 
 
+def _is_reused_ref(ref: str) -> bool:
+    """Whether a ref tag is a self-closing reference reuse."""
+    return bool(re.search(r"/\s*>\s*$", ref))
+
+
 def _sentences_with_refs(wikitext: str) -> list[tuple[str, list[str]]]:
     """Sentences as (stripped text, raw ref tags); a ref belongs to the sentence it sits in or follows."""
+    return _sentences_with_markup(wikitext, _REF_RE)
+
+
+def _sentences_with_markup(
+    wikitext: str, markup: re.Pattern[str]
+) -> list[tuple[str, list[str]]]:
+    """Sentences paired with citation markup they contain or that directly follows."""
     refs: list[str] = []
 
     def stash(match: re.Match[str]) -> str:
         refs.append(match.group(0))
         return _REF_PLACEHOLDER.format(len(refs) - 1)
 
-    masked = _REF_RE.sub(stash, wikitext)
+    masked = markup.sub(stash, wikitext)
     pieces: list[str] = []
     start = 0
     for end in _SENTENCE_END_RE.finditer(masked):
@@ -96,20 +136,111 @@ def _sentences_with_refs(wikitext: str) -> list[tuple[str, list[str]]]:
     return result
 
 
-def refs_for_changed_sentences(old_wikitext: str, new_wikitext: str) -> list[str]:
-    """URLs of refs attached to sentences of new_wikitext whose text is absent from old_wikitext."""
-    old_plain = {plain for plain, _ in _sentences_with_refs(old_wikitext)}
-    named: dict[str, list[str]] = {}
-    for ref in _REF_RE.findall(new_wikitext):
-        name = _ref_name(ref)
-        if name is not None and not ref.rstrip().endswith("/>"):
-            named[name] = [u.rstrip(".,;)") for u in _URL_RE.findall(ref)]
-    urls: list[str] = []
-    for plain, refs in _sentences_with_refs(new_wikitext):
-        if plain in old_plain:
-            continue
+def _deleted_sentence_indexes(old: list[str], new: list[str]) -> list[int]:
+    """Indexes of sentences deleted outright, excluding sentence replacements."""
+    import difflib
+
+    matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
+    return [
+        index
+        for tag, i1, i2, j1, j2 in matcher.get_opcodes()
+        if tag == "delete" or (tag == "replace" and j1 == j2)
+        for index in range(i1, i2)
+    ]
+
+
+def removal_summary(old_wikitext: str, new_wikitext: str) -> RemovalSummary:
+    """Describe plain-text loss and cited sentences deleted without replacement."""
+    old_plain = strip_wikitext(old_wikitext)
+    new_plain = strip_wikitext(new_wikitext)
+    old_sentences = _sentences_with_refs(old_wikitext)
+    new_sentences = _sentences_with_refs(new_wikitext)
+    old_keys = [" ".join(sentence.split()) for sentence, _ in old_sentences]
+    new_keys = [" ".join(sentence.split()) for sentence, _ in new_sentences]
+    removed_cited_sentences = [
+        old_sentences[index][0]
+        for index in _deleted_sentence_indexes(old_keys, new_keys)
+        if old_sentences[index][1]
+    ]
+    return RemovalSummary(
+        old_plain_size=len(old_plain),
+        new_plain_size=len(new_plain),
+        removed_plain_size=max(len(old_plain) - len(new_plain), 0),
+        removed_cited_sentences=removed_cited_sentences,
+    )
+
+
+def changed_claim_has_added_citation(
+    old_wikitext: str, new_wikitext: str, claim: str
+) -> bool:
+    """Whether a changed claim's sentence carries citation markup added by the edit.
+
+    Citation markup immediately after a sentence belongs to that sentence, including
+    named-ref reuse such as a count reference whose definition is elsewhere.
+    """
+    normalised_claim = " ".join(strip_wikitext(claim).split()).casefold()
+    if not normalised_claim:
+        return False
+    return any(
+        normalised_claim in " ".join(sentence.split()).casefold()
+        for sentence in _changed_sentences_with_added_citation(
+            old_wikitext, new_wikitext
+        )
+    )
+
+
+def _changed_sentences_with_added_citation(
+    old_wikitext: str, new_wikitext: str
+) -> list[str]:
+    """Return changed sentences that carry citation markup newly added by the edit."""
+    old_sentences = {
+        sentence
+        for sentence, _ in _sentences_with_markup(old_wikitext, _CITATION_MARKUP_RE)
+    }
+    old_markup = Counter(_CITATION_MARKUP_RE.findall(old_wikitext))
+    sourced: list[str] = []
+    for sentence, markup in _sentences_with_markup(new_wikitext, _CITATION_MARKUP_RE):
+        added_markup: list[str] = []
+        for item in markup:
+            if old_markup[item]:
+                old_markup[item] -= 1
+            else:
+                added_markup.append(item)
+        if sentence not in old_sentences and added_markup:
+            sourced.append(sentence)
+    return sourced
+
+
+def refs_for_changed_sentences(
+    old_wikitext: str,
+    new_wikitext: str,
+    reference_wikitext: str | None = None,
+) -> list[str]:
+    """URLs attached to changed sentences, resolving named refs from the new page.
+
+    ``new_wikitext`` can be an edit unit while a named-ref definition is elsewhere
+    in the revision (for example, in ``{{Viitteet|refs=...}}``).  Supplying that
+    complete revision as ``reference_wikitext`` preserves the sentence-local
+    citation association without treating every page reference as changed.
+    """
+    old_sentences = _sentences_with_refs(old_wikitext)
+    new_sentences = _sentences_with_refs(new_wikitext)
+    old_plain = {plain for plain, _ in old_sentences}
+
+    def named_refs(wikitext: str) -> dict[str, list[str]]:
+        named: dict[str, list[str]] = {}
+        for ref in _REF_RE.findall(wikitext):
+            name = _ref_name(ref)
+            if name is not None and not _is_reused_ref(ref):
+                named[name] = [u.rstrip(".,;)") for u in _URL_RE.findall(ref)]
+        return named
+
+    new_named = named_refs(reference_wikitext or new_wikitext)
+    old_named = named_refs(old_wikitext)
+
+    def add_urls(refs: list[str], named: dict[str, list[str]], urls: list[str]) -> None:
         for ref in refs:
-            if ref.rstrip().endswith("/>"):
+            if _is_reused_ref(ref):
                 name = _ref_name(ref)
                 found = named.get(name, []) if name is not None else []
             else:
@@ -117,22 +248,23 @@ def refs_for_changed_sentences(old_wikitext: str, new_wikitext: str) -> list[str
             for url in found:
                 if url not in urls:
                     urls.append(url)
+
+    urls: list[str] = []
+    for plain, refs in new_sentences:
+        if plain in old_plain:
+            continue
+        add_urls(refs, new_named, urls)
+    for index in _deleted_sentence_indexes(
+        [" ".join(sentence.split()) for sentence, _ in old_sentences],
+        [" ".join(sentence.split()) for sentence, _ in new_sentences],
+    ):
+        add_urls(old_sentences[index][1], old_named, urls)
     return urls
 
 
-_CITATION_RE = re.compile(r"<ref\b|\{\{\s*(?:cite|sfn)", re.IGNORECASE)
-
-
 def changed_region_has_citation(old_wikitext: str, new_wikitext: str) -> bool:
-    """True when words inserted or replaced in new_wikitext include a ref tag or cite/sfn template."""
-    old_words = old_wikitext.split()
-    new_words = new_wikitext.split()
-    matcher = difflib.SequenceMatcher(None, old_words, new_words, autojunk=False)
-    return any(
-        _CITATION_RE.search(" ".join(new_words[j1:j2]))
-        for tag, _, _, j1, j2 in matcher.get_opcodes()
-        if tag in ("insert", "replace")
-    )
+    """True when a changed sentence carries citation markup newly added by the edit."""
+    return bool(_changed_sentences_with_added_citation(old_wikitext, new_wikitext))
 
 
 def _tokens(text: str) -> list[str]:

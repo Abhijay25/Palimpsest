@@ -6,7 +6,8 @@ from typing import Final, Literal
 
 from pydantic import BaseModel
 
-from palimpsest.stage0 import strip_wikitext
+from palimpsest.judged_text import judged_plain_text
+from palimpsest.stage0 import removal_summary
 
 TINY_UNIT_CHARS: Final = 40
 _PARAGRAPH_BREAK_RE: Final = re.compile(r"\n[ \t]*\n")
@@ -34,7 +35,7 @@ def _normalise(paragraph: str) -> str:
 def _plain(paragraph: str | None, use_wikitext: bool) -> str:
     if paragraph is None:
         return ""
-    return strip_wikitext(paragraph).strip() if use_wikitext else paragraph
+    return judged_plain_text(paragraph).strip() if use_wikitext else paragraph
 
 
 def _make_unit(old: str | None, new: str | None, use_wikitext: bool) -> EditUnit:
@@ -117,6 +118,29 @@ def split_edit(
     new_wikitext: str | None,
 ) -> list[EditUnit]:
     use_wikitext = old_wikitext is not None and new_wikitext is not None
+    if use_wikitext:
+        assert old_wikitext is not None and new_wikitext is not None
+        removal = removal_summary(old_wikitext, new_wikitext)
+        keep_whole_edit = (
+            removal.most_of_page_removed or removal.has_multiple_cited_removals
+        )
+    else:
+        keep_whole_edit = bool(old_text) and (
+            not new_text or 2 * max(len(old_text) - len(new_text), 0) >= len(old_text)
+        )
+    if keep_whole_edit:
+        # Keep page-scale removals intact so their deterministic flag uses the
+        # true page size and lists every cited sentence, rather than a fragment.
+        return [
+            EditUnit(
+                index=0,
+                old_text=old_text,
+                new_text=new_text,
+                old_wikitext=old_wikitext if use_wikitext else None,
+                new_wikitext=new_wikitext if use_wikitext else None,
+                kind="changed",
+            )
+        ]
     # Wikitext on both sides or plain text on both: never mix the two forms.
     if old_wikitext is not None and new_wikitext is not None:
         old_paras = _paragraphs(old_wikitext)
@@ -126,6 +150,8 @@ def split_edit(
         new_paras = _paragraphs(new_text)
         old_wikitext = new_wikitext = None
     if len(old_paras) <= 1 and len(new_paras) <= 1:
+        if use_wikitext:
+            return [_make_unit(old_wikitext or None, new_wikitext or None, True)]
         return [
             EditUnit(
                 index=0,
