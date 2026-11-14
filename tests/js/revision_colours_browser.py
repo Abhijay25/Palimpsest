@@ -50,10 +50,10 @@ def fixture():
             "revision_id": revision_id,
             "parent_id": parent,
             "timestamp": timestamp,
-            "user": user,
+            "user": "Imported>SourceWiki" if revision_id == 394 else user,
             "comment": "Updated wording",
             "minor": False,
-            "source": None,
+            "source": {"wiki": "enwiki", "page_id": 85, "revision_id": 393, "url": "/wiki/Example?oldid=393"} if revision_id == 394 else None,
             "url": f"/wiki/Example?oldid={revision_id}",
             "diff_url": f"/w/index.php?diff={revision_id}&oldid={parent}",
             "contributions_url": f"/wiki/Special:Contributions/{user.replace(' ', '_')}",
@@ -95,11 +95,23 @@ def contrast_report(page):
                 });
                 return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
             };
-            return Array.from(document.querySelectorAll('.pb-attributed[data-pb-color-index], .pb-selection-phrase[data-pb-color-index], .pb-revision-group[data-pb-color-index], .pb-event[data-pb-color-index]')).map(node => {
+            const ratio = (fg, bg) => {
+                const a = luminance(fg), b = luminance(bg);
+                return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+            };
+            const report = [];
+            document.querySelectorAll('.pb-attributed[data-pb-color-index], .pb-selection-phrase[data-pb-color-index], .pb-revision-group[data-pb-color-index], .pb-event[data-pb-color-index]').forEach(node => {
                 const style = getComputedStyle(node);
-                const a = luminance(style.color), b = luminance(style.backgroundColor);
-                return { selector: node.className, fg: style.color, bg: style.backgroundColor, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+                report.push({ selector: node.className, fg: style.color, bg: style.backgroundColor, ratio: ratio(style.color, style.backgroundColor) });
+                if (node.matches('.pb-event')) {
+                    node.querySelectorAll('*').forEach(child => {
+                        if (!child.textContent.trim()) return;
+                        const childStyle = getComputedStyle(child);
+                        report.push({ selector: child.tagName + '.' + child.className, text: child.textContent.trim(), fg: childStyle.color, bg: style.backgroundColor, ratio: ratio(childStyle.color, style.backgroundColor) });
+                    });
+                }
             });
+            return report;
         }"""
     )
 
@@ -124,6 +136,11 @@ def main():
             """fixture => {
                 window.__fixture = fixture;
                 window.__requests = [];
+                window.__paletteValues = new Map();
+                Object.defineProperty(window, 'sessionStorage', { configurable: true, value: {
+                    getItem: key => window.__paletteValues.has(key) ? window.__paletteValues.get(key) : null,
+                    setItem: (key, value) => window.__paletteValues.set(key, value)
+                } });
                 window.mw = {
                     config: { get: () => ({ wgPageName: 'Example', wgRevisionId: 0, wgArticleId: 85, wgCanonicalSpecialPageName: null }) },
                     util: { wikiScript: () => 'https://example.test/api.php', getUrl: (title, params) => '/wiki/' + title + '?' + new URLSearchParams(params) },
@@ -136,7 +153,7 @@ def main():
                     if (params.get('op') === 'analyze' && params.get('ranges')) {
                         response = Object.assign({}, response, { selection: {
                             ranges: JSON.parse(params.get('ranges')),
-                            revision_ids: [392, 393, 394],
+                            revision_ids: Array.from(new Set(response.spans.map(span => span.revision_id))),
                             events: response.events.filter(event => event.revision_id !== 390),
                             ambiguous: false,
                             reasons: []
@@ -168,6 +185,8 @@ def main():
         assert page.locator(".pb-selection-phrase").count() == 10
         groups = page.locator(".pb-revision-group")
         assert groups.count() == 3
+        assert page.locator(".pb-revision-group-focus").evaluate_all("nodes => nodes.every(node => node.getAttribute('aria-pressed') === 'false')")
+        assert page.locator(".pb-selection-phrase").evaluate_all("nodes => nodes.every(node => node.getAttribute('aria-pressed') === 'false')")
         expected_snippets = {
             "392": ["alpha beta gamma"],
             "393": ["delta epsilon zeta"],
@@ -176,6 +195,10 @@ def main():
         for revision_id, snippets in expected_snippets.items():
             group = page.locator(f'.pb-revision-group[data-pb-revision-id="{revision_id}"]')
             assert group.locator(".pb-group-snippet").all_text_contents() == snippets
+        imported_group_text = page.locator('.pb-revision-group[data-pb-revision-id="394"]').inner_text()
+        assert "Imported from enwiki (source page 85, source revision 393; local revision 394)" in imported_group_text
+        assert "mapped provenance, not independent authentication" in imported_group_text
+        assert "Imported from" not in page.locator('.pb-revision-group[data-pb-revision-id="392"]').inner_text()
 
         owner_ids = page.locator(".pb-selection-phrase").evaluate_all("nodes => nodes.map(node => node.dataset.pbRevisionId)")
         assert owner_ids == ["392"] * 3 + ["393"] * 3 + ["394"] * 4
@@ -184,6 +207,10 @@ def main():
 
         light_backgrounds = owner_backgrounds(page)
         assert len(set(light_backgrounds.values())) == 3, light_backgrounds
+        def rgb(value):
+            return tuple(map(int, value.removeprefix("rgb(").removesuffix(")").split(", ")))
+        light_colors = list(light_backgrounds.values())
+        assert min(sum((a - b) ** 2 for a, b in zip(rgb(left), rgb(right))) ** 0.5 for i, left in enumerate(light_colors) for right in light_colors[i + 1:]) >= 48, light_backgrounds
         mapped_bg_by_owner = page.locator(".pb-attributed").evaluate_all("nodes => nodes.map(node => [node.dataset.pbRevisionId, getComputedStyle(node).backgroundColor])")
         phrase_bg_by_owner = page.locator(".pb-selection-phrase").evaluate_all("nodes => nodes.map(node => [node.dataset.pbRevisionId, getComputedStyle(node).backgroundColor])")
         for revision_id, background in mapped_bg_by_owner:
@@ -203,6 +230,8 @@ def main():
         first_phrase.click()
         assert page.locator('.pb-revision-group[data-pb-revision-id="392"].is-focused').count() == 1
         assert page.locator(".pb-selection-phrase.is-focused").count() == 1
+        assert first_phrase.get_attribute("aria-pressed") == "true"
+        assert page.locator('.pb-selection-phrase[data-pb-revision-id="392"]').nth(1).get_attribute("aria-pressed") == "false"
         assert page.locator(".pb-selected-text").text_content() == sentence
         focused_ids = page.locator(".pb-event").evaluate_all("nodes => nodes.map(node => node.dataset.pbRevisionId)")
         assert set(focused_ids) == {"392", "388", "389", "395"}, focused_ids
@@ -217,14 +246,21 @@ def main():
         group_trigger.focus()
         page.keyboard.press("Enter")
         assert page.locator('.pb-revision-group[data-pb-revision-id="393"].is-focused').count() == 1
+        assert group_trigger.get_attribute("aria-pressed") == "true"
+        assert page.locator('.pb-revision-group[data-pb-revision-id="392"] .pb-revision-group-focus').get_attribute("aria-pressed") == "false"
+        assert page.locator('.pb-selection-phrase[data-pb-revision-id="393"]').evaluate_all("nodes => nodes.every(node => node.getAttribute('aria-pressed') === 'true')")
         assert page.locator(".pb-event").evaluate_all("nodes => nodes.map(node => node.dataset.pbRevisionId)") == ["393"]
         page.get_by_role("button", name="Show full selection").click()
+        assert page.locator(".pb-revision-group-focus").evaluate_all("nodes => nodes.every(node => node.getAttribute('aria-pressed') === 'false')")
+        assert page.locator(".pb-selection-phrase").evaluate_all("nodes => nodes.every(node => node.getAttribute('aria-pressed') === 'false')")
         assert page.evaluate("window.__requests.filter(request => request.op === 'analyze').length") == request_count, "quote and group focus are local interactions"
 
         page.evaluate("document.documentElement.classList.add('skin-theme-clientpref-night')")
         dark_backgrounds = owner_backgrounds(page)
         assert len(set(dark_backgrounds.values())) == 3, dark_backgrounds
         assert dark_backgrounds != light_backgrounds
+        dark_colors = list(dark_backgrounds.values())
+        assert min(sum((a - b) ** 2 for a, b in zip(rgb(left), rgb(right))) ** 0.5 for i, left in enumerate(dark_colors) for right in dark_colors[i + 1:]) >= 48, dark_backgrounds
         for contrast in contrast_report(page):
             assert contrast["ratio"] >= 4.5, contrast
 
@@ -244,9 +280,44 @@ def main():
         assert owner_backgrounds(page) == light_backgrounds, "date navigation must not reassign loaded revision colours"
         assert page.locator(".pb-selected-text").text_content() == sentence
         assert "Colours can repeat in long histories" in page.locator(".pb-legend").inner_text()
+        assert "Color category" not in page.locator(".pb-legend").inner_text()
+        assert "mapped passage" not in page.locator(".pb-legend").inner_text()
 
         page.set_viewport_size({"width": 390, "height": 844})
         assert page.evaluate("document.documentElement.scrollWidth <= document.documentElement.clientWidth"), "the coloured selection view must not overflow the mobile viewport"
+
+        stable_revision_393 = light_backgrounds["393"]
+        page.get_by_role("button", name="Close history").click()
+        page.evaluate(
+            """() => {
+                const alpha = window.__fixture.spans.find(span => span.start === 0);
+                alpha.revision_id = 391;
+                alpha.token_id = '391:0';
+                alpha.token_ranges = alpha.token_ranges.map(range => [range[0], range[1], '391:0']);
+                alpha.lineage_ids = alpha.lineage_ids.map(id => id === '392:0' ? '391:0' : id);
+                const revision = Object.assign({}, window.__fixture.revisions.find(item => item.revision_id === 392), { revision_id: 391, parent_id: 390 });
+                window.__fixture.revisions.push(revision);
+                const words = document.querySelectorAll('[data-pb-start]');
+                const selection = window.getSelection();
+                selection.setBaseAndExtent(words[0].firstChild, 0, words[9].firstChild, words[9].textContent.length);
+            }"""
+        )
+        page.get_by_role("button", name="Inspect selected article text").click()
+        page.wait_for_selector(".pb-breakdown")
+        changed_prefix_group = page.locator('.pb-revision-group[data-pb-revision-id="393"]')
+        assert changed_prefix_group.evaluate("node => getComputedStyle(node).backgroundColor") == stable_revision_393, "a later snapshot with a new earlier owner must preserve the page-level color assigned to revision 393"
+        page.evaluate(
+            """() => {
+                const replacement = document.createElement('div');
+                replacement.id = 'palimpsest-blame';
+                replacement.dataset.revision = '394';
+                document.getElementById('palimpsest-blame').replaceWith(replacement);
+            }"""
+        )
+        page.add_script_tag(path=str(RESOURCE / "ext.palimpsestBlame.js"))
+        page.wait_for_function("document.querySelector('.pb-attributed[data-pb-revision-id=\"393\"]')")
+        restored_group = page.locator('.pb-attributed[data-pb-revision-id="393"]').first
+        assert restored_group.evaluate("node => getComputedStyle(node).backgroundColor") == stable_revision_393, "the page-scoped session registry must preserve colors when the page script initializes again"
         browser.close()
     print("revision colour smoke passed: 3/3/4 owners, exact quote/groups, lineage focus, Vector themes, contrast, date stability, and mobile width")
 

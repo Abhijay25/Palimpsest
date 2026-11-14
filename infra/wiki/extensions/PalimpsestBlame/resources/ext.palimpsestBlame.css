@@ -1,9 +1,9 @@
 :root {
-	--pb-revision-bg-0: #f3d9d5;
+	--pb-revision-bg-0: #f5c8b8;
 	--pb-revision-fg-0: #38201c;
-	--pb-revision-bg-1: #d9eaf7;
+	--pb-revision-bg-1: #c4e8f4;
 	--pb-revision-fg-1: #172e43;
-	--pb-revision-bg-2: #d9efdf;
+	--pb-revision-bg-2: #cfecc0;
 	--pb-revision-fg-2: #1c3325;
 	--pb-revision-bg-3: #fae9c7;
 	--pb-revision-fg-3: #3c2d12;
@@ -18,11 +18,11 @@
 }
 
 html.skin-theme-clientpref-night {
-	--pb-revision-bg-0: #5b302c;
+	--pb-revision-bg-0: #66332d;
 	--pb-revision-fg-0: #fff1ed;
-	--pb-revision-bg-1: #27445b;
+	--pb-revision-bg-1: #19445b;
 	--pb-revision-fg-1: #eef7ff;
-	--pb-revision-bg-2: #28503b;
+	--pb-revision-bg-2: #31552e;
 	--pb-revision-fg-2: #edf8ef;
 	--pb-revision-bg-3: #604a24;
 	--pb-revision-fg-3: #fff6df;
@@ -38,11 +38,11 @@ html.skin-theme-clientpref-night {
 
 @media (prefers-color-scheme: dark) {
 	html.skin-theme-clientpref-os {
-		--pb-revision-bg-0: #5b302c;
+		--pb-revision-bg-0: #66332d;
 		--pb-revision-fg-0: #fff1ed;
-		--pb-revision-bg-1: #27445b;
+		--pb-revision-bg-1: #19445b;
 		--pb-revision-fg-1: #eef7ff;
-		--pb-revision-bg-2: #28503b;
+		--pb-revision-bg-2: #31552e;
 		--pb-revision-fg-2: #edf8ef;
 		--pb-revision-bg-3: #604a24;
 		--pb-revision-fg-3: #fff6df;
@@ -252,6 +252,11 @@ html.skin-theme-clientpref-night {
 .pb-event .pb-links a {
 	color: inherit;
 	text-decoration: underline;
+}
+
+.pb-event[data-pb-color-index] .pb-before strong,
+.pb-event[data-pb-color-index] .pb-after strong {
+	color: var(--pb-revision-fg);
 }
 
 .pb-event[data-pb-color-index] summary::before {
