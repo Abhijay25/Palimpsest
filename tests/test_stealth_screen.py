@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from pydantic import BaseModel
+
 from palimpsest.judge import PreparedCase
 from palimpsest.pipeline import _stealth_vectors
 from palimpsest.schema import Case
@@ -12,6 +16,34 @@ from palimpsest.stealth.scanner import (
 from palimpsest.stealth.triage import TriageVerdict, apply_triage, triage_items
 
 OLD = "Der Verein spielt in Ingolstadt."
+
+
+class _JoinerExcerpt(BaseModel):
+    title: str
+    old: str
+    new: str
+
+
+def test_orthographic_joiners_are_not_hidden_text() -> None:
+    fixture = _JoinerExcerpt.model_validate_json(
+        (Path(__file__).parent / "fixtures/big_1385645948_joiner.json").read_text()
+    )
+    result = scan(fixture.new, "WIKIPEDIA_DIFF", fixture.old)
+    assert fixture.title == "Iran University of Science and Technology"
+    assert reportable_findings(result) == []
+    assert fixture.new in result.sanitized_human_text
+
+
+def test_emoji_zwj_is_not_hidden_text_but_latin_split_is() -> None:
+    emoji = scan("The scientist is 👩‍🔬.", "WIKIPEDIA_DIFF", "")
+    devanagari = scan("क्‍ष", "WIKIPEDIA_DIFF", "")
+    latin = scan("The scient\u200bist is here.", "WIKIPEDIA_DIFF", "")
+    assert reportable_findings(emoji) == []
+    assert reportable_findings(devanagari) == []
+    assert any(
+        finding.vector_type == VectorType.INVISIBLE_CONTROL_CHARS
+        for finding in reportable_findings(latin)
+    )
 
 
 def _verdict(fid: str, injection: bool) -> TriageVerdict:

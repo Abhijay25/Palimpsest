@@ -2,6 +2,7 @@
 
 import difflib
 import re
+from dataclasses import dataclass
 
 _TOKEN = re.compile(r"\d[\d.,]*|[A-ZÅÄÖ][\w'-]+(?:\s[A-ZÅÄÖ][\w'-]+)*")
 _NUMBER = re.compile(r"\d[\d.,]*")
@@ -13,19 +14,19 @@ def _norm(value: str) -> str:
     return re.sub(r"['’]s$", "", value)
 
 
-def _values(words: list[str]) -> set[str]:
+def _values(words: list[str], starts_sentence: bool) -> list[str]:
     """Return numeric values and non-sentence-initial capitalised values."""
-    values: set[str] = set()
+    values: list[str] = []
     for index, word in enumerate(words):
         value = _norm(word)
         if _NUMBER.fullmatch(value):
-            values.add(value.rstrip(".,"))
+            values.append(value.rstrip(".,"))
         elif (
             value[:1].isupper()
-            and index > 0
-            and not words[index - 1].endswith((".", "!", "?"))
+            and (index > 0 or not starts_sentence)
+            and (index == 0 or not words[index - 1].endswith((".", "!", "?")))
         ):
-            values.add(value)
+            values.append(value)
     return values
 
 
@@ -45,36 +46,39 @@ def _same(old: str, new: str) -> bool:
     ) or difflib.SequenceMatcher(None, old, new).ratio() >= 0.8
 
 
-def swaps(old_text: str, new_text: str) -> list[tuple[set[str], set[str]]]:
-    """Return replaced, non-equivalent values grouped by changed text span."""
+@dataclass(frozen=True)
+class ValueSwap:
+    """One replace operation's positional value pairs."""
+
+    pairs: tuple[tuple[str, str], ...]
+
+
+def swaps(old_text: str, new_text: str) -> list[ValueSwap]:
+    """Return positional, non-equivalent value pairs for small replace operations."""
     old_words, new_words = old_text.split(), new_text.split()
-    found: list[tuple[set[str], set[str]]] = []
+    found: list[ValueSwap] = []
     for operation, old_start, old_end, new_start, new_end in difflib.SequenceMatcher(
         None, old_words, new_words, autojunk=False
     ).get_opcodes():
-        if operation != "replace":
+        if operation != "replace" or old_end - old_start > 6 or new_end - new_start > 6:
             continue
-        old_context = old_words[max(0, old_start - 1) : old_end]
-        new_context = new_words[max(0, new_start - 1) : new_end]
-        old_prefix = old_words[max(0, old_start - 1) : old_start]
-        new_prefix = new_words[max(0, new_start - 1) : new_start]
-        old_values = _values(old_context) - _values(old_prefix)
-        new_values = _values(new_context) - _values(new_prefix)
-        gone = {
-            value
-            for value in old_values
-            if not any(_same(value, replacement) for replacement in new_values)
-            and value not in new_text
-        }
-        came = {
-            value
-            for value in new_values
-            if not any(_same(value, replacement) for replacement in old_values)
-            and value not in old_text
-        }
-        for numeric in (True, False):
-            old_kind = {value for value in gone if value[:1].isdigit() == numeric}
-            new_kind = {value for value in came if value[:1].isdigit() == numeric}
-            if old_kind and new_kind:
-                found.append((old_kind, new_kind))
+        old_values = _values(
+            old_words[old_start:old_end],
+            old_start == 0 or old_words[old_start - 1].endswith((".", "!", "?")),
+        )
+        new_values = _values(
+            new_words[new_start:new_end],
+            new_start == 0 or new_words[new_start - 1].endswith((".", "!", "?")),
+        )
+        pairs: list[tuple[str, str]] = []
+        for old_value, new_value in zip(old_values, new_values, strict=False):
+            if (
+                old_value[:1].isdigit() == new_value[:1].isdigit()
+                and not _same(old_value, new_value)
+                and old_value not in new_text
+                and new_value not in old_text
+            ):
+                pairs.append((old_value, new_value))
+        if pairs:
+            found.append(ValueSwap(tuple(pairs)))
     return found

@@ -198,7 +198,7 @@ def scan_invisible_controls(text: str) -> ControlScanResult:
     count = 0
     run_start = -1
     for i, c in enumerate(text):
-        if c in INVISIBLE_CHARS:
+        if c in INVISIBLE_CHARS and not _orthographic_joiner(text, i):
             count += 1
             if run_start < 0:
                 run_start = i
@@ -218,6 +218,68 @@ def _make_run(text: str, start: int, end: int) -> ControlRun:
     return ControlRun(
         span=(start, end), is_bidi=any(c in BIDI_CHARS for c in text[start:end])
     )
+
+
+_JOINER_SCRIPTS = frozenset(
+    {
+        "ARABIC",
+        "BALINESE",
+        "BENGALI",
+        "DEVANAGARI",
+        "GUJARATI",
+        "GURMUKHI",
+        "JAVANESE",
+        "KANNADA",
+        "KHMER",
+        "LAO",
+        "MALAYALAM",
+        "MANDAIC",
+        "MYANMAR",
+        "NKO",
+        "ORIYA",
+        "SINHALA",
+        "SYRIAC",
+        "TAMIL",
+        "TELUGU",
+        "THAI",
+    }
+)
+
+
+def _letter_script(char: str) -> str:
+    return unicodedata.name(char, "").split(" ", 1)[0] if char.isalpha() else ""
+
+
+def _emoji_neighbour(text: str, index: int, step: int) -> bool:
+    index += step
+    while 0 <= index < len(text) and unicodedata.category(text[index]).startswith("M"):
+        index += step
+    if not 0 <= index < len(text):
+        return False
+    point = ord(text[index])
+    return 0x1F000 <= point <= 0x1FAFF or 0x2600 <= point <= 0x27BF
+
+
+def _joiner_letter_script(text: str, index: int, step: int) -> str:
+    index += step
+    while 0 <= index < len(text) and unicodedata.category(text[index]).startswith("M"):
+        index += step
+    return _letter_script(text[index]) if 0 <= index < len(text) else ""
+
+
+def _orthographic_joiner(text: str, index: int) -> bool:
+    char = text[index]
+    if char not in {"\u200c", "\u200d"}:
+        return False
+    if (
+        char == "\u200d"
+        and _emoji_neighbour(text, index, -1)
+        and _emoji_neighbour(text, index, 1)
+    ):
+        return True
+    left = _joiner_letter_script(text, index, -1)
+    right = _joiner_letter_script(text, index, 1)
+    return left == right and left in _JOINER_SCRIPTS
 
 
 @lru_cache(maxsize=4096)
