@@ -212,23 +212,41 @@ def assert_quote_ownership(page: Page, quote: str, owners: list[str], groups: li
     selected = page.locator(".pb-selected-text")
     if selected.evaluate("el => el.textContent") != quote:
         raise AssertionError("the selected quote changed while rendering ownership segments")
-    observed = selected.locator(".pb-selection-phrase[data-pb-revision-id]").evaluate_all(
-        "nodes => nodes.map(node => ({id:node.dataset.pbRevisionId,text:node.textContent}))"
+    ownership = selected.evaluate(
+        """(root,args) => {
+          const {quote,owners}=args;
+          const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+          const segments=[];let actual='';
+          while(walker.nextNode()){
+            const node=walker.currentNode,text=node.nodeValue||'';
+            if(!text)continue;
+            const owner=node.parentElement?.closest('.pb-selection-phrase[data-pb-revision-id]')?.dataset.pbRevisionId||null;
+            segments.push({start:actual.length,end:actual.length+text.length,owner,text});
+            actual+=text;
+          }
+          if(actual!==quote)return {actual,segments,reason:'text-mismatch'};
+          const expected=Array(quote.length).fill(null);
+          const tokens=[...quote.matchAll(/\\S+/gu)];
+          if(tokens.length!==owners.length)return {actual,segments,reason:'token-count'};
+          tokens.forEach((token,index)=>{
+            for(let offset=token.index;offset<token.index+token[0].length;offset++)expected[offset]=String(owners[index]);
+          });
+          for(const segment of segments){
+            for(let offset=segment.start;offset<segment.end;offset++){
+              if(!/\\s/u.test(quote[offset])&&segment.owner!==expected[offset]){
+                return {actual,segments,reason:'owner-mismatch',offset,expected:expected[offset],observed:segment.owner};
+              }
+            }
+          }
+          return {actual,segments,reason:null};
+        }""",
+        {"quote": quote, "owners": owners},
     )
+    if ownership["reason"]:
+        raise AssertionError(f"selected quote character ownership differs from expected token intervals: {ownership!r}")
+    observed = [segment for segment in ownership["segments"] if segment["owner"] is not None]
     if not observed:
         raise AssertionError("selected quote has no revision-owned phrase segments")
-    reconstructed = "".join(item["text"] for item in observed)
-    if reconstructed != quote:
-        # Some renderers leave spaces between adjacent phrase nodes. Require
-        # the full quote container to be exact; the phrase wrappers must still
-        # cover every non-whitespace token in order.
-        words = [word for item in observed for word in re.findall(r"\S+", item["text"])]
-        expected_words = re.findall(r"\S+", quote)
-        if words != expected_words:
-            raise AssertionError(f"quote phrase wrappers changed the selected words: {words!r} != {expected_words!r}")
-    observed_word_owners = [item["id"] for item in observed for _ in re.findall(r"\S+", item["text"])]
-    if observed_word_owners != owners:
-        raise AssertionError(f"selected quote ownership does not match expected token map: {observed_word_owners!r} != {owners!r}")
 
     actual_ids = page.locator(".pb-revision-group[data-pb-revision-id]").evaluate_all("nodes => nodes.map(node => node.dataset.pbRevisionId)")
     expected_ids = [group["id"] for group in groups]
