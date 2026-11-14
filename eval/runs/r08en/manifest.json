@@ -1,0 +1,11 @@
+{
+  "prompt_version": "stage2_v5",
+  "models": [
+    "haiku",
+    "sonnet"
+  ],
+  "case_files": [
+    "eval/cases/en_reverts.jsonl",
+    "eval/cases/en_controls.jsonl"
+  ]
+}
