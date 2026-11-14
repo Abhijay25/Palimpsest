@@ -46,7 +46,7 @@ def load():
             print('Imported',lang,flush=True)
 
 @lru_cache(maxsize=1)
-def embedding_model():
+def embedding_model(local_files_only=False):
     # Keep Hugging Face cache inside the project, including restricted environments.
     os.environ.setdefault('HF_HOME',str(ROOT/'model-cache'/'huggingface'))
     from fastembed import TextEmbedding
@@ -57,7 +57,7 @@ def embedding_model():
             normalization=True, sources=ModelSource(hf='Xenova/multilingual-e5-small'),
             dim=384, model_file='onnx/model_quantized.onnx',
             description='Multilingual E5 small, quantized ONNX export', license='mit',size_in_gb=.118)
-    model = TextEmbedding(model_name=MODEL, cache_dir=str(ROOT/'model-cache'), threads=4)
+    model = TextEmbedding(model_name=MODEL, cache_dir=str(ROOT/'model-cache'), threads=4, local_files_only=local_files_only)
     return model
 
 def embed_topics(topics, rebuild=False):

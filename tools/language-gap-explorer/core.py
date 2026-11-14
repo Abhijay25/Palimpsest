@@ -6,7 +6,7 @@ import struct
 from pathlib import Path
 import pymysql
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(os.getenv('NEOWIKI_RESEARCH_ROOT', Path(__file__).resolve().parent)).resolve()
 MODEL = 'intfloat/multilingual-e5-small'
 LANGS = ('fi', 'en', 'sv')
 

@@ -1,0 +1,104 @@
+NeoWiki Finnish-history showcase: verified data status
+Verified: 14 November 2026. All source cutoffs below are UTC.
+
+Articles: 20; ready: 18; partial: 2; failed: 0; queued/running: 0
+Distinct questions at latest observations: 1301; all-time article-scoped questions: 1597.
+Observations: 105; states: complete=103, partial=2
+Latest observed categories: additional context=1069, different framing=231, possible contradiction=1.
+Unassessed candidate pairs: 1632; deferred grouping assignments: 0.
+
+Question naming and search coverage (exact selected runs, excluding legacy cohorts):
+- 1597 of 1597 groups indexed for keyword/local-vector search.
+- 361 accepted question titles, 898 provisional labels, 338 review-needed labels.
+- Zero failed, pending or missing naming records; zero pending batches.
+- Grounding threshold remained 0.90. Labels are metadata over discovered disagreement groups, not generated questions answered against the articles.
+- Completed naming metadata was refreshed without changing assessment timestamps; all workers exited.
+
+Per-article results (latest/all-time counts deduplicate semantic groups, not passages):
+ID | Article | Editions | Status | Latest | All-time | Source cutoff | Unknown pairs | Grouping deferred
+Q134949 | Winter War | EN/FI/SV | ready | 135 | 431 | 2025-07-29T18:20:39Z | 0 | 0
+Q122100 | Continuation War | EN/FI/SV | partial | 158 | 158 | 2025-06-23T06:26:18Z | 272 | 0
+Q211855 | Finnish Civil War | EN/FI/SV | partial | 183 | 183 | 2025-03-18T16:49:21Z | 1360 | 0
+Q154940 | Lapland War | EN/FI/SV | ready | 93 | 93 | 2025-01-23T16:01:21Z | 0 | 0
+Q202808 | History of Finland | EN/FI/SV | ready | 83 | 83 | 2025-04-29T16:37:30Z | 0 | 0
+Q62633 | Grand Duchy of Finland | EN/FI/SV | ready | 85 | 85 | 2024-07-04T20:41:26Z | 0 | 0
+Q12375230 | Finland under Swedish rule | EN/FI/SV | ready | 72 | 72 | 2024-12-13T10:22:51Z | 0 | 0
+Q736268 | Finnish War | EN/FI/SV | ready | 81 | 81 | 2025-04-28T14:44:32Z | 0 | 0
+Q620854 | Treaty of Tartu (Finland–Russia) | EN/FI/SV | ready | 41 | 41 | 2024-04-09T00:26:24Z | 0 | 0
+Q1130792 | Treaty of Fredrikshamn | EN/FI/SV | ready | 19 | 19 | 2024-07-18T17:43:07Z | 0 | 0
+Q823175 | Finlandization | EN/FI/SV | ready | 33 | 33 | 2023-12-13T17:41:53Z | 0 | 0
+Q2920215 | Finland's language strife | EN/FI/SV | ready | 18 | 18 | 2021-05-31T11:25:44Z | 0 | 0
+Q2328052 | Russification of Finland | EN/FI/SV | ready | 44 | 44 | 2024-12-07T11:48:04Z | 0 | 0
+Q1799569 | Fennoman movement | EN/FI/SV | ready | 16 | 16 | 2020-05-06T16:04:10Z | 0 | 0
+Q2573930 | Svecoman movement | EN/FI/SV | ready | 10 | 10 | 2024-03-16T00:07:19Z | 0 | 0
+Q27916528 | Independence of Finland | EN/FI/SV | ready | 56 | 56 | 2024-09-05T16:04:35Z | 0 | 0
+Q175720 | Greater Finland | EN/FI/SV | ready | 51 | 51 | 2024-03-08T08:33:24Z | 0 | 0
+Q42901487 | Swedish colonisation of Finland | EN/FI/SV | ready | 9 | 9 | 2024-02-08T16:14:48Z | 0 | 0
+Q615902 | Kingdom of Finland (1918) | EN/FI/SV | ready | 83 | 83 | 2024-10-06T03:23:13Z | 0 | 0
+Q2606233 | Tornedalians | EN/FI/SV | ready | 31 | 31 | 2024-12-24T02:26:57Z | 0 | 0
+
+Exact-source audit:
+- Stored supporting occurrences checked: 12645.
+- Source excerpts checked: 25290.
+- Distinct language/revision source files checked: 227.
+- Invalid occurrences: 0.
+- Checks: selected editions, article-scoped group identity, exact quote offsets, source revision URL, source time at/before observation, source time at/before the dataset anchor.
+- Cached source text was read directly; the audit made no provider calls or source downloads.
+
+Interpretation:
+- Ready means the configured sampled comparisons completed, not that model findings are verified truth or exhaustive coverage.
+- Partial runs preserve successful cached findings. Failed comparison requests remain unassessed; unknown pairs are not extra questions and do not mean agreement.
+- The two partial articles retain earlier failed request reservations. Recovery reused completed comparisons without resending failed ones.
+- Winter War has 86 real monthly/recent observations from 2020-01-31 through 2025-07-29; the other 19 featured articles have one dataset-era as-of snapshot each.
+- Source cutoffs vary by article and are the common covered dataset time, not current Wikipedia. Rendered historical HTML can include newer transclusions.
+- Semantic grouping and category labels are provisional. Question-title acceptance is a source-grounding check, not a fact-verification judgment.
+- The single model-flagged possible contradiction is in Finland under Swedish rule (Q12375230), group 24b9c2f95c60c01109920309b13c108efa9afec887abe386a302e35cb89ae460, EN/FI, observed 2024-12-13. Manual inspection suggests a false positive: both excerpts say Karl was named regent at the 1597 Arboga Diet and declared Klaus Fleming a rebel. The independent predicates returned contradiction=0.98 and compatible=1.0. Do not present this as a verified factual discrepancy.
+- Source revisions for that review example: https://en.wikipedia.org/w/index.php?oldid=1257030008 and https://fi.wikipedia.org/w/index.php?oldid=22871773 .
+- No discrepancies, continuous lifetimes, severity scores or Wikipedia edits were fabricated. No full-corpus job or native MediaWiki change was run.
+
+Safe operational commands (run from tools/language-gap-explorer):
+  python -B article_pipeline.py showcase
+  python -B article_pipeline.py status
+  python -B article_pipeline.py resume --topic Q122100
+  python -B article_pipeline.py resume --topic Q211855
+  python -B article_pipeline.py worker --workers 2 --once
+  python -B question_titles.py worker --workers 2 --once
+Resume reuses durable checkpoints and successful caches. It does not erase reservations or retry failed provider requests; filling those unknown cases needs an explicit reviewed retry policy.
+The existing 512 MiB disk guard remains enabled. Do not weaken it.
+
+Run identities:
+  Q134949: fa7640c018ea710fcee9a7f2a5baad873a712fda85bb485575cb88a61492c630
+  Q122100: 0ba09ea8d35ec2b2a0722fd8d76130309bce272cf3cf7ab897cdc617082d86a4
+  Q211855: 4d107c761b52cc47c43218553bd265eefa8c4905de0b28d2ec6e4e89c4b1b7e0
+  Q154940: 7c3aa0db9701c2d9b16b8cf068d58390ce770ab2c5ed8aad6e4caceb68f26af3
+  Q202808: dd4cd5e0c1bbc8cea7e4aec61fafb116b5e63fb4bd841bb50a715cb2a2b3baa8
+  Q62633: 176ef717c02946e859427804abfb12b448b028e1319e480ea91a518630158508
+  Q12375230: f167a8d2e53897b33d10f5d368414b3ab8ed50aace03ce2318644cc5a4e8274d
+  Q736268: b06054141cfc735cac60f01a21a57748619e37b6cacac98d75950e894822ac79
+  Q620854: 67af166ae837b7efb83ab8c00fa4fdd379e3653f803531cd44f3b80414ebc5db
+  Q1130792: 2ba48d7f0aa506825885a835f89a2be10cf7692aa949ed169801248384591d8c
+  Q823175: 001c3ef7a5cf3d2b912b4ff5d97ac6077b7b8f389f4be2868576b17060f1dd15
+  Q2920215: 40c62324a860d38642f6343cfb8ec5e7144c80d0c0ecb71ac6a29c2e9db6b83e
+  Q2328052: 13270ce427e74ff18745c907fea664da0218e666dfff05b127ccfd5be14cb1ad
+  Q1799569: 5748a67aca84214b32f4c8c3de2d2b9b13175be97511b6ee73893a69e16c189e
+  Q2573930: d1e383eead6e557e48b9ac6f28bd1ba0520e7e97c98e295115b7184209ea1167
+  Q27916528: 115c9ef529feb2ad19e7a116e4aaa26324065deeedcd879bf8b447c2ba1e35f3
+  Q175720: 49d7801b4d18830e6a698484979c2dd0adab199c59ba84e149c80f7795e394fe
+  Q42901487: 745414c2245bb27b608d5896808727bfd521340c49ea8fef8c64444a871f17a7
+  Q615902: a5e4cc6fedb792e86a434129e4c5b349cf97c6307adddfda4c73ae1bee089436
+  Q2606233: 63b43e73d84005b736a3f9951e087fd152b6dd9bda9fb17c46347c8d7a996f1f
+
+Final exact-source sentence localization audit (2026-11-14):
+- Explicit background Decisions predicate preparation only; article/evidence browsing reads the cache and never starts inference.
+- Latest observations across the 20 selected showcase runs: 232 eligible framing/possible-contradiction groups, covering 236 actual supporting occurrence variants. All 236 variants have completed cache entries: 50 ready with strict sentence witnesses, 109 NONE, 77 inconclusive/unassessed. Those latest variants contain 71 selected sentence spans.
+- Winter War history: all 848 stored eligible occurrences are covered by 39 unique article/group/category/exact-quote scopes. Their cache outcomes are 9 ready, 17 NONE and 13 inconclusive, with 12 selected sentence spans. Twelve of these scopes overlap the latest-observation pass.
+- Combined latest + historical coverage: 1,072 stored occurrence records reuse 263 unique completed cache entries. Outcomes: 55 ready, 121 NONE and 87 inconclusive/unassessed; 77 selected sentence spans in total. There are zero failed or pending cache entries and zero invalid source offsets.
+- Every new selected span passed the sentence probability >= 0.85 gate and the strong NOT-NONE gate. Selected text was reconstructed from untouched original-language source offsets; exact offset/text checks and input non-mutation checks passed. No lexical cross-language fallback, generated quote, forced counterpart highlight or invented evidence was used.
+- The sole eligible possible-contradiction scope remains inconclusive with no forced marks. NONE/inconclusive localization does not prove agreement or resolution, and a selected sentence is still a model judgment requiring human review. Original category judgments were not relabeled.
+- Main Winter War Soviet-aims example f126c0d7174a163efba7b0b34d24e4609532ca8e5e387184f3954405b2f271b6 is ready: one exact Swedish sentence is marked; English background remains unmarked.
+- Eighteen isolated localization tests passed. All preparation, naming and localization runtime workers have exited; no background inference remains queued by this audit.
+
+Explicit localization commands (run from tools/language-gap-explorer):
+  python -B evidence_highlights.py --showcase --workers 4
+  python -B evidence_highlights.py --showcase --all-occurrences --history-topic Q134949 --workers 4
+Successful, failed and reserved cache records are retained; these commands do not reset failed provider reservations. Cache identity includes the configured model, policy, article, semantic group, category and exact selected-language quote scope. Unchanged text reuses localization across source dates/revisions and evidence-order changes without changing current revision provenance.
