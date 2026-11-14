@@ -1,0 +1,65 @@
+{
+	"name": "PalimpsestBlame",
+	"version": "1.0.0",
+	"author": "Palimpsest contributors",
+	"type": "other",
+	"requires": {
+		"MediaWiki": ">= 1.46.0",
+		"platform": {
+			"php": ">= 8.2"
+		}
+	},
+	"AutoloadNamespaces": {
+		"MediaWiki\\Extension\\PalimpsestBlame\\": "includes/"
+	},
+	"MessagesDirs": {
+		"PalimpsestBlame": [ "i18n" ]
+	},
+	"JobClasses": {
+		"palimpsestblamebuild": "MediaWiki\\Extension\\PalimpsestBlame\\Job\\BlameBuildJob"
+	},
+	"Actions": {
+		"blame": {
+			"class": "MediaWiki\\Extension\\PalimpsestBlame\\Action\\BlameAction"
+		}
+	},
+	"APIModules": {
+		"palimpsestblame": {
+			"class": "MediaWiki\\Extension\\PalimpsestBlame\\Api\\BlameApi"
+		}
+	},
+	"Hooks": {
+		"SkinTemplateNavigation::Universal": "MediaWiki\\Extension\\PalimpsestBlame\\Hooks::onSkinTemplateNavigation",
+		"LoadExtensionSchemaUpdates": "MediaWiki\\Extension\\PalimpsestBlame\\Hooks::onLoadExtensionSchemaUpdates"
+	},
+	"ServiceWiringFiles": [
+		"ServiceWiring.php"
+	],
+	"config": {
+		"PalimpsestBlameProvenanceDirectory": {
+			"value": null,
+			"description": "Read-only directory containing verified per-language provenance bundles."
+		},
+		"PalimpsestBlameJobBatchRevisions": {
+			"value": 3,
+			"description": "Maximum number of public revisions processed by one queued attribution job run."
+		}
+	},
+	"ResourceModules": {
+		"ext.palimpsestBlame": {
+			"scripts": [
+				"resources/helpers.js",
+				"resources/ext.palimpsestBlame.js"
+			],
+			"styles": [
+				"resources/ext.palimpsestBlame.css"
+			],
+			"dependencies": [
+				"mediawiki.api",
+				"mediawiki.util",
+				"mediawiki.user"
+			]
+		}
+	},
+	"manifest_version": 2
+}
