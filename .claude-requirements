@@ -14,3 +14,7 @@ Product goal (user, 2026-11-14 14:58): an assistive proofreader that does the fi
 
 ## Remote publishing (user, 2026-11-14)
 - Push work that is satisfactory (tests/mypy/ruff green, no secrets) to the remote branch `mvp` on origin, even if work on it continues. In-progress work stays local until it is good enough. Never push to `main`. Push explicit verified commits (`git push origin <sha>:refs/heads/mvp`), not whatever HEAD is while a worker is committing.
+
+## Human in the loop (user, 2026-11-14 20:37)
+- The admin makes the final decision; the tool helps them be the last line of defence. Priority: do not miss an edit that deserves review, and give the most plausible reason it needs review, with evidence. Never phrase output as approval/rejection.
+- Hackathon scope: be very good at a limited set of scenarios first, expand later. Guide the model with a fixed checklist rather than letting it reason freely; out-of-scope suspicions go to a lower `review` tier instead of being dropped. Design: docs/guided-judge-design.md.

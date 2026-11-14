@@ -1,0 +1,207 @@
+{
+ "en_revert_1385468020": {
+  "label": "NON_CONTENT",
+  "should_flag": false,
+  "why": "Unsourced fraternity membership detail; not contentious or shown false."
+ },
+ "en_revert_1385594914": {
+  "label": "NON_CONTENT",
+  "should_flag": false,
+  "why": "Grammar fix and tense change; replacement already planned per source."
+ },
+ "en_revert_1385466882": {
+  "label": "FACTUAL_ERROR",
+  "should_flag": true,
+  "why": "Swaps production company name without support from source."
+ },
+ "en_revert_1385541035": {
+  "label": "VANDALISM",
+  "should_flag": true,
+  "why": "Inserts nonsensical 'uncertified' into referee description."
+ },
+ "en_revert_1385512167": {
+  "label": "UNSOURCED_CONTENTIOUS",
+  "should_flag": true,
+  "why": "Adds unsupported speculative claim about current Truck Series ride."
+ },
+ "en_revert_1385518166": {
+  "label": "UNCLEAR",
+  "should_flag": false,
+  "why": "Adds unsourced middle name; cannot verify."
+ },
+ "en_revert_1385611803": {
+  "label": "NON_CONTENT",
+  "should_flag": false,
+  "why": "Only a spacing fix; reverted by mistake."
+ },
+ "en_revert_1385513346": {
+  "label": "POV_FRAMING",
+  "should_flag": true,
+  "why": "Promotional award claim spliced onto sentence, unsourced, spam."
+ },
+ "en_revert_1385548211": {
+  "label": "REMOVED_SOURCED_CONTENT",
+  "should_flag": true,
+  "why": "Replaces sourced propaganda caveat with unsourced opinion."
+ },
+ "en_revert_1385528854": {
+  "label": "NON_CONTENT",
+  "should_flag": false,
+  "why": "Minor wording tweaks only."
+ },
+ "en_revert_1385544762": {
+  "label": "NON_CONTENT",
+  "should_flag": false,
+  "why": "Self-published book citation, promotional inclusion dispute."
+ },
+ "en_revert_1385525274": {
+  "label": "POV_FRAMING",
+  "should_flag": true,
+  "why": "Unattributed puffery: best driver in the world."
+ },
+ "en_revert_1385407418": {
+  "label": "POV_FRAMING",
+  "should_flag": true,
+  "why": "Subjective greatest-of-all-time phrasing, unsourced BLP additions."
+ },
+ "en_revert_1385506301": {
+  "label": "FACTUAL_ERROR",
+  "should_flag": true,
+  "why": "Birth year changed from 1997 to 2009 without source."
+ },
+ "en_revert_1385321795": {
+  "label": "POV_FRAMING",
+  "should_flag": true,
+  "why": "Inserts 'great' as unattributed praise."
+ },
+ "en_revert_1385344942": {
+  "label": "UNSOURCED_CONTENTIOUS",
+  "should_flag": true,
+  "why": "Adds unsourced Latin Grammy-winning claim."
+ },
+ "en_revert_1385316294": {
+  "label": "POV_FRAMING",
+  "should_flag": true,
+  "why": "Calls subject 'a known racist' in wikivoice, loaded label."
+ },
+ "en_revert_1385450576": {
+  "label": "POV_FRAMING",
+  "should_flag": true,
+  "why": "Puffery word 'powerhouse' added."
+ },
+ "en_revert_1384495040": {
+  "label": "UNCLEAR",
+  "should_flag": false,
+  "why": "Adds unsourced spiritual interpretation; cannot verify."
+ },
+ "en_revert_1385312976": {
+  "label": "VANDALISM",
+  "should_flag": true,
+  "why": "Inserts 'best city in the world' and breaks sentence."
+ },
+ "en_revert_1385342949": {
+  "label": "VANDALISM",
+  "should_flag": true,
+  "why": "Insulting unsourced description of a deceased person."
+ },
+ "fi_revert_22878377": {
+  "label": "UNSOURCED_CONTENTIOUS",
+  "should_flag": true,
+  "why": "Adds unsourced claim that Sukselainen was a KGB agent."
+ },
+ "fi_revert_21255176": {
+  "label": "UNSOURCED_CONTENTIOUS",
+  "should_flag": true,
+  "why": "Unsourced claim that most recordings are translations or plagiarised."
+ },
+ "fi_revert_15384927": {
+  "label": "UNCLEAR",
+  "should_flag": false,
+  "why": "Unsourced addition about later military volunteer service; plausible but unverified."
+ },
+ "fi_revert_19933245": {
+  "label": "UNCLEAR",
+  "should_flag": false,
+  "why": "Unsourced etymology claim about colloquial name."
+ },
+ "fi_revert_16031803": {
+  "label": "FACTUAL_ERROR",
+  "should_flag": true,
+  "why": "Claims he is current oldest member of parliament; unsourced and outdated."
+ },
+ "fi_revert_14960231": {
+  "label": "UNSOURCED_CONTENTIOUS",
+  "should_flag": true,
+  "why": "Unsourced interpretive claim about communists in government."
+ },
+ "fi_revert_16037500": {
+  "label": "UNCLEAR",
+  "should_flag": false,
+  "why": "Adds education details to Stubb; reverted without clear reason."
+ },
+ "fi_revert_23102514": {
+  "label": "VANDALISM",
+  "should_flag": true,
+  "why": "Ukrainian off-topic personal complaint appended to article."
+ },
+ "fi_revert_15191259": {
+  "label": "REMOVED_SOURCED_CONTENT",
+  "should_flag": true,
+  "why": "Condenses and removes detail about reduction of presidential powers."
+ },
+ "fi_revert_20253439": {
+  "label": "UNCLEAR",
+  "should_flag": false,
+  "why": "Block-evasion edit; election-date claim wrong but 2021 postponement is sourced."
+ },
+ "fi_revert_16572122": {
+  "label": "UNSOURCED_CONTENTIOUS",
+  "should_flag": true,
+  "why": "Claims Aho was fired as unnecessary; source says he left."
+ },
+ "fi_revert_21691089": {
+  "label": "UNCLEAR",
+  "should_flag": false,
+  "why": "Changes peak heights; partly matches source but not verified."
+ },
+ "fi_revert_14689737": {
+  "label": "VANDALISM",
+  "should_flag": true,
+  "why": "Introduces typos and garbled spacing into text."
+ },
+ "fi_revert_22027634": {
+  "label": "VANDALISM",
+  "should_flag": true,
+  "why": "Nonsense sentence appended."
+ },
+ "fi_revert_23487465": {
+  "label": "UNCLEAR",
+  "should_flag": false,
+  "why": "Unsourced association-register detail by block evader."
+ },
+ "fi_revert_18461544": {
+  "label": "FACTUAL_ERROR",
+  "should_flag": true,
+  "why": "Swaps u/y sound claim and adds unsupported letter substitutions."
+ },
+ "fi_revert_23153846": {
+  "label": "VANDALISM",
+  "should_flag": true,
+  "why": "Garbled nonsense text inserted into the definition."
+ },
+ "fi_revert_15356378": {
+  "label": "FACTUAL_ERROR",
+  "should_flag": true,
+  "why": "Reverses sourced fact that Russians admitted staging the shelling."
+ },
+ "fi_revert_22115704": {
+  "label": "VANDALISM",
+  "should_flag": true,
+  "why": "Joke or personal comment about a private relationship."
+ },
+ "fi_revert_22022025": {
+  "label": "NON_CONTENT",
+  "should_flag": false,
+  "why": "Cousin claim is supported by cited source; reverted for sourcing in article."
+ }
+}
