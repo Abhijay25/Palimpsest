@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Explore divergence · NeoWiki</title><meta name="review-token" content="{{ session.get('review_token','') }}">
+  <meta name="description" content="Explore how differences between Wikipedia language editions evolve over time.">
+  <link rel="stylesheet" href="{{ url_for('static',filename='discrepancy-explorer.css') }}">
+
+
+<link rel="stylesheet" href="{{ url_for('static',filename='skyline.css') }}"><script src="{{ url_for('static',filename='skyline-model.js') }}" defer></script><script src="{{ url_for('static',filename='skyline.js') }}" defer></script></head>
+<body>
+<a class="skip" href="#main">Skip to explorer</a>
+<svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+ <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+ <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+ <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+ <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+ <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+ <symbol id="i-link" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6L10 14M10 5H5v14h14v-5"/></symbol>
+ <symbol id="i-book" viewBox="0 0 24 24"><path d="M3 4h7l2 2 2-2h7v15h-7l-2 2-2-2H3zM12 6v15"/></symbol>
+ <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol><symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol><symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+ <symbol id="i-left" viewBox="0 0 24 24"><path d="m14 5-7 7 7 7"/></symbol>
+ <symbol id="i-right" viewBox="0 0 24 24"><path d="m10 5 7 7-7 7"/></symbol>
+</defs></svg>
+<header class="site-header">
+ <a href="/explore" class="brand" aria-label="NeoWiki explorer"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M5 9h19v22H5zM11 5h19v22M17 1h18v21"/><path d="M10 15h9m-9 5h9m-9 5h5"/></svg><span>NeoWiki</span></a>
+ <span class="header-description">Divergence explorer</span>
+ <button id="edit-query" class="graph-query" type="button" hidden><span id="query-summary"></span><span id="query-languages"></span><svg class="icon"><use href="#i-down"/></svg></button>
+ <button id="guide-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="reading-guide">About this view</button>
+</header>
+<main id="main">
+ <section class="prompt-screen" id="prompt-screen" aria-label="Choose what to explore">
+  <form class="query-builder" id="query-form" aria-label="View divergence in a topic for selected languages">
+   <div class="prompt-line"><span>View divergence in</span><div class="topic-field"><label class="sr-only" for="topic-search">Wikipedia article or topic group</label><div class="search-shell"><input id="topic-search" autocomplete="off" aria-controls="topic-results" aria-expanded="false" role="combobox" placeholder="a topic or Wikipedia page"><button type="button" id="topic-toggle" class="icon-button" aria-label="Browse sample topics"><svg class="icon"><use href="#i-down"/></svg></button></div><div class="search-results" id="topic-results" role="listbox" hidden></div></div></div>
+   <div class="prompt-line second-line"><span>for</span><div class="languages-field"><span id="languages-label" class="sr-only">Compare language editions</span><div class="language-control" aria-labelledby="languages-label"><span id="language-placeholder">choose languages</span><div id="language-pills"></div><button type="button" class="icon-button add-language" id="add-language" aria-label="Add a language" aria-expanded="false"><svg class="icon"><use href="#i-plus"/></svg></button></div><div id="language-menu" class="language-menu" hidden><label for="language-search">Find a language</label><input type="search" id="language-search" placeholder="Search languages"><div id="language-options"></div></div></div><button class="primary explore-button" type="submit" aria-label="Explore timeline"><svg class="icon"><use href="#i-arrow"/></svg></button></div>
+  </form>
+  <p class="prompt-description">The same question. Across languages. Over time.</p>
+  <div class="example-prompts"><span>Explore real data</span><button data-example="Q134949" type="button">Winter War <small>EN · FI · SV</small></button></div>
+  <p class="prompt-note">Explore how English, Finnish and Swedish accounts differ over time.</p>
+ </section>
+
+ <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
+ <section id="skyline-screen" class="skyline-screen" aria-label="Divergence skyline" hidden>
+  <div class="skyline-heading"><div><h1 id="topic-title">Winter War</h1><p id="skyline-subtitle"></p></div><div class="skyline-tools"><label for="kind-filter" class="sr-only">Difference category</label><select id="kind-filter"><option value="all">All differences</option><option value="contradiction">Possible contradiction</option><option value="framing">Different framing</option><option value="coverage">Additional context</option></select><button id="skyline-reset" type="button">Reset view</button></div></div>
+  <div class="skyline-chart-region"><p class="skyline-axis-title">Questions with differences</p><div id="timeline-chart" class="skyline-chart" aria-busy="false"></div></div>
+  <aside id="question-panel" class="question-panel" aria-label="Questions at the selected observation" hidden><div class="question-panel-top"><h2 id="questions-heading" tabindex="-1">Questions</h2><button id="close-questions" type="button" aria-label="Close questions">×</button></div><p id="questions-context"></p><button type="button" id="zoom-period">Zoom into this period</button><div id="question-list" aria-live="polite"></div><div id="question-pagination"><button id="questions-previous" type="button">Previous</button><span id="questions-page"></span><button id="questions-next" type="button">Next</button></div></aside>
+  <div class="skyline-bottom"><div class="skyline-legend"><span><i class="key coverage"></i>Additional context</span><span><i class="key framing"></i>Different framing</span><span><i class="key contradiction"></i>Possible contradiction</span><span><i class="key unknown"></i>Not observed</span><div class="skyline-zoom"><button id="skyline-zoom-out" type="button" aria-label="Zoom out">−</button><button id="skyline-zoom-in" type="button" aria-label="Zoom in">+</button></div></div><div class="skyline-window"><span id="window-label"></span><span id="resolution-label"></span></div><div class="skyline-brush"><div id="brush-selection"></div><input id="window-start" type="range" min="0" max="100" value="0" aria-label="Timeline window start"><input id="window-end" type="range" min="0" max="100" value="100" aria-label="Timeline window end"></div><div class="skyline-caption"><span id="skyline-status">Real historical comparisons</span><span>Latest assessed observation in each period · gaps are unknown</span></div></div>
+ </section>
+ <aside id="reading-guide" class="reading-guide" hidden><button type="button" id="close-guide" aria-label="Close guide">Close</button><h2>Where do the editions differ?</h2><p>Each column counts distinct semantic questions at one observed date. A question counts once even if several passages or language pairs differ.</p><p>Select a column to read its questions. Select a question to open the article’s discrepancy tracker, focused on its exact historical evidence.</p><p>Columns use the latest assessed observation within each calendar period. Missing observations are unknown, not agreement or resolution. Colors describe model-assessed differences, not truth, bias or reliability.</p><p id="run-warning"></p></aside>
+ <div id="chart-tooltip" class="skyline-tooltip" role="tooltip" hidden></div>
+</main><footer class="landing-footer"><span>Independent research prototype</span><span>Wikipedia contributors · CC BY-SA 4.0 · No automatic edits</span></footer>
+<noscript><p>Enable JavaScript to explore cached historical comparisons.</p></noscript></body></html>

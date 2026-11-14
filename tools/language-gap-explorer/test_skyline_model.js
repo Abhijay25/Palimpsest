@@ -1,0 +1,12 @@
+const assert=require('node:assert/strict');
+const M=require('./static/skyline-model.js');
+const point=(stamp,n,state='complete')=>({stamp,state,counts:{coverage:n,framing:0,contradiction:0}});
+let result=M.bins([point('2025-01-02T00:00:00Z',7),point('2025-01-20T00:00:00Z',4)],Date.UTC(2020,0,1),Date.UTC(2026,0,1),12);
+assert.equal(result.unit,'year');assert.equal(result.bins.at(-1).total,4,'Use the latest observation, not 7+4');
+assert.equal(result.bins[0].total,null,'Unknown year is not zero');
+result=M.bins([point('2025-01-01T00:00:00Z',0)],Date.UTC(2025,0,1),Date.UTC(2025,0,2),7);
+assert.equal(result.unit,'day');assert.equal(result.bins[0].total,0);assert.ok(result.bins[0].observation);
+result=M.bins([point('2025-01-01T00:00:00Z',5),point('2025-01-02T00:00:00Z',8,'unknown')],Date.UTC(2025,0,1),Date.UTC(2025,0,3),7);
+assert.equal(result.bins[1].total,null,'Never carry a previous count into an unobserved day');
+result=M.bins([],Date.UTC(2025,0,1),Date.UTC(2025,6,30),7);assert.ok(result.bins.length<=7);
+console.log('Skyline calendar aggregation checks passed.');
