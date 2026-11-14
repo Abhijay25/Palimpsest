@@ -6,9 +6,10 @@ is not inferred: it cannot be read reliably from a diff (session-2 finding).
 """
 
 import re
+from dataclasses import dataclass
 from typing import Final, Literal
 
-from palimpsest.schema import AuditOutput
+from palimpsest.schema import AuditOutput, FlaggedSpan, FlagKind, FlagTier, SourceWindow
 
 ReasonCode = Literal[
     "CONTRADICTS_SOURCE",
@@ -33,6 +34,58 @@ REASON_TEXT: Final[dict[ReasonCode, str]] = {
 
 # The judge prompt asks it to mark quoted deleted text, e.g. "... (removed)".
 _REMOVAL_MARK: Final = re.compile(r"\s*\((?:removed|deleted)\)\s*$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class SpanPolicy:
+    """The display and routing decision for one independently classified span."""
+
+    kind: FlagKind | None
+    tier: FlagTier | None
+    title: str | None
+
+
+_SPAN_FLAG_KIND: Final[dict[str, FlagKind]] = {
+    "CONTRADICTION": "FACT",
+    "VALUE_CHANGE": "FACT",
+    "REMOVED_QUALIFIER": "REMOVED_CONTEXT",
+    "MOTIVE_CAUSE": "MOTIVE",
+    "EVALUATIVE_LABEL": "FRAMING",
+    "EDITORIAL_VOICE": "FRAMING",
+    "NON_ENCYCLOPEDIC": "FRAMING",
+}
+
+_SPAN_TITLE: Final = {
+    "CONTRADICTION": "Claim contradicts cited source",
+    "VALUE_CHANGE": "Changed value needs source review",
+    "REMOVED_QUALIFIER": "Sourced context was removed",
+    "MOTIVE_CAUSE": "Unsupported motive or cause",
+    "EVALUATIVE_LABEL": "Evaluative label needs review",
+    "EDITORIAL_VOICE": "Editorial voice needs review",
+    "NON_ENCYCLOPEDIC": "Non-encyclopedic content needs review",
+    "SIZE_RANK_CLAIM": "Size or rank claim needs source review",
+}
+
+
+def _source_states_span(span: FlaggedSpan, window: SourceWindow | None) -> bool:
+    if window is None:
+        return False
+    source = _norm(window.text)
+    return bool(source) and _norm(span.exact_substring) in source
+
+
+def span_policy(
+    span: FlaggedSpan, judge_tier: FlagTier, window: SourceWindow | None
+) -> SpanPolicy:
+    """Apply the owner's wording policy without trusting a unit-level verdict."""
+    span_type = span.span_type.value
+    if span_type in {"INTENSIFIER", "REGISTER"}:
+        return SpanPolicy(None, None, None)
+    if span_type == "SIZE_RANK_CLAIM":
+        if _source_states_span(span, window):
+            return SpanPolicy(None, None, None)
+        return SpanPolicy("FACT", "review", _SPAN_TITLE[span_type])
+    return SpanPolicy(_SPAN_FLAG_KIND[span_type], judge_tier, _SPAN_TITLE[span_type])
 
 
 def _norm(text: str) -> str:
