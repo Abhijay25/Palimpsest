@@ -80,7 +80,7 @@ final class BlameApi extends ApiBase {
 		return [
 			'op' => [ ParamValidator::PARAM_TYPE => [ 'analyze', 'versions', 'build', 'status' ], ParamValidator::PARAM_DEFAULT => 'analyze' ],
 			'title' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_REQUIRED => true ],
-			'revision' => [ ParamValidator::PARAM_TYPE => 'integer', NumericDef::PARAM_MIN => 0, ParamValidator::PARAM_DEFAULT => 0 ],
+			'revision' => [ ParamValidator::PARAM_TYPE => 'integer', NumericDef::PARAM_MIN => 0, ApiBase::PARAM_RANGE_ENFORCE => true, ParamValidator::PARAM_DEFAULT => 0 ],
 			'mode' => [ ParamValidator::PARAM_TYPE => [ 'asof', 'before', 'range' ], ParamValidator::PARAM_DEFAULT => 'asof' ],
 			'from' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '' ],
 			'to' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '' ],
