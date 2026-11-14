@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "platforms": ["linux/amd64", "linux/arm64"],
+  "images": {
+    "mediawiki": {
+      "reference": "mediawiki:1.46.2",
+      "digest": "sha256:13e538ae39045e78a7219269d036db3328f980f1a94ef1faabde075ba46eeb59",
+      "source": "https://hub.docker.com/layers/library/mediawiki/1.46.2"
+    },
+    "mariadb": {
+      "reference": "mariadb:11.8.9",
+      "digest": "sha256:f16d7a344413e519dff518f27bdb221388f84b0d274c97c4fb5f2cb0dc1b34fa",
+      "source": "https://hub.docker.com/layers/library/mariadb/11.8.9"
+    }
+  }
+}

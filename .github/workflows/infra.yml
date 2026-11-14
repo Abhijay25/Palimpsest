@@ -1,0 +1,74 @@
+name: Infrastructure contract checks
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/infra.yml"
+      - "docs/infra/**"
+      - "scripts/**"
+      - "infra/**"
+      - "datasets.lock.json"
+      - "tests/data/**"
+      - "tests/infra/**"
+      - "tests/runtime/**"
+  push:
+    branches: [infra-set-up]
+    paths:
+      - ".github/workflows/infra.yml"
+      - "docs/infra/**"
+      - "scripts/**"
+      - "infra/**"
+      - "datasets.lock.json"
+      - "tests/data/**"
+      - "tests/infra/**"
+      - "tests/runtime/**"
+  workflow_dispatch:
+    inputs:
+      docker_runtime:
+        description: Run the isolated local runtime lifecycle checks (requires Docker)
+        type: boolean
+        default: false
+      browser_acceptance:
+        description: Boot an isolated runtime and run the pinned browser UI checks
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Show Python runtime
+        run: python3 --version
+      - name: Run data producer contract tests
+        run: python3 -m unittest discover -s tests/data -v
+      - name: Run runtime contract tests
+        run: python3 -m unittest discover -s tests/runtime -v
+      - name: Run infrastructure oracle and dispatcher tests
+        run: python3 -m unittest discover -s tests/infra -v
+      - name: Check public launcher help without Docker
+        run: python3 scripts/wiki --help
+
+  docker-runtime:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.docker_runtime }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run isolated three-wiki lifecycle and API checks
+        env:
+          PALIMPSEST_RUN_DOCKER: "1"
+        run: python3 -m unittest tests.infra.test_docker_runtime -v
+
+  browser-acceptance:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.browser_acceptance }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Boot isolated runtime and verify browser workflows
+        run: python3 tests/infra/run_browser_acceptance.py

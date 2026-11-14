@@ -1,0 +1,65 @@
+#!/usr/bin/env python3
+"""Public launcher for the isolated Palimpsest runtime and data tooling."""
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+import subprocess
+import sys
+
+RUNTIME = {"setup", "up", "down", "status", "logs", "update", "reset", "manifest", "exec"}
+DATA = {"dataset", "history", "data", "verify"}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, epilog=(
+        "Commands: setup/up/down/status/logs/update/reset/manifest/exec; "
+        "dataset fetch; history acquire; data import; verify --scope runtime|sample|full. "
+        "Run a command with --help for its options. Setup does not import the full corpus."
+    ))
+    parser.add_argument("--project", help="isolated Docker Compose project name")
+    parser.add_argument("--data-root", type=Path, help="local generated state and dataset directory")
+    parser.add_argument("--ports", help="comma-separated Finnish, Swedish, English ports")
+    parser.add_argument("command", choices=sorted(RUNTIME | DATA), nargs="?")
+    parser.add_argument("arguments", nargs=argparse.REMAINDER, help=argparse.SUPPRESS)
+    args = parser.parse_args()
+    rest = args.arguments
+    if args.command is None:
+        parser.print_help()
+        return 0 if not rest else 2
+    common: list[str] = []
+    for flag, value in (("--project", args.project), ("--data-root", args.data_root), ("--ports", args.ports)):
+        if value is not None:
+            common.extend([flag, str(value.resolve() if isinstance(value, Path) else value)])
+    command = args.command
+    delegate = "runtime.py" if command in RUNTIME else "data.py"
+    if command == "verify":
+        scope = None
+        for i, token in enumerate(rest):
+            if token == "--scope" and i + 1 < len(rest):
+                scope = rest[i + 1]
+            elif token.startswith("--scope="):
+                scope = token.split("=", 1)[1]
+        if scope == "runtime":
+            delegate, command = "runtime.py", "status"
+            for token in ("--scope=runtime",):
+                if token in rest:
+                    rest.remove(token)
+            if "--scope" in rest:
+                index = rest.index("--scope")
+                del rest[index:index + 2]
+        elif scope not in {"sample", "full"}:
+            parser.error("verify requires --scope runtime, sample, or full")
+    root = Path(__file__).resolve().parents[1]
+    target = root / "scripts" / delegate
+    if not target.is_file():
+        print(f"Required tooling is missing: {target}. Check the complete checkout.", file=sys.stderr)
+        return 2
+    try:
+        return subprocess.run([sys.executable, str(target), *common, command, *rest], cwd=root).returncode
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

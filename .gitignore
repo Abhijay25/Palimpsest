@@ -11,3 +11,17 @@ eval/stealth/runs/*/batches/
 eval/stealth/runs/*/results/
 eval/stealth/runs/*/tiles/
 eval/stealth/runs/p*/prepared.jsonl
+.DS_Store
+.env.*
+!.env.example
+.local/
+*.py[cod]
+.pytest_cache/
+node_modules/
+playwright-report/
+test-results/
+artifacts/
+infra/wiki/data/
+infra/wiki/.env
+infra/wiki/verification.local.json
+.direnv/
