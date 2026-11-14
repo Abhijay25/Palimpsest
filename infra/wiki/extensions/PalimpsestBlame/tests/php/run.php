@@ -28,6 +28,11 @@ $fox = array_values( array_filter( $ordinary['tokens'], static fn ( $t ) => $t['
 check( $fox['revision_id'] === 10, 'unchanged wording keeps last-change revision' );
 check( $ordinary['events'][1]['before'] === 'bright', 'replacement event contains exact old token' );
 check( $ordinary['events'][1]['after'] === 'swift', 'replacement event contains exact new token' );
+$ordinarySpans = ( new AttributionSpanCompactor() )->compact( $ordinary['tokens'] );
+$ordinaryLineage = array_values( array_unique( array_merge( ...array_column( $ordinary['tokens'], 'lineage_ids' ) ) ) );
+$ordinarySpanLineage = array_values( array_unique( array_merge( ...array_column( $ordinarySpans, 'lineage_ids' ) ) ) );
+sort( $ordinaryLineage, SORT_STRING ); sort( $ordinarySpanLineage, SORT_STRING );
+check( $ordinaryLineage === $ordinarySpanLineage, 'ordinary compact spans retain the full set of token lineage IDs' );
 
 // Multi-step one-token replacements retain a stable ancestry chain.
 $lineage = $engine->analyze( [
@@ -110,6 +115,10 @@ $partEnd = $fastToken['utf16_end'] - 1;
 $selectedPhraseTokens = array_values( array_filter( $phraseSpans[0]['token_ranges'], static fn ( $r ) => $r[0] < $partEnd && $r[1] > $partStart ) );
 check( count( $phraseSpans ) === 1 && count( $phraseSpans[0]['token_ranges'] ) === count( $phraseTokens ), 'same-owner phrase spans compact while retaining every stable token range' );
 check( count( $selectedPhraseTokens ) === 1 && $selectedPhraseTokens[0][2] === $fastToken['token_id'], 'partial selection inside a compact phrase resolves only its exact token ID' );
+$phraseLineage = array_values( array_unique( array_merge( ...array_column( $phraseTokens, 'lineage_ids' ) ) ) );
+$groupLineage = $phraseSpans[0]['lineage_ids'];
+sort( $phraseLineage, SORT_STRING ); sort( $groupLineage, SORT_STRING );
+check( $phraseLineage === $groupLineage && in_array( '70:0', $groupLineage, true ), 'merged phrase lineage contains the owner ancestry and every member token ID without omissions' );
 check( strlen( json_encode( $phraseSpans, JSON_THROW_ON_ERROR ) ) < strlen( json_encode( $legacyPhraseSpans, JSON_THROW_ON_ERROR ) ), 'shared ancestry serialization shrinks when adjacent spans are coalesced' );
 
 $longOld = implode( ' ', array_map( static fn ( $i ) => 'word' . $i, range( 1, 900 ) ) );

@@ -17,7 +17,7 @@ final class AttributionSpanCompactor {
 				$group['revision_id'] === $token['revision_id'] &&
 				$group['introduced_revision_id'] === $token['introduced_revision_id'] &&
 				$group['ambiguous'] === $token['ambiguous'] &&
-				$group['lineage_ids'] === $ancestors &&
+				$group['_inherited_lineage'] === $ancestors &&
 				$group['end'] === $start;
 			if ( !$canAppend ) {
 				if ( $group !== null ) { $spans[] = self::finish( $group ); }
@@ -28,7 +28,9 @@ final class AttributionSpanCompactor {
 					'introduced_revision_id' => $token['introduced_revision_id'],
 					'token_id' => $token['token_id'],
 					'token_ranges' => [ [ $start, $end, $token['token_id'] ] ],
-					'lineage_ids' => $ancestors,
+					'lineage_ids' => $token['lineage_ids'],
+					'_lineage_seen' => array_fill_keys( $token['lineage_ids'], true ),
+					'_inherited_lineage' => $ancestors,
 					'ambiguous' => $token['ambiguous'],
 					'text' => $token['text'],
 				];
@@ -36,6 +38,10 @@ final class AttributionSpanCompactor {
 			}
 			$group['end'] = $end;
 			$group['token_ranges'][] = [ $start, $end, $token['token_id'] ];
+			if ( !isset( $group['_lineage_seen'][$token['token_id']] ) ) {
+				$group['_lineage_seen'][$token['token_id']] = true;
+				$group['lineage_ids'][] = $token['token_id'];
+			}
 			$group['text'] .= $token['text'];
 		}
 		if ( $group !== null ) { $spans[] = self::finish( $group ); }
@@ -43,11 +49,8 @@ final class AttributionSpanCompactor {
 	}
 
 	private static function finish( array $group ): array {
-		if ( count( $group['token_ranges'] ) === 1 ) {
-			$group['lineage_ids'][] = $group['token_id'];
-		} else {
-			$group['token_ranges'] = array_values( $group['token_ranges'] );
-		}
+		unset( $group['_lineage_seen'], $group['_inherited_lineage'] );
+		$group['token_ranges'] = array_values( $group['token_ranges'] );
 		$group['confidence'] = $group['ambiguous'] ? 'ambiguous' : 'aligned';
 		return $group;
 	}
