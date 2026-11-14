@@ -11,6 +11,10 @@ can resolve that hostname.
 Deferred from the proposal: scrollbar minimap, mobile bottom sheet (compact popover is used on
 phones too), audit-history/Issues page, reply threads, and mutation/suggestion application.
 
+The diff UI keeps its quiet loading line and floating summary bar. Type filters use the same
+icons as cards and select the first matching flag; expanded rail cards scroll internally rather
+than being clipped. “Mark reviewed” is a per-page, client-side toggle.
+
 ## Linux hosts
 
 - Host firewalls (for example NixOS's default) drop traffic from the Docker bridge to the host, so `host.docker.internal:8765` times out. Either allow the bridge interface in the firewall, or run the wiki container with host networking and the API on `127.0.0.1`.

@@ -88,7 +88,10 @@
 			var match = findMatch( entries, flag );
 			if ( !match ) { result.unanchored.push( flag ); return; }
 			var marks = wrap( match, flag );
-			if ( marks.length ) { result.anchored.push( { flag: flag, marks: marks, mark: marks[ 0 ] } ); } else { result.unanchored.push( flag ); }
+			if ( marks.length ) {
+				if ( flag.related_anchor_text ) { var related = findMatch( entries, Object.assign( {}, flag, { anchor_text: flag.related_anchor_text } ) ); if ( related ) { wrap( related, flag ).forEach( function ( mark ) { mark.classList.add( 'pf-anchor--related' ); mark.dataset.pfRelatedId = flag.id; } ); } }
+				result.anchored.push( { flag: flag, marks: marks, mark: marks[ 0 ] } );
+			} else { result.unanchored.push( flag ); }
 		} );
 		return result;
 	}

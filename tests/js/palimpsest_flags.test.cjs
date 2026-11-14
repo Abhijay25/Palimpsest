@@ -26,6 +26,19 @@ test( 'default placement orders by anchor, left edge, tier, then id', () => {
 	assert.deepEqual( result.items.map( item => item.id ), [ 'b', 'a', 'z' ] );
 } );
 
+test( 'filter selection starts at the first visible flag', () => {
+	const rows = [ { flag: { id: 'fact', kind: 'FACT' } }, { flag: { id: 'wording', kind: 'FRAMING' } }, { flag: { id: 'wording-2', kind: 'FRAMING' } } ];
+	assert.equal( stacking.firstVisibleId( rows, 'FRAMING' ), 'wording' );
+	assert.equal( stacking.firstVisibleId( rows, 'MOTIVE' ), null );
+} );
+
+test( 'steppers are disabled when filtering leaves one actionable flag', () => {
+	const rows = [ { flag: { id: 'a', kind: 'FACT' } }, { flag: { id: 'b', kind: 'FRAMING' } } ];
+	assert.equal( stacking.stepperDisabled( rows, new Set(), 'FACT' ), true );
+	assert.equal( stacking.stepperDisabled( rows, new Set(), null ), false );
+	assert.equal( stacking.stepperDisabled( rows, new Set( [ 'a' ] ), null ), true );
+} );
+
 test( 'approved palette combinations meet 4.5:1 contrast', () => {
 	const pairs = [ [ '#b32424', '#ffffff' ], [ '#6b4ba1', '#ffffff' ], [ '#f0b400', '#101418' ], [ '#b95000', '#ffffff' ], [ '#101418', '#ffffff' ], [ '#3366cc', '#ffffff' ], [ '#0e7369', '#ffffff' ], [ '#fd7865', '#101418' ], [ '#bba2e5', '#101418' ], [ '#eeb533', '#101418' ], [ '#ff9e5e', '#101418' ], [ '#080a0c', '#f8f9fa' ], [ '#88a3e8', '#101418' ], [ '#59d1c5', '#101418' ] ];
 	const luminance = hex => { const rgb = hex.match( /\w\w/g ).map( h => parseInt( h, 16 ) / 255 ).map( c => c <= .04045 ? c / 12.92 : ( ( c + .055 ) / 1.055 ) ** 2.4 ); return .2126 * rgb[ 0 ] + .7152 * rgb[ 1 ] + .0722 * rgb[ 2 ]; };

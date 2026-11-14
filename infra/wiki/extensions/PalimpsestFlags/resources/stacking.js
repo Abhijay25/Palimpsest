@@ -18,5 +18,14 @@
 		}
 		return { items: ordered, height: ordered[ ordered.length - 1 ].y + ordered[ ordered.length - 1 ].height };
 	}
-	return { computePositions: computePositions };
+	// These small state helpers deliberately have no DOM dependency so the UI's filter
+	// and navigation behaviour can be tested without a browser.
+	function firstVisibleId( rows, filter ) {
+		var visible = rows.filter( function ( row ) { return !filter || row.flag.kind === filter; } );
+		return visible.length ? visible[ 0 ].flag.id : null;
+	}
+	function stepperDisabled( rows, reviewed, filter ) {
+		return rows.filter( function ( row ) { return ( !filter || row.flag.kind === filter ) && !reviewed.has( row.flag.id ); } ).length <= 1;
+	}
+	return { computePositions: computePositions, firstVisibleId: firstVisibleId, stepperDisabled: stepperDisabled };
 } ) );
