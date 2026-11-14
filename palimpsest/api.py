@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import os
+import re
 import time
 from collections.abc import AsyncIterator
 from functools import cache
@@ -15,7 +16,9 @@ from pydantic import AfterValidator, BaseModel, Field
 
 from palimpsest.backends.gemini import GeminiJudgeBackend, gemini_enabled
 from palimpsest.cascade import CascadeJudgeBackend
+from palimpsest.citation_dates import CitationDateScan, scan_changed_citation_dates
 from palimpsest.crosslingual import CrossLingualReport, cross_lingual_fanout
+from palimpsest.flags import JudgeFlagInput, StealthFlagInput, build_flags
 from palimpsest.judge import AsyncJudge, PreparedCase, judge_with_latencies
 from palimpsest.pipeline import (
     CACHE_DIR,
@@ -40,6 +43,10 @@ from palimpsest.schema import (
     AuditOutput,
     Case,
     CaseResult,
+    DisplayFlaggedSpan,
+    Flag,
+    FlagEvidence,
+    FlagTier,
     LangCode,
     Verdict,
 )
@@ -70,6 +77,8 @@ TRUST_DELTA_BY_VERDICT: Final = {
     Verdict.FLAG_G3_MOTIVE: -0.08,
 }
 TRUST_DELTA_STEALTH_ADMIN: Final = -0.20
+CITATION_DATES_TIMEOUT_S: Final = 5.0
+_CITATION_WIKITEXT_RE: Final = re.compile(r"{{|<ref\b", re.IGNORECASE)
 
 
 @contextlib.asynccontextmanager
@@ -154,6 +163,7 @@ class SpanOut(BaseModel):
     exact_substring: str
     guideline_violated: str
     explanation: str
+    context_sentence: str | None
     start: int | None
     end: int | None
     occurrences: int
@@ -190,6 +200,7 @@ class AuditDiffResponse(BaseModel):
     confidence: float
     reason: ReasonCode | None
     reason_text: str | None
+    flags: list[Flag]
     flagged_spans: list[SpanOut]
     atomic_propositions: list[AtomicProposition]
     neutral_rewrite: str | None
@@ -198,6 +209,7 @@ class AuditDiffResponse(BaseModel):
     pipeline_stage_reached: Literal[0, 1, 2]
     stealth: StealthSummary
     render: RenderSummary
+    citation_dates: CitationDateScan
     latency_ms: LatencyMs
     exa_budget_exhausted: bool
     units: list[UnitSummary]
@@ -213,6 +225,15 @@ def _trust_delta(output: AuditOutput, stealth_flagged: bool) -> float:
     if stealth_flagged:
         return TRUST_DELTA_STEALTH_ADMIN
     return TRUST_DELTA_BY_VERDICT.get(output.verdict, 0.0)
+
+
+def _flag_tier(unit_route: Route) -> FlagTier:
+    """A response flag always needs a queue tier; unrouted findings remain reviewable."""
+    return "admin" if unit_route == "admin" else "review"
+
+
+def _stealth_flag_tier(status: StealthStatus) -> FlagTier:
+    return "admin" if status in ADMIN_FLAG_STATUSES else "review"
 
 
 def _raw_index_map(raw_length: int, removed: list[tuple[int, int]]) -> list[int]:
@@ -231,6 +252,8 @@ def _spans_with_offsets(
     new_scan: ScanResult,
     raw: str,
     unit_region: tuple[int, int] | None = None,
+    judged_text: str | None = None,
+    previous_judged_text: str | None = None,
 ) -> list[SpanOut]:
     """First-match offsets into the raw text, found in the sanitized text the judge saw.
 
@@ -257,6 +280,16 @@ def _spans_with_offsets(
                 exact_substring=needle,
                 guideline_violated=span.guideline_violated.value,
                 explanation=span.explanation,
+                context_sentence=(
+                    DisplayFlaggedSpan.context_for(judged_text, needle)
+                    if judged_text is not None
+                    else None
+                )
+                or (
+                    DisplayFlaggedSpan.context_for(previous_judged_text, needle)
+                    if previous_judged_text is not None
+                    else None
+                ),
                 start=index_map[start] if found else None,
                 end=index_map[start + len(needle) - 1] + 1 if found else None,
                 occurrences=occurrences,
@@ -382,6 +415,50 @@ async def _await_render(task: "asyncio.Task[RenderedPages]") -> RenderedPages:
         return await task
     except Exception:  # noqa: BLE001 - render scan is best-effort
         return RenderedPages(status="unavailable")
+
+
+async def _await_completed_citation_dates(
+    task: "asyncio.Task[CitationDateScan]",
+    started_at: float,
+) -> CitationDateScan:
+    """Await only the scan time left after the units have finished."""
+    remaining = started_at + CITATION_DATES_TIMEOUT_S - time.monotonic()
+    if remaining <= 0 and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return CitationDateScan(status="unavailable", error="TimeoutError")
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=max(remaining, 0))
+    except TimeoutError:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return CitationDateScan(status="unavailable", error="TimeoutError")
+    except Exception as exc:  # noqa: BLE001 - deterministic check is escalation-only
+        return CitationDateScan(
+            status="unavailable", error=f"{type(exc).__name__}: {exc}"
+        )
+
+
+def _citation_wikitexts(units: list[EditUnit]) -> list[str]:
+    return [
+        wikitext
+        for unit in units
+        if (wikitext := unit.new_wikitext or unit.new_text) is not None
+        and _CITATION_WIKITEXT_RE.search(wikitext)
+    ]
+
+
+async def _scan_citation_dates(
+    lang_code: str,
+    page_title: str,
+    wikitexts: list[str],
+    started: "asyncio.Future[float]",
+) -> CitationDateScan:
+    """Mark the deadline when this task, rather than its creator, starts."""
+    started.set_result(time.monotonic())
+    return await scan_changed_citation_dates(lang_code, page_title, wikitexts)
 
 
 class _UnitOutcome(BaseModel):
@@ -525,6 +602,20 @@ async def audit_diff_logic(
     render_task = asyncio.create_task(
         render_ref_pages_in_temp_dir(union_refs, auditor_provider)
     )
+    citation_wikitexts = _citation_wikitexts(units)
+    citation_dates_task: asyncio.Task[CitationDateScan] | None = None
+    citation_dates_started: asyncio.Future[float] | None = None
+    if citation_wikitexts:
+        citation_dates_started = asyncio.get_running_loop().create_future()
+        citation_dates_task = asyncio.create_task(
+            _scan_citation_dates(
+                req.lang_code,
+                req.page_title,
+                citation_wikitexts,
+                citation_dates_started,
+            )
+        )
+        await citation_dates_started
     semaphore = asyncio.Semaphore(UNIT_CONCURRENCY)
     unit_tasks = [
         asyncio.create_task(
@@ -564,11 +655,21 @@ async def audit_diff_logic(
         stealth_flagged = diff_scan.stealth_status in ADMIN_FLAG_STATUSES
         # Scored only now: the units' Exa fetches have cached the judged text.
         render = summarize_render(await _await_render(render_task), fetcher.cached_text)
+        if citation_dates_task is None:
+            citation_dates = CitationDateScan(status="skipped")
+        else:
+            assert citation_dates_started is not None
+            citation_dates = await _await_completed_citation_dates(
+                citation_dates_task,
+                citation_dates_started.result(),
+            )
         unit_routes: list[Route] = [route(o.result) for o in outcomes]
         top_route = max(unit_routes, key=ROUTE_RANK.__getitem__)
         if render.escalate:
             top_route = "admin"
         elif partial and top_route == "none":
+            top_route = "review"
+        if citation_dates.findings and top_route == "none":
             top_route = "review"
         contributing = [o for o in outcomes if o.output.verdict in FLAGS] or [
             top_outcome
@@ -584,17 +685,88 @@ async def audit_diff_logic(
             reason_code(o.output, o.pc.case.old_text, o.pc.case.new_text)
             for o in outcomes
         ]
-        top_reason = reasons[outcomes.index(top_outcome)]
+        top_reason = (
+            "CITATION_DATE"
+            if citation_dates.findings
+            else reasons[outcomes.index(top_outcome)]
+        )
+        old_wikitext = req.old_wikitext or req.old_text
+        new_wikitext = req.new_wikitext or req.new_text
+        judge_inputs = [
+            JudgeFlagInput(
+                unit_index=o.unit.index,
+                output=o.output,
+                reason_code=reason,
+                tier=_flag_tier(unit_route),
+                old_text=o.pc.case.old_text,
+                new_text=o.pc.case.new_text,
+                old_wikitext=old_wikitext,
+                new_wikitext=new_wikitext,
+                citations=o.pc.case.changed_ref_urls or o.pc.case.ref_urls,
+                evidence=(
+                    [
+                        FlagEvidence(
+                            source="cited",
+                            quote=o.pc.window.text,
+                            url=o.pc.window.url,
+                        )
+                    ]
+                    if o.pc.window is not None
+                    else []
+                ),
+            )
+            for o, unit_route, reason in zip(
+                outcomes, unit_routes, reasons, strict=True
+            )
+        ]
+        stealth_inputs = [
+            StealthFlagInput(
+                finding=finding,
+                tier=_stealth_flag_tier(diff_scan.stealth_status),
+                side_text=new_wikitext,
+                evidence_source="new",
+            )
+            for finding in reportable_findings(diff_scan)
+        ]
+        for outcome in outcomes:
+            if outcome.pc.ref_scan is None:
+                continue
+            stealth_inputs.extend(
+                StealthFlagInput(
+                    finding=finding,
+                    tier=_stealth_flag_tier(outcome.pc.ref_scan.stealth_status),
+                    side_text=new_wikitext,
+                    evidence_source="cited",
+                    evidence_url=(
+                        outcome.pc.window.url if outcome.pc.window is not None else None
+                    ),
+                )
+                for finding in reportable_findings(outcome.pc.ref_scan)
+            )
+        response_flags = build_flags(
+            judge_inputs,
+            stealth_inputs,
+            citation_dates.findings,
+            render.findings,
+            new_wikitext,
+            req.ref_urls,
+        )
         return AuditDiffResponse(
             verdict=output.verdict,
             confidence=output.confidence,
             reason=top_reason,
             reason_text=REASON_TEXT[top_reason] if top_reason else None,
+            flags=response_flags,
             flagged_spans=[
                 span
                 for o in contributing
                 for span in _spans_with_offsets(
-                    o.output, new_scan, req.new_text, unit_regions.get(o.unit.index)
+                    o.output,
+                    new_scan,
+                    req.new_text,
+                    unit_regions.get(o.unit.index),
+                    o.pc.case.new_text,
+                    o.pc.case.old_text,
                 )
             ],
             atomic_propositions=output.atomic_propositions,
@@ -612,6 +784,7 @@ async def audit_diff_logic(
                 finding_count=len(reportable_findings(diff_scan)) + ref_findings,
             ),
             render=render,
+            citation_dates=citation_dates,
             latency_ms=LatencyMs(
                 stealth=stealth_ms + ref_scan_ms,
                 stage0=max(o.pc.stage0.latency_ms for o in outcomes),
@@ -642,6 +815,10 @@ async def audit_diff_logic(
         render_task.cancel()
         with contextlib.suppress(BaseException):
             await render_task
+        if citation_dates_task is not None:
+            citation_dates_task.cancel()
+            with contextlib.suppress(BaseException):
+                await citation_dates_task
         raise
 
 

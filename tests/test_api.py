@@ -1,14 +1,17 @@
 import asyncio
 import threading
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
+from urllib.parse import parse_qs
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from palimpsest import api
+from palimpsest.citation_dates import CitationDateScan, scan_changed_citation_dates
 from palimpsest.judge import PreparedCase
 from palimpsest.schema import AuditOutput, SourceWindow
 from palimpsest.sources import DailyCallCap, SourceFetcher
@@ -142,6 +145,18 @@ def _use_auditor(auditor: FakeAuditor) -> None:
     api.app.dependency_overrides[api.get_auditor_provider] = lambda: provider
 
 
+@pytest.fixture(autouse=True)
+def isolate_api_dependencies() -> Iterator[None]:
+    """Keep cached production dependencies and overrides out of API unit tests."""
+    api.app.dependency_overrides.clear()
+    api.get_judge_backend.cache_clear()
+    api._shared_fetcher.cache_clear()
+    yield
+    api.app.dependency_overrides.clear()
+    api.get_judge_backend.cache_clear()
+    api._shared_fetcher.cache_clear()
+
+
 @pytest.fixture
 def client() -> Iterator[TestClient]:
     api.app.dependency_overrides[api.get_fetcher] = lambda: FakeFetcher()
@@ -171,8 +186,129 @@ def test_audit_diff_stage0_clean(client: TestClient) -> None:
     assert body["pipeline_stage_reached"] == 0
     assert body["route"] == "none"
     assert body["editor_trust_delta"] == 0
+    assert body["flags"] == []
     assert body["flagged_spans"] == []
     assert set(body["latency_ms"]) >= {"stealth", "stage0", "stage1", "stage2", "total"}
+
+
+def test_audit_diff_routes_rendered_future_citation_date_to_review(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.params.get("action") == "parse":
+            raise AssertionError("parse text requests must use POST form data")
+        if request.method == "POST":
+            form = parse_qs(request.content.decode())
+            assert form["action"] == ["parse"]
+            assert form["title"] == ["Example"]
+            assert form["contentmodel"] == ["wikitext"]
+            return httpx.Response(
+                200,
+                json={"parse": {"text": "<cite>4 december 2027</cite>"}},
+            )
+        return httpx.Response(
+            200,
+            json={
+                "query": {"allmessages": [{"name": "december", "content": "december"}]}
+            },
+        )
+
+    async def mock_scan(
+        lang: str, title: str, wikitexts: list[str]
+    ) -> CitationDateScan:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(handler)
+        ) as mediawiki:
+            return await scan_changed_citation_dates(
+                lang,
+                title,
+                wikitexts,
+                client=mediawiki,
+                now=datetime(2026, 1, 1, tzinfo=UTC),
+            )
+
+    monkeypatch.setattr(api, "scan_changed_citation_dates", mock_scan)
+    # This test is about citation routing.  Supplying a clean judge result keeps
+    # it independent of process-level Gemini configuration and cached backends.
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: FakeBackend(
+        _output("CLEAN_PASS", 0.9)
+    )
+    body = {
+        **CLEAN_BODY,
+        "new_text": (
+            "The town has 500 people.<ref>{{enwp|url=https://en.wikipedia.org/"
+            "w/index.php?title=Example&oldid=12|artikel=Example|datum=4 december}}</ref>"
+        ),
+    }
+    response = client.post("/api/v1/audit-diff", json=body)
+    assert response.status_code == 200
+    result = response.json()
+    assert result["verdict"] == "CLEAN_PASS"
+    assert result["route"] == "review" and result["reason"] == "CITATION_DATE"
+    assert result["citation_dates"]["findings"][0]["code"] == "FUTURE_DATE"
+    parse = next(request for request in requests if request.method == "POST")
+    assert parse.url.params == httpx.QueryParams()
+
+
+def test_audit_diff_citation_parse_failure_is_unavailable_and_nonblocking(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def mock_scan(
+        lang: str, title: str, wikitexts: list[str]
+    ) -> CitationDateScan:
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(500))
+        ) as mediawiki:
+            return await scan_changed_citation_dates(
+                lang, title, wikitexts, client=mediawiki
+            )
+
+    monkeypatch.setattr(api, "scan_changed_citation_dates", mock_scan)
+    response = client.post(
+        "/api/v1/audit-diff",
+        json={
+            **CLEAN_BODY,
+            "old_wikitext": "Plain fact.",
+            "new_wikitext": "Plain fact.<ref>{{enwp|Example}}</ref>",
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert result["citation_dates"]["status"] == "unavailable"
+    assert result["citation_dates"]["findings"] == []
+    assert result["citation_dates"]["error"].startswith("RuntimeError:")
+    assert result["verdict"] == "CLEAN_PASS" and result["route"] == "none"
+
+
+def test_citation_dates_deadline_starts_when_scan_task_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    started_scan = asyncio.Event()
+    never = asyncio.Event()
+
+    async def mock_scan(
+        lang: str, title: str, wikitexts: list[str]
+    ) -> CitationDateScan:
+        started_scan.set()
+        await never.wait()
+        return CitationDateScan(status="ok")
+
+    async def run() -> CitationDateScan:
+        loop = asyncio.get_running_loop()
+        started = loop.create_future()
+        task = asyncio.create_task(
+            api._scan_citation_dates("en", "Example", ["<ref>x</ref>"], started)
+        )
+        await started
+        assert started_scan.is_set()
+        return await api._await_completed_citation_dates(task, started.result())
+
+    monkeypatch.setattr(api, "CITATION_DATES_TIMEOUT_S", 0.01)
+    monkeypatch.setattr(api, "scan_changed_citation_dates", mock_scan)
+    assert asyncio.run(run()).error == "TimeoutError"
 
 
 def test_audit_diff_flag_g2_with_offsets(client: TestClient) -> None:
@@ -193,8 +329,26 @@ def test_audit_diff_flag_g2_with_offsets(client: TestClient) -> None:
     start = FRAMING_TEXT.index("shamelessly")
     first, second = body["flagged_spans"]
     assert (first["start"], first["end"]) == (start, start + len("shamelessly"))
+    assert first["context_sentence"] == FRAMING_TEXT
+    assert second["context_sentence"] is None
     assert second["start"] is None and second["end"] is None
     assert body["stealth"]["status"] == "CLEAN"
+
+
+def test_audit_diff_returns_flags_in_the_response(client: TestClient) -> None:
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: FakeBackend(
+        _flag_g2()
+    )
+    body = client.post("/api/v1/audit-diff", json=FRAMING_BODY).json()
+    flag = body["flags"][0]
+    start = FRAMING_TEXT.index("shamelessly")
+    assert flag["id"] == "u0-s0"
+    assert flag["kind"] == "FRAMING" and flag["tier"] == "admin"
+    assert flag["side"] == "new" and flag["check"] == "judge"
+    assert (flag["anchor_start"], flag["anchor_end"]) == (
+        start,
+        start + len("shamelessly"),
+    )
 
 
 def test_audit_diff_without_backend_is_503(client: TestClient) -> None:
