@@ -426,6 +426,9 @@ class PageRenderer:
             await self._playwright.stop()
         self._browser = self._playwright = None
 
+    def is_connected(self) -> bool:
+        return self._browser is not None and self._browser.is_connected()
+
     async def audit_html(self, html: str, out_dir: Path) -> RenderAudit:
         start = time.perf_counter()
         blocked = 0
@@ -480,6 +483,8 @@ class PageRenderer:
         context = await self._browser.new_context(
             java_script_enabled=True,
             accept_downloads=False,
+            # Without this, service-worker fetches bypass context.route().
+            service_workers="block",
             viewport={"width": VIEWPORT[0], "height": VIEWPORT[1]},
         )
         try:
