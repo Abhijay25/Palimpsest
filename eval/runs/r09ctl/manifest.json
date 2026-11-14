@@ -1,0 +1,10 @@
+{
+  "prompt_version": "stage2_v5",
+  "models": [
+    "haiku",
+    "sonnet"
+  ],
+  "case_files": [
+    "eval/cases/en_controls2.jsonl"
+  ]
+}
