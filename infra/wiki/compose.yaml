@@ -52,6 +52,7 @@ services:
     volumes:
       - ${DATA_ROOT}/config/fi:/etc/palimpsest:ro
       - ${DATA_ROOT}/uploads/fi:/var/www/html/images
+      - ${DATA_ROOT}/imports:/data/imports:ro
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
@@ -71,6 +72,7 @@ services:
     volumes:
       - ${DATA_ROOT}/config/sv:/etc/palimpsest:ro
       - ${DATA_ROOT}/uploads/sv:/var/www/html/images
+      - ${DATA_ROOT}/imports:/data/imports:ro
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
@@ -90,6 +92,7 @@ services:
     volumes:
       - ${DATA_ROOT}/config/en:/etc/palimpsest:ro
       - ${DATA_ROOT}/uploads/en:/var/www/html/images
+      - ${DATA_ROOT}/imports:/data/imports:ro
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro

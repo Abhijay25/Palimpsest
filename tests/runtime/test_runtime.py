@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 import tempfile
 import unittest
 from io import BytesIO
@@ -43,6 +44,21 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertNotIn("fi-secret", text)
             self.assertNotIn("admin-secret", text)
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+
+    def test_import_mount_is_dedicated_and_rejects_symlinks(self):
+        compose = (ROOT / "infra/wiki/compose.yaml").read_text()
+        self.assertEqual(compose.count("${DATA_ROOT}/imports:/data/imports:ro"), 3)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            root.mkdir()
+            imports = runtime.prepare_import_mount(root)
+            self.assertTrue(imports.is_dir())
+            external = Path(tmp) / "external"
+            external.mkdir()
+            (root / "imports").rmdir()
+            (root / "imports").symlink_to(external, target_is_directory=True)
+            with self.assertRaises(runtime.RuntimeErrorExit):
+                runtime.prepare_import_mount(root)
 
     def test_health_requires_valid_api_json_with_siteinfo(self):
         url = "http://127.0.0.1:18081/api.php"
@@ -98,6 +114,31 @@ class RuntimeContractTests(unittest.TestCase):
             with self.assertRaises(runtime.RuntimeErrorExit):
                 runtime.cleanup_runtime_paths(root)
             self.assertTrue(target.is_dir())
+
+    def test_reset_preserves_runtime_data_when_compose_cannot_stop_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            root.mkdir()
+            marker = {"schema_version": 1, "project": "palimpsest-a", "initialized": {"fi": True, "sv": True, "en": True}}
+            (root / runtime.MARKER).write_text(json.dumps(marker))
+            (root / ".env").write_text("PROJECT=palimpsest-a\n")
+            state = root / "db/fixture"
+            state.parent.mkdir()
+            state.write_text("preserve while containers may still use it")
+            args = runtime.parser().parse_args([
+                "--project", "palimpsest-a", "--data-root", str(root),
+                "reset", "--confirm-project", "palimpsest-a",
+            ])
+            with patch.object(runtime, "resolve_docker", return_value=("docker", {})), \
+                 patch.object(runtime, "docker_preflight"), \
+                 patch.object(runtime, "compose_action", return_value=subprocess.CompletedProcess([], 1, "", "container shutdown failed")), \
+                 patch.object(runtime, "cleanup_runtime_paths") as cleanup:
+                with self.assertRaises(runtime.RuntimeErrorExit) as caught:
+                    runtime.runtime_main(args)
+            cleanup.assert_not_called()
+            self.assertIn("runtime data was preserved", str(caught.exception))
+            self.assertIn("container shutdown failed", str(caught.exception))
+            self.assertEqual(state.read_text(), "preserve while containers may still use it")
 
     def test_partial_setup_resume_preserves_successful_languages_and_rejects_marker_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:

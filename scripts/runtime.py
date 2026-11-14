@@ -225,6 +225,14 @@ def cleanup_runtime_paths(root: Path) -> None:
         pass
 
 
+def prepare_import_mount(root: Path) -> Path:
+    path = root / "imports"
+    if path.is_symlink():
+        raise RuntimeErrorExit(f"Refusing to mount imports through a symlink: {path}")
+    path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    return path
+
+
 def manifest_value(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, Any]) -> dict[str, Any]:
     marker = project_marker(data_root)
     initialized = (marker or {}).get("initialized", {})
@@ -384,6 +392,7 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
         if free < 10 * 1024**3:
             raise RuntimeErrorExit("At least 10 GiB free space is required for the runtime image and database volumes.")
     data_root.mkdir(parents=True, exist_ok=True)
+    prepare_import_mount(data_root)
     for lang in LANGS:
         (data_root / f"config/{lang}").mkdir(parents=True, exist_ok=True)
         (data_root / f"uploads/{lang}").mkdir(parents=True, exist_ok=True)
@@ -517,7 +526,15 @@ def runtime_main(ns: argparse.Namespace) -> int:
             raise RuntimeErrorExit("Reset refused: data root has no matching project marker")
         docker_preflight(env, docker)
         if env_file.exists():
-            compose_action(prefix, env, "down", "-v", "--remove-orphans", check=False)
+            result = compose_action(prefix, env, "down", "-v", "--remove-orphans", check=False)
+            if result.returncode:
+                detail = (result.stderr or result.stdout or "").strip()
+                suffix = f": {detail}" if detail else ""
+                raise RuntimeErrorExit(
+                    f"Reset stopped because Docker Compose could not stop project {project}; "
+                    f"runtime data was preserved{suffix}",
+                    result.returncode if 0 < result.returncode < 126 else 1,
+                )
         cleanup_runtime_paths(root)
         print(f"Removed runtime-owned state for project {project} at {root}; unrelated data was preserved.")
         return 0
