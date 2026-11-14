@@ -285,7 +285,7 @@ def import_corpus(corpus_path: Path, history_dir: Path, import_dir: Path,
         raise DataError("all three local wikis must be initialized before data import")
     ports = c1.get("ports") or {"fi": 8081, "sv": 8082, "en": 8083}
     ports_arg = ",".join(str(ports[lang]) for lang in LANGS)
-    result = {"scope": corpus["scope"], "pages": [], "support_pages": [], "bridge": "runtime.py exec --language; runtime containers must mount data-root read-only at /data"}
+    result = {"scope": corpus["scope"], "pages": [], "support_pages": [], "bridge": "runtime.py exec --language; runtime containers mount imports read-only at /data/imports"}
     support_records = []
     support_complete = True
     for article in corpus["articles"]:

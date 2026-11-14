@@ -52,9 +52,14 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
             source_batch_hashes: dict[int, str] = {}
             for batch in state.get("committed_batches", []):
                 batch_path = page / batch["path"]
-                batch_digest = sha256_file(batch_path)
-                for batch_row in iter_jsonl([batch_path]):
-                    source_batch_hashes[int(batch_row["source_revision_id"])] = batch_digest
+                try:
+                    batch_digest = sha256_file(batch_path)
+                    for batch_row in iter_jsonl([batch_path]):
+                        source_batch_hashes[int(batch_row["source_revision_id"])] = batch_digest
+                except (DataError, OSError, KeyError, TypeError, ValueError) as e:
+                    failures.append({"stage": "history", "language": lang, "page_id": article["source_page_id"], "reason": "source-batch-invalid", "batch": batch.get("path"), "detail": str(e)})
+                    unresolved_pages += 1
+                    expected_revisions = None
             anchor_ok = state.get("anchor_validated") and article["anchor_revision_id"] in ids
             if state.get("enumeration_exhausted") and anchor_ok:
                 acquired += 1

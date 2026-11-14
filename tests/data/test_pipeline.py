@@ -363,6 +363,22 @@ class DataPipelineTests(unittest.TestCase):
             changed = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime_for(root), api=local_api("changed"))
             self.assertFalse(changed["complete"])
             self.assertIn("local-revision-missing-or-changed", {x["reason"] for x in changed["failures"]})
+            missing_batch_root = root / "missing-batch"
+            create_tree(missing_batch_root)
+            missing_batch = next((missing_batch_root / "history").glob("**/batch-*.jsonl"))
+            missing_batch.unlink()
+            missing_report = build_coverage(corpus, missing_batch_root, project="fixture",
+                                            runtime_manifest=runtime_for(missing_batch_root), api=local_api())
+            self.assertFalse(missing_report["complete"])
+            self.assertIn("source-batch-invalid", {x["reason"] for x in missing_report["failures"]})
+            corrupt_batch_root = root / "corrupt-batch"
+            create_tree(corrupt_batch_root)
+            corrupt_batch = next((corrupt_batch_root / "history").glob("**/batch-*.jsonl"))
+            corrupt_batch.write_text("not-jsonl\n")
+            corrupt_report = build_coverage(corpus, corrupt_batch_root, project="fixture",
+                                           runtime_manifest=runtime_for(corrupt_batch_root), api=local_api())
+            self.assertFalse(corrupt_report["complete"])
+            self.assertIn("source-batch-invalid", {x["reason"] for x in corrupt_report["failures"]})
 
     def test_support_cycle_is_reported_and_terminates(self):
         graph = {"Template:A": "{{Template:B}}", "Template:B": "{{Template:A}}"}
