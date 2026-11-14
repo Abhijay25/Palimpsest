@@ -44,13 +44,17 @@ reset, or seed any shared runtime from this directory's tests. The root
 orchestrator owns runtime lifecycle and grants the synthetic page/user scope.
 
 The job test first validates the ordinary fixture's production response, then
-prepares the 205-revision target through `op=analyze` and requires
-`buildable: true` plus the resolved top-level `revision_id`. It makes a new
-latest edit and pins build and status to the earlier revision with the exact
-`jobid` parameter. Repeating a pending build request checks that the same
-durable job ID progresses to ready. It does not kill/restart the queue worker;
-runtime restart/resume and isolated suppressed-content or mapping-corruption
-tests stay with the orchestrator's coordinated test copy.
+prepares the original seeded 205-revision target through `op=analyze` with that
+explicit revision pinned. Analyze may return either the synchronous-limit
+preparation response or a ready cache from an earlier run; ready payloads are
+checked immediately. The build/status path also accepts pending or ready jobs
+and always advances the mutable page latest after preparation to verify
+pinning. Once ready, it checks cached source text
+and SHA-256 plus every expected core revision ID from the seed state. Repeating
+a pending build request checks that the same durable job ID progresses to
+ready. It does not kill/restart the queue worker; runtime restart/resume and
+isolated suppressed-content or mapping-corruption tests stay with the
+orchestrator's coordinated test copy.
 
 The rendered-link fixture covers a citation anchor and a relative link to a
 real synthetic article while Blame is open. The browser check follows both,

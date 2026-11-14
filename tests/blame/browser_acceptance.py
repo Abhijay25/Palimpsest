@@ -28,6 +28,7 @@ FIXTURE_IDS = (
     "unicode_utf16_selection", "date_boundaries", "large_unique_anchor_history",
 )
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
+INSPECT_BUTTON_NAME = re.compile(r"inspect (?:selected (?:article )?text|selection)|analyze selection", re.I)
 
 
 def load_fixture(fixture_id: str) -> dict:
@@ -55,6 +56,44 @@ def enter_blame_with_keyboard(page: Page) -> None:
         raise AssertionError("keyboard tab order never reached a discoverable Blame link")
     expect(page).to_have_url(re.compile(r"[?&]action=blame(?:&|$)"))
     expect(page.locator("#palimpsest-blame")).to_be_visible()
+
+
+def verify_keyboard_phrase_activation(page: Page, phrase: str, key: str) -> None:
+    target = page.locator("#mw-content-text [data-pb-start]").filter(
+        has_text=re.compile(rf"^{re.escape(phrase)}$")
+    ).first
+    expect(target).to_be_visible()
+    if target.inner_text().strip() != phrase:
+        raise AssertionError(f"keyboard target text differs from exact attributed phrase {phrase!r}")
+    target.focus()
+    focused_before = target.evaluate("element => document.activeElement === element")
+    if not focused_before:
+        raise AssertionError(f"attributed phrase {phrase!r} is not keyboard-focusable")
+    captured = target.evaluate(
+        """(element) => {
+          const block = element.closest('p,li,td,blockquote,pre,h1,h2,h3,h4,h5,h6,dt,dd');
+          if (!block) return false;
+          window.__pbAcceptanceKeyboardTarget = element;
+          window.__pbAcceptanceSelection = {
+            text: element.innerText || element.textContent || '',
+            startBlock: block,
+            endBlock: block
+          };
+          return true;
+        }"""
+    )
+    if not captured:
+        raise AssertionError(f"attributed phrase {phrase!r} has no enclosing article end block")
+    page.keyboard.press(key)
+    panel = page.locator("#palimpsest-blame")
+    breakdown = panel.locator(".pb-breakdown")
+    expect(breakdown).to_be_visible()
+    expect(breakdown).to_contain_text(phrase)
+    verify_inline_panel(page, phrase)
+
+    page.keyboard.press("Escape")
+    expect(breakdown).to_be_hidden()
+    expect(target).to_be_focused()
 
 
 def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
@@ -111,7 +150,7 @@ def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
 
 
 def inspect_selected_text(page: Page, mobile: bool) -> None:
-    button = page.get_by_role("button", name=re.compile(r"inspect (selected text|selection)|analyze selection", re.I))
+    button = page.get_by_role("button", name=INSPECT_BUTTON_NAME)
     expect(button).to_be_visible()
     if mobile:
         button.tap()
@@ -459,7 +498,7 @@ def verify_mouse_partial_selection(page: Page, origin: str, cross: dict) -> None
                 pass
 
     page.on("request", capture_ranges)
-    inspect = page.get_by_role("button", name=re.compile(r"inspect (selected text|selection)|analyze selection", re.I))
+    inspect = page.get_by_role("button", name=INSPECT_BUTTON_NAME)
     expect(inspect).to_be_visible()
     inspect.click()
     panel = page.locator("#palimpsest-blame")
@@ -595,7 +634,8 @@ def run_language(browser, language: str, language_state: dict, origin: str, auth
     labels = keyboard_page.locator("#palimpsest-blame [aria-label], #palimpsest-blame [aria-labelledby]")
     if labels.count() == 0:
         raise AssertionError(f"{language}: Blame panel has no screen-reader labels")
-    keyboard_page.keyboard.press("Escape")
+    verify_keyboard_phrase_activation(keyboard_page, "green", "Enter")
+    verify_keyboard_phrase_activation(keyboard_page, "new", "Space")
     verify_concurrent_snapshot(keyboard_page, origin, language, auth, run_id)
     if page_errors:
         raise AssertionError(f"{language}: browser page JavaScript errors: {page_errors}")

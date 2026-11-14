@@ -10,7 +10,7 @@ import unittest
 
 from mediawiki_api import MediaWikiApiError, WikiApi
 from verify_live import assert_spans, validate_analyze_schema
-from verify_jobs import request_status
+from verify_jobs import assert_ready_cached_history, request_status
 from seed_synthetic import DOCKER_PROJECT, load_manifest
 
 
@@ -170,6 +170,32 @@ class LiveContractTests(unittest.TestCase):
             self.assertEqual(validate_analyze_schema(broken), [])
             with self.subTest(case=name), self.assertRaisesRegex(AssertionError, error):
                 assert_spans(broken, segments, ids)
+
+    def test_ready_job_cache_matches_seed_text_hash_and_complete_revision_ids(self) -> None:
+        expected_text = "job fixture revision 204 common prefix anchor204 common suffix"
+        page = {
+            "revision_count": 3,
+            "revision_ids": [101, 102, 103],
+            "expected_text": expected_text,
+        }
+        ordinary = ordinary_response(expected_text)
+        ordinary["snapshot"]["revision_id"] = 103
+        ordinary["revisions"] = [{"revision_id": revision_id} for revision_id in page["revision_ids"]]
+        self.assertEqual(validate_analyze_schema(ordinary), [])
+        expected_hash = assert_ready_cached_history(ordinary, page, 103)
+        self.assertEqual(len(expected_hash), 64)
+
+        bad_text = copy.deepcopy(ordinary)
+        bad_text["source_text"] += " changed"
+        self.assertEqual(validate_analyze_schema(bad_text), [])
+        with self.assertRaisesRegex(AssertionError, "SHA-256"):
+            assert_ready_cached_history(bad_text, page, 103)
+
+        bad_revisions = copy.deepcopy(ordinary)
+        bad_revisions["revisions"].pop()
+        self.assertEqual(validate_analyze_schema(bad_revisions), [])
+        with self.assertRaisesRegex(AssertionError, "complete seeded core history"):
+            assert_ready_cached_history(bad_revisions, page, 103)
 
     def test_job_status_uses_frozen_jobid_and_pinned_revision_parameters(self) -> None:
         class RecordingApi:

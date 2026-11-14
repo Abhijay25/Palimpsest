@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -40,6 +41,43 @@ def request_status(api: WikiApi, title: str, revision_id: int, job_id: str) -> d
         "action": "palimpsestblame", "op": "status", "title": title,
         "revision": revision_id, "jobid": job_id,
     }))
+
+
+def assert_ready_cached_history(result: dict, page: dict, target_revision: int) -> str:
+    """Check a ready cache against independent text and core revision IDs from seeding."""
+    errors = validate_analyze_schema(result)
+    if errors:
+        raise AssertionError("ready cached analyze schema invalid: " + "; ".join(errors))
+    if result["snapshot"].get("revision_id") != target_revision:
+        raise AssertionError("ready cached analyze changed the original pinned seed revision")
+    expected_text = page.get("expected_text")
+    if not isinstance(expected_text, str):
+        raise AssertionError("seed state omitted the independent expected source text")
+    cached_text = result["source_text"]
+    expected_hash = hashlib.sha256(expected_text.encode("utf-8")).hexdigest()
+    cached_hash = hashlib.sha256(cached_text.encode("utf-8")).hexdigest()
+    if cached_hash != expected_hash:
+        raise AssertionError("ready cached source_text SHA-256 differs from the seeded target")
+    if cached_text != expected_text:
+        raise AssertionError("ready cached source_text differs from the seeded target despite matching its SHA-256")
+
+    expected_ids = page.get("revision_ids")
+    actual_ids = [revision.get("revision_id") for revision in result["revisions"]]
+    if (
+        not isinstance(expected_ids, list)
+        or len(expected_ids) != page.get("revision_count")
+        or any(not isinstance(revision_id, int) or revision_id <= 0 for revision_id in expected_ids)
+        or len(set(expected_ids)) != len(expected_ids)
+    ):
+        raise AssertionError("seed state omitted the complete independent core revision ID list")
+    if (
+        any(not isinstance(revision_id, int) or revision_id <= 0 for revision_id in actual_ids)
+        or len(actual_ids) != len(expected_ids)
+        or len(set(actual_ids)) != len(actual_ids)
+        or set(actual_ids) != set(expected_ids)
+    ):
+        raise AssertionError("ready cached history revision IDs differ from the complete seeded core history")
+    return cached_hash
 
 
 def assert_write_guard(api_url: str, title: str, revision_id: int) -> None:
@@ -105,29 +143,37 @@ def verify_language(api_url: str, language_state: dict, auth: dict) -> dict:
     if ordinary["snapshot"].get("revision_id") != ordinary_revision:
         raise AssertionError("ordinary fixture did not preserve its expected snapshot before job checks")
 
-    # Preparation is a separate read operation. The target must be taken from
-    # this server response, never guessed from a client-side latest lookup.
+    # Pin preparation to the original core-API revision captured during seeding.
+    # The page's mutable latest may already be newer on a rerun; that must not
+    # redirect this checkpoint to a different history.
+    target_revision = page["revision_ids"][-1]
     prepared_response = api.call({
         "action": "palimpsestblame", "op": "analyze", "title": page["title"],
+        "revision": target_revision,
     })
     prepared = action_result(prepared_response)
-    if prepared.get("buildable") is not True:
-        raise AssertionError(f"205-revision fixture should advertise buildable=true; got {prepared.get('buildable')!r}")
-    if prepared.get("status") != "unavailable" or not str(prepared.get("reason", "")).startswith("synchronous-history-limit-exceeded;"):
-        raise AssertionError("buildable analyze response did not identify the synchronous history limit")
-    target_revision = prepared.get("revision_id")
-    if not isinstance(target_revision, int) or target_revision <= 0:
-        raise AssertionError("buildable analyze response omitted its positive resolved top-level revision_id")
-    if target_revision != page["revision_ids"][-1]:
-        raise AssertionError("analyze resolved a target other than the seeded latest revision")
+    if prepared.get("revision_id") != target_revision:
+        raise AssertionError("analyze response changed the original pinned seed revision")
+    if prepared.get("status") == "ready":
+        # A previous run may already have completed this exact pinned target.
+        # Treat it as durable evidence after checking the full cached payload.
+        assert_ready_cached_history(prepared, page, target_revision)
+    else:
+        if prepared.get("buildable") is not True:
+            raise AssertionError(f"205-revision fixture should advertise buildable=true; got {prepared.get('buildable')!r}")
+        if prepared.get("status") != "unavailable" or not str(prepared.get("reason", "")).startswith("synchronous-history-limit-exceeded;"):
+            raise AssertionError("buildable analyze response did not identify the synchronous history limit")
 
-    # Advance latest after preparation. All subsequent operations must stay
-    # pinned to the revision returned above.
-    api.edit(
+    # Advance latest after preparation, even on reruns. All operations below
+    # remain pinned to the immutable 205-revision seed target.
+    latest_text = f"job fixture latest edit after pinned target {target_revision} probe {time.time_ns()}"
+    latest_revision = api.edit(
         page["title"],
-        "job fixture revision 205 common prefix anchor205 common suffix",
-        "T4 latest edit after job preparation",
+        latest_text,
+        f"[synthetic Blame latest-after-prepare {target_revision}]",
     )
+    if latest_revision <= target_revision:
+        raise AssertionError("latest-edit control did not create a revision newer than the pinned seed target")
 
     token = api.token("csrf")
     build_fields = {
@@ -139,8 +185,8 @@ def verify_language(api_url: str, language_state: dict, auth: dict) -> dict:
     first_job = job_value(first_result)
     if first_result.get("revision_id") != target_revision:
         raise AssertionError("build response changed the target revision resolved by analyze")
-    if first_job["status"] != "pending":
-        raise AssertionError(f"205-revision build did not expose resumable pending work: {first_job['status']}")
+    if first_job["status"] not in {"pending", "ready"}:
+        raise AssertionError(f"205-revision build did not expose resumable or completed work: {first_job['status']}")
     if first_job.get("total") is not None and first_job["total"] < page["revision_count"]:
         raise AssertionError("build job total is below the 205-revision fixture history")
     if len(json.dumps(first_response, ensure_ascii=False).encode("utf-8")) > 2 * 1024 * 1024:
@@ -181,8 +227,19 @@ def verify_language(api_url: str, language_state: dict, auth: dict) -> dict:
     if latest_job.get("total") is not None and latest_job["processed"] < latest_job["total"]:
         raise AssertionError("job reported ready before all declared work was processed")
 
+    ready_result = extension_result(api, page["title"], target_revision)
+    source_hash = assert_ready_cached_history(ready_result, page, target_revision)
+
     assert_write_guard(api_url, page["title"], target_revision)
-    return {"job_id": job_id, "revision_id": target_revision, "processed": latest_job["processed"], "total": latest_job.get("total")}
+    return {
+        "job_id": job_id,
+        "revision_id": target_revision,
+        "initial_status": first_job["status"],
+        "processed": latest_job["processed"],
+        "total": latest_job.get("total"),
+        "source_text_sha256": source_hash,
+        "revision_ids_verified": len(page["revision_ids"]),
+    }
 
 
 def main() -> int:
