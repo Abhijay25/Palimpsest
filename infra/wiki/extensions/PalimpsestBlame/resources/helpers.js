@@ -140,9 +140,9 @@
 	}
 
 	function selectionRanges( selection ) {
-		var ranges = [], unmapped = [], exactText = selection ? selection.toString() : '';
+		var ranges = [], unmapped = [], fragments = [], exactText = selection ? selection.toString() : '';
 		if ( !selection || selection.rangeCount === 0 || !exactText ) {
-			return { ranges: ranges, unmapped: unmapped, exactText: exactText };
+			return { ranges: ranges, unmapped: unmapped, fragments: fragments, exactText: exactText };
 		}
 		for ( var index = 0; index < selection.rangeCount; index++ ) {
 			var range = selection.getRangeAt( index );
@@ -174,11 +174,13 @@
 					return;
 				}
 				walkedText += selected;
+				var fragment = { text: selected, start: null, end: null };
 				var mapped = closestMapped( node );
 				if ( !mapped ) {
 					if ( /\S/u.test( selected ) ) {
 						unmapped.push( { text: selected, reason: 'This text has no verified source offset.' } );
 					}
+					fragments.push( fragment );
 					return;
 				}
 				var startWithin;
@@ -186,28 +188,37 @@
 					startWithin = utf16Before( node, textRange.startOffset, mapped.element );
 				} catch ( error ) {
 					unmapped.push( { text: selected, reason: 'This selection crosses a source mapping boundary.' } );
+					fragments.push( fragment );
 					return;
 				}
 				var start = mapped.start + startWithin;
 				var end = start + selected.length;
 				if ( end > mapped.end ) {
 					unmapped.push( { text: selected, reason: 'Visible text exceeds its verified source range.' } );
+					fragments.push( fragment );
 					return;
 				}
 				var last = ranges[ ranges.length - 1 ];
+				var uniquelyMapped = true;
 				if ( last && last.end === start ) {
 					last.end = end;
 				} else if ( last && start < last.end ) {
 					unmapped.push( { text: selected, reason: 'This selection overlaps source ranges that cannot be mapped uniquely.' } );
+					uniquelyMapped = false;
 				} else {
 					ranges.push( { start: start, end: end } );
 				}
+				if ( uniquelyMapped ) {
+					fragment.start = start;
+					fragment.end = end;
+				}
+				fragments.push( fragment );
 			} );
 			if ( walkedText.replace( /\s/gu, '' ) !== range.toString().replace( /\s/gu, '' ) ) {
 				unmapped.push( { text: '', reason: 'The selection includes rendered content without a verified source text node.' } );
 			}
 		}
-		return { ranges: ranges, unmapped: unmapped, exactText: exactText };
+		return { ranges: ranges, unmapped: unmapped, fragments: fragments, exactText: exactText };
 	}
 
 	function safeHttpUrl( value ) {

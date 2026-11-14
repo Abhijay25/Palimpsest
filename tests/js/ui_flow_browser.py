@@ -388,7 +388,10 @@ def main():
                 base.spans = [{ start: 0, end: 9, revision_id: 91, token_id: '91:0', token_ranges: [[0, 5, '91:0'], [5, 9, '91:1']], lineage_ids: ['shared:ancestor', '91:0', '91:1'], confidence: 'certain' }];
                 base.events = [
                     { revision_id: 90, before: 'left-word-only event', after: 'alpha', token_ids: ['91:0'], ambiguous: false },
-                    { revision_id: 91, before: 'right-word event', after: 'beta', token_ids: ['91:1'], ambiguous: false }
+                    { revision_id: 91, before: 'right-word event', after: 'beta', token_ids: ['91:1'], ambiguous: false },
+                    { revision_id: 92, before: '', after: 'inserted beside beta', left_token_id: '91:1', token_ids: [], ambiguous: false },
+                    { revision_id: 89, before: 'deleted beside beta', after: '', left_token_id: '91:1', token_ids: [], ambiguous: false },
+                    { revision_id: 88, before: 'replaced beside beta', after: 'replacement', right_token_id: '91:1', token_ids: [], ambiguous: true }
                 ];
                 window.mw = {
                     config: { get: () => ({ wgPageName: 'Example', wgRevisionId: 0, wgArticleId: 42, wgCanonicalSpecialPageName: null }) },
@@ -445,10 +448,13 @@ def main():
         touch_page.touchscreen.tap(touch_box["x"] + touch_box["width"] / 2, touch_box["y"] + touch_box["height"] / 2)
         touch_page.wait_for_selector(".pb-breakdown")
         assert touch_page.locator(".pb-selected-text").inner_text() == "et"
-        assert touch_page.locator(".pb-event").count() == 1, "only one coalesced token's event should match the partial selection"
-        touch_page.locator(".pb-event summary").click()
+        assert touch_page.locator(".pb-event").count() == 3, "selected token events and before-bearing changes anchored to it should match"
+        touch_page.locator('.pb-event[data-pb-revision-id="91"] summary').click()
         timeline = touch_page.locator(".pb-timeline").inner_text()
         assert "right-word event" in timeline, timeline
+        assert touch_page.locator('.pb-event[data-pb-revision-id="89"]').count() == 1, "the selected-word deletion anchor should remain in focused history"
+        assert touch_page.locator('.pb-event[data-pb-revision-id="88"]').count() == 1, "the selected-word replacement anchor should remain in focused history"
+        assert "inserted beside beta" not in timeline, "insertions next to selected words must not be included by anchor alone"
         assert "left-word-only event" not in timeline, "a partial selection in a coalesced span must exclude sibling token events"
         assert touch_page.evaluate("window.__requests.filter(r => r.ranges).at(-1).ranges") == '[{"start":6,"end":8}]'
         touch_page.close()

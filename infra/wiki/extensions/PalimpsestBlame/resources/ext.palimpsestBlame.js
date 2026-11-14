@@ -31,6 +31,8 @@
 	var returnFocus = null;
 	var returnFocusAnchor = null;
 	var selectedText = '';
+	var revisionPalette = new Map();
+	var paletteCategoryCount = 8;
 	var article = document.querySelector( '#mw-content-text .mw-parser-output' );
 	var language = document.documentElement.lang || 'unknown';
 
@@ -201,10 +203,7 @@
 			revisionIds.add( Number( span.revision_id ) );
 			ambiguous = ambiguous || span.ambiguous === true;
 		} );
-		var events = ( data.events || [] ).filter( function ( event ) {
-			return ( event.token_ids || [] ).some( function ( id ) { return tokenIds.has( String( id ) ); } ) ||
-				tokenIds.has( String( event.left_token_id || '' ) ) || tokenIds.has( String( event.right_token_id || '' ) );
-		} );
+		var events = eventsForTokenIds( data.events, tokenIds );
 		return {
 			ranges: selection.ranges,
 			revision_ids: Array.from( revisionIds ),
@@ -423,6 +422,7 @@
 			initialRevision = Number( data.snapshot.revision_id );
 		}
 		currentData = data;
+		buildRevisionPalette( data );
 		if ( !article ) {
 			var content = document.getElementById( 'mw-content-text' );
 			if ( content ) {
@@ -571,7 +571,7 @@
 			if ( revisionIds.size === 1 ) {
 				var id = Array.from( revisionIds )[ 0 ];
 				node.dataset.pbRevisionId = id;
-				node.style.setProperty( '--pb-revision-hue', String( revisionHue( id ) ) );
+				applyRevisionColor( node, id );
 			} else if ( revisionIds.size > 1 ) {
 				node.classList.add( 'pb-mixed' );
 			}
@@ -581,12 +581,12 @@
 			}
 			node.setAttribute( 'tabindex', '0' );
 			node.setAttribute( 'role', 'button' );
-			node.setAttribute( 'aria-label', 'Inspect attributed wording' + ( revision ? ' changed in revision ' + revision.revision_id + ' by ' + ( revision.user || 'an unavailable identity' ) + ' on ' + formatUtc( revision.timestamp ) : '' ) + ': ' + node.textContent );
+				node.setAttribute( 'aria-label', 'Inspect wording changed in revision ' + ( revision ? revision.revision_id + ' by ' + ( revision.user || 'an unavailable identity' ) + ' on ' + formatUtc( revision.timestamp ) : 'with unavailable history' ) + ': ' + node.textContent );
 			var activate = function () {
 				var selection = readArticleSelection() || retainedArticleSelection;
 				var intersects = selection && selection.ranges.some( function ( range ) { return range.end > mapping.start && range.start < mapping.end; } );
 				if ( !intersects ) {
-					selection = { exactText: node.textContent, ranges: [ { start: mapping.start, end: mapping.end } ], unmapped: [], statement: node.closest( 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dt, dd, figcaption' ) };
+					selection = { exactText: node.textContent, ranges: [ { start: mapping.start, end: mapping.end } ], unmapped: [], fragments: [ { text: node.textContent, start: mapping.start, end: mapping.end } ], statement: node.closest( 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dt, dd, figcaption' ) };
 				}
 				rememberReturnFocus( node );
 				startAnalysis( selection );
@@ -601,13 +601,166 @@
 		} );
 	}
 
-	function revisionHue( value ) {
-		var hash = 2166136261;
-		for ( var i = 0; i < value.length; i++ ) {
-			hash ^= value.charCodeAt( i );
-			hash = Math.imul( hash, 16777619 );
+	function buildRevisionPalette( data ) {
+		var ownerIds = new Set();
+		( data.spans || [] ).forEach( function ( span ) { ownerIds.add( String( span.revision_id ) ); } );
+		var allIds = new Set( ownerIds );
+		( data.revisions || [] ).forEach( function ( revision ) { allIds.add( String( revision.revision_id ) ); } );
+		( data.events || [] ).forEach( function ( event ) { allIds.add( String( event.revision_id ) ); } );
+		var sortIds = function ( ids ) { return Array.from( ids ).sort( function ( left, right ) {
+			var difference = Number( left ) - Number( right );
+			return Number.isFinite( difference ) && difference !== 0 ? difference : left.localeCompare( right );
+		} ); };
+		var orderedOwners = sortIds( ownerIds );
+		var orderedHistory = sortIds( new Set( Array.from( allIds ).filter( function ( id ) { return !ownerIds.has( id ); } ) ) );
+		var ordered = orderedOwners.concat( orderedHistory );
+		var categories = Array.from( { length: paletteCategoryCount }, function () { return []; } );
+		var idsByColor = new Map();
+		ordered.forEach( function ( id, index ) {
+			var colorIndex = index % paletteCategoryCount;
+			categories[ colorIndex ].push( id );
+			idsByColor.set( id, colorIndex );
+		} );
+		revisionPalette = new Map();
+		ordered.forEach( function ( id ) {
+			var colorIndex = idsByColor.get( id );
+			var members = categories[ colorIndex ];
+			revisionPalette.set( id, {
+				index: colorIndex,
+				label: 'Color category ' + ( colorIndex + 1 ) + ( members.length > 1 ? ' (shared)' : '' )
+			} );
+		} );
+	}
+
+	function colorInfo( revisionId ) {
+		return revisionPalette.get( String( revisionId ) ) || { index: 0, label: 'Color category 1' };
+	}
+
+	function applyRevisionColor( node, revisionId ) {
+		var color = colorInfo( revisionId );
+		node.dataset.pbColorIndex = String( color.index );
+		node.dataset.pbColorLabel = color.label;
+	}
+
+	function selectedQuoteParts( data, selection ) {
+		var parts = [];
+		( selection.fragments || [] ).forEach( function ( fragment ) {
+			if ( !Number.isInteger( fragment.start ) || !Number.isInteger( fragment.end ) || fragment.end <= fragment.start || fragment.end - fragment.start !== fragment.text.length ) {
+				parts.push( { text: fragment.text, revisionId: null, start: null, end: null } );
+				return;
+			}
+			var intervals = [];
+			( data.spans || [] ).forEach( function ( span ) {
+				var ranges = Array.isArray( span.token_ranges ) ? span.token_ranges.map( function ( range ) { return { start: range[ 0 ], end: range[ 1 ] }; } ) : [ { start: span.start, end: span.end } ];
+				ranges.forEach( function ( range ) {
+					var start = Math.max( fragment.start, range.start );
+					var end = Math.min( fragment.end, range.end );
+					if ( start < end ) {
+						intervals.push( { start: start, end: end, revisionId: String( span.revision_id ) } );
+					}
+				} );
+			} );
+			intervals.sort( function ( left, right ) { return left.start - right.start || left.end - right.end; } );
+			var cursor = fragment.start;
+			intervals.forEach( function ( interval ) {
+				if ( interval.start > cursor ) {
+					parts.push( { text: fragment.text.slice( cursor - fragment.start, interval.start - fragment.start ), revisionId: null, start: cursor, end: interval.start } );
+				}
+				var start = Math.max( cursor, interval.start );
+				if ( start >= interval.end ) {
+					return;
+				}
+				var text = fragment.text.slice( start - fragment.start, interval.end - fragment.start );
+				parts.push( { text: text, revisionId: /\S/u.test( text ) ? interval.revisionId : null, start: start, end: interval.end } );
+				cursor = interval.end;
+			} );
+			if ( cursor < fragment.end ) {
+				parts.push( { text: fragment.text.slice( cursor - fragment.start ), revisionId: null, start: cursor, end: fragment.end } );
+			}
+		} );
+		var quote = selection.exactText || '';
+		var quoteCursor = 0;
+		for ( var i = 0; i < parts.length; i++ ) {
+			var position = quote.indexOf( parts[ i ].text, quoteCursor );
+			if ( position < 0 ) {
+				return [];
+			}
+			parts[ i ].quoteStart = position;
+			parts[ i ].quoteEnd = position + parts[ i ].text.length;
+			quoteCursor = parts[ i ].quoteEnd;
 		}
-		return ( hash >>> 0 ) % 360;
+		return parts;
+	}
+
+	function revisionGroups( quote, parts, data ) {
+		var groups = new Map();
+		var activeSegment = null;
+		parts.forEach( function ( part ) {
+			if ( !part.revisionId || !/\S/u.test( part.text ) ) {
+				if ( /\S/u.test( part.text ) ) {
+					activeSegment = null;
+				}
+				return;
+			}
+			var id = String( part.revisionId );
+			var group = groups.get( id );
+			if ( !group ) {
+				group = { revisionId: id, ranges: [], snippets: [], revision: H.revisionIndex( data ).get( id ) };
+				groups.set( id, group );
+			}
+			group.ranges.push( { start: part.start, end: part.end } );
+			if ( activeSegment && activeSegment.revisionId === id && !/\S/u.test( quote.slice( activeSegment.end, part.quoteStart ) ) ) {
+				activeSegment.end = part.quoteEnd;
+			} else {
+				activeSegment = { revisionId: id, start: part.quoteStart, end: part.quoteEnd };
+				group.snippets.push( activeSegment );
+			}
+		} );
+		groups.forEach( function ( group ) {
+			group.snippets.forEach( function ( snippet ) { snippet.text = quote.slice( snippet.start, snippet.end ); } );
+		} );
+		return Array.from( groups.values() );
+	}
+
+	function tokenIdsForRanges( data, ranges ) {
+		var tokenIds = new Set();
+		( data.spans || [] ).forEach( function ( span ) {
+			var selectedRanges = ranges.filter( function ( range ) { return span.start < range.end && span.end > range.start; } );
+			if ( !selectedRanges.length ) {
+				return;
+			}
+			if ( Array.isArray( span.token_ranges ) ) {
+				var ownIds = new Set( span.token_ranges.map( function ( range ) { return String( range[ 2 ] ); } ) );
+				var selectedOwnIds = new Set();
+				span.token_ranges.forEach( function ( tokenRange ) {
+					if ( ranges.some( function ( range ) { return tokenRange[ 0 ] < range.end && tokenRange[ 1 ] > range.start; } ) ) {
+						selectedOwnIds.add( String( tokenRange[ 2 ] ) );
+					}
+				} );
+				selectedOwnIds.forEach( function ( id ) { tokenIds.add( id ); } );
+				if ( !selectedOwnIds.size ) {
+					return;
+				}
+				( span.lineage_ids || [] ).forEach( function ( id ) {
+					if ( !ownIds.has( String( id ) ) ) {
+						tokenIds.add( String( id ) );
+					}
+				} );
+			} else {
+				tokenIds.add( String( span.token_id ) );
+				( span.lineage_ids || [] ).forEach( function ( id ) { tokenIds.add( String( id ) ); } );
+			}
+		} );
+		return tokenIds;
+	}
+
+	function eventsForTokenIds( events, tokenIds ) {
+		return ( events || [] ).filter( function ( event ) {
+			var tokenMatch = ( event.token_ids || [] ).some( function ( id ) { return tokenIds.has( String( id ) ); } );
+			var boundaryChange = typeof event.before === 'string' && event.before.length > 0 &&
+				( tokenIds.has( String( event.left_token_id || '' ) ) || tokenIds.has( String( event.right_token_id || '' ) ) );
+			return tokenMatch || boundaryChange;
+		} );
 	}
 
 	function nearestStatement( selection ) {
@@ -682,16 +835,142 @@
 		header.appendChild( close );
 		panel.appendChild( header );
 		var quote = element( 'blockquote', 'pb-selected-text', selectedText || selection.exactText || 'Selected wording unavailable' );
+		var quoteParts = selectedQuoteParts( data, selection );
+		var groups = revisionGroups( selection.exactText || '', quoteParts, data );
+		var context = { panel: panel, quote: quote, data: data, selection: selection, groups: groups };
+		renderSelectedQuote( quote, context, quoteParts );
 		panel.appendChild( quote );
 		var rangeNote = ( selection.unmapped || [] ).length;
 		if ( rangeNote ) {
 			panel.appendChild( element( 'p', 'pb-warning', selection.unmapped.map( function ( item ) { return item.reason; } ).join( ' ' ) ) );
 		}
-		appendContributors( panel, data );
+		appendRevisionGroups( panel, context );
 		appendTimeline( panel, data, selection );
 		root.appendChild( panel );
 		buildDateForm();
 		close.focus();
+	}
+
+	function renderSelectedQuote( quote, context, parts ) {
+		var exactText = context.selection.exactText || '';
+		quote.replaceChildren();
+		if ( !parts.length ) {
+			quote.textContent = exactText;
+			return;
+		}
+		var cursor = 0;
+		parts.forEach( function ( part ) {
+			if ( part.quoteStart < cursor ) {
+				return;
+			}
+			if ( part.quoteStart > cursor ) {
+				quote.appendChild( document.createTextNode( exactText.slice( cursor, part.quoteStart ) ) );
+			}
+			if ( part.revisionId && /\S/u.test( part.text ) ) {
+				var phrase = element( 'span', 'pb-selection-phrase', part.text );
+				phrase.dataset.pbRevisionId = part.revisionId;
+				phrase.dataset.pbStart = String( part.start );
+				phrase.dataset.pbEnd = String( part.end );
+				applyRevisionColor( phrase, part.revisionId );
+				phrase.tabIndex = 0;
+				phrase.setAttribute( 'role', 'button' );
+				phrase.setAttribute( 'aria-label', 'Focus history for revision ' + part.revisionId + ': ' + part.text );
+				phrase.addEventListener( 'click', function () { focusRevisionHistory( part.revisionId, context, [ { start: part.start, end: part.end } ] ); } );
+				phrase.addEventListener( 'keydown', function ( event ) {
+					if ( event.key === 'Enter' || event.key === ' ' ) {
+						event.preventDefault();
+						focusRevisionHistory( part.revisionId, context, [ { start: part.start, end: part.end } ] );
+					}
+				} );
+				quote.appendChild( phrase );
+			} else {
+				quote.appendChild( document.createTextNode( part.text ) );
+			}
+			cursor = part.quoteEnd;
+		} );
+		if ( cursor < exactText.length ) {
+			quote.appendChild( document.createTextNode( exactText.slice( cursor ) ) );
+		}
+	}
+
+	function appendRevisionGroups( panel, context ) {
+		var section = element( 'section', 'pb-contributors' );
+		section.appendChild( element( 'h3', '', 'Selected wording by revision' ) );
+		if ( !context.groups.length ) {
+			section.appendChild( element( 'p', 'pb-warning', 'No verified revision owner is available for the selected visible wording.' ) );
+			panel.appendChild( section );
+			return;
+		}
+		context.groupSection = section;
+		context.groups.forEach( function ( group ) {
+			var groupNode = element( 'section', 'pb-revision-group' );
+			groupNode.dataset.pbRevisionId = group.revisionId;
+			applyRevisionColor( groupNode, group.revisionId );
+			var revision = group.revision;
+			var who = revision && revision.user || 'Identity unavailable';
+			var trigger = element( 'button', 'pb-revision-group-focus', 'Revision ' + group.revisionId + ' · ' + who + ' · ' + formatUtc( revision && revision.timestamp ) );
+			trigger.type = 'button';
+			trigger.addEventListener( 'click', function () { focusRevisionHistory( group.revisionId, context ); } );
+			groupNode.appendChild( trigger );
+			var snippets = element( 'ul', 'pb-group-snippets' );
+			group.snippets.forEach( function ( snippet ) {
+				snippets.appendChild( element( 'li', 'pb-group-snippet', snippet.text ) );
+			} );
+			groupNode.appendChild( snippets );
+			if ( revision && revision.comment ) {
+				groupNode.appendChild( element( 'p', 'pb-summary', 'Edit summary: ' + revision.comment ) );
+			}
+			if ( revision ) {
+				groupNode.appendChild( revisionActions( revision ) );
+			}
+			section.appendChild( groupNode );
+		} );
+		section.appendChild( element( 'p', 'pb-muted', 'Last changed identifies the revision that changed the present wording; it does not prove who first introduced the idea.' ) );
+		panel.appendChild( section );
+	}
+
+	function focusRevisionHistory( revisionId, context, selectedRanges ) {
+		var id = revisionId === null ? null : String( revisionId );
+		context.quote.querySelectorAll( '.pb-selection-phrase' ).forEach( function ( phrase ) {
+			var intersects = selectedRanges && selectedRanges.some( function ( range ) {
+				return Number( phrase.dataset.pbStart ) < range.end && Number( phrase.dataset.pbEnd ) > range.start;
+			} );
+			phrase.classList.toggle( 'is-focused', id !== null && phrase.dataset.pbRevisionId === id && ( !selectedRanges || intersects ) );
+		} );
+		context.groupSection.querySelectorAll( '.pb-revision-group' ).forEach( function ( group ) {
+			group.classList.toggle( 'is-focused', id !== null && group.dataset.pbRevisionId === id );
+		} );
+		var existingAction = context.panel.querySelector( '.pb-focused-history' );
+		if ( existingAction ) {
+			existingAction.remove();
+		}
+		var existingTimeline = context.panel.querySelector( '.pb-timeline' );
+		if ( existingTimeline ) {
+			existingTimeline.remove();
+		}
+		if ( id === null ) {
+			appendTimeline( context.panel, context.data, context.selection );
+			return;
+		}
+		var group = context.groups.find( function ( item ) { return item.revisionId === id; } );
+		if ( !group ) {
+			return;
+		}
+		var focusRanges = selectedRanges || group.ranges;
+		var tokenIds = tokenIdsForRanges( context.data, focusRanges );
+		var allEvents = context.selection && Array.isArray( context.selection.events ) ? context.selection.events : context.data.selection && context.data.selection.events || [];
+		var focusedSelection = Object.assign( {}, context.selection, {
+			ranges: focusRanges,
+			revision_ids: [ Number( id ) ],
+			events: eventsForTokenIds( allEvents, tokenIds )
+		} );
+		var action = element( 'div', 'pb-focused-history' );
+		var showFull = element( 'button', 'pb-button', 'Show full selection' );
+		showFull.type = 'button';
+		showFull.addEventListener( 'click', function () { focusRevisionHistory( null, context ); } );
+		action.appendChild( showFull );
+		context.groupSection.after( action );
+		appendTimeline( context.panel, context.data, focusedSelection );
 	}
 
 	function closeBreakdown( panel ) {
@@ -759,8 +1038,8 @@
 	function appendTimeline( panel, data, selection ) {
 		var section = element( 'section', 'pb-timeline' );
 		section.appendChild( element( 'h3', '', 'Introductions, replacements and removals' ) );
-		var hasSelectionEvents = data.selection && Array.isArray( data.selection.events );
-		var events = selection ? ( hasSelectionEvents ? data.selection.events : null ) : data.events || [];
+		var selectedEvents = selection && Array.isArray( selection.events ) ? selection.events : data.selection && Array.isArray( data.selection.events ) ? data.selection.events : null;
+		var events = selection ? selectedEvents : data.events || [];
 		if ( events === null ) {
 			section.appendChild( element( 'p', 'pb-warning', 'The service did not return history specific to this selection, so unrelated page edits are not shown.' ) );
 			panel.appendChild( section );
@@ -774,6 +1053,8 @@
 		var revisions = H.revisionIndex( data );
 		events.forEach( function ( change ) {
 			var details = element( 'details', 'pb-event' );
+			details.dataset.pbRevisionId = String( change.revision_id );
+			applyRevisionColor( details, change.revision_id );
 			var revision = revisions.get( String( change.revision_id ) );
 			var description = revision ? formatUtc( revision.timestamp ) + ' · ' + ( revision.user || 'Identity unavailable' ) : 'Revision ' + change.revision_id;
 			if ( change.ambiguous ) {
@@ -876,21 +1157,29 @@
 		if ( old ) {
 			old.remove();
 		}
-		var box = element( 'details', 'pb-legend' );
-		box.appendChild( element( 'summary', '', 'Attribution highlights and limits' ) );
-		box.appendChild( element( 'p', '', 'Underlined passages have a verified source range. Select or activate one to inspect its last-changing revision. This is text history, not proof that a statement is true.' ) );
+		var box = element( 'section', 'pb-legend' );
+		box.setAttribute( 'aria-labelledby', 'pb-legend-title' );
+		var heading = element( 'h3', '', 'Revision colour key' );
+		heading.id = 'pb-legend-title';
+		box.appendChild( heading );
+		box.appendChild( element( 'p', '', 'Each fill identifies the last-changing revision, not editor identity or claim validity. Colours can repeat in long histories; revision IDs stay visible. Select a coloured passage to inspect its wording history.' ) );
 		var entries = new Map();
 		( data.spans || [] ).forEach( function ( span ) {
 			entries.set( String( span.revision_id ), ( entries.get( String( span.revision_id ) ) || 0 ) + 1 );
 		} );
 		var revisions = H.revisionIndex( data );
 		if ( entries.size ) {
-			var list = element( 'ul', '' );
+			var list = element( 'ul', 'pb-legend-list' );
 			entries.forEach( function ( count, id ) {
 				var revision = revisions.get( id );
 				var item = element( 'li', '' );
-				var inspect = element( 'button', 'pb-revision-legend', ( revision && revision.user || 'Identity unavailable' ) + ' · ' + formatUtc( revision && revision.timestamp ) + ' · revision ' + id + ' changed ' + count + ' mapped passage' + ( count === 1 ? '' : 's' ) );
+				var inspect = element( 'button', 'pb-revision-legend', '' );
 				inspect.type = 'button';
+				inspect.setAttribute( 'aria-label', 'Focus history for revision ' + id + ': ' + ( revision && revision.user || 'Identity unavailable' ) );
+				var swatch = element( 'span', 'pb-color-swatch' );
+				applyRevisionColor( swatch, id );
+				inspect.appendChild( swatch );
+				inspect.appendChild( document.createTextNode( ( revision && revision.user || 'Identity unavailable' ) + ' · ' + formatUtc( revision && revision.timestamp ) + ' · revision ' + id + ' · ' + count + ' mapped passage' + ( count === 1 ? '' : 's' ) ) );
 				inspect.addEventListener( 'click', function () {
 					var attributed = Array.from( article.querySelectorAll( '.pb-attributed[data-pb-revision-id]' ) ).find( function ( node ) { return node.dataset.pbRevisionId === id; } );
 					if ( attributed ) {
