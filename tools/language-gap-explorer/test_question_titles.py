@@ -91,5 +91,13 @@ class QuestionTitleTests(unittest.TestCase):
             self.assertEqual(T.consume_queued('Q1'),dict(topic='Q1',groups=0))
             discover.assert_not_called()
 
+    def test_finished_queue_clears_pending_without_reordering_runs(self):
+        db=MagicMock();db.__enter__.return_value=db;cursor=db.cursor.return_value.__enter__.return_value
+        cursor.fetchone.return_value={'pending':0}
+        with patch('question_titles.connect',return_value=db):self.assertEqual(T.refresh_naming_progress('Q1'),0)
+        sql,args=cursor.execute.call_args.args
+        self.assertIn('updated=updated',sql)
+        self.assertEqual(args,('false',0,'Q1'))
+
 
 if __name__=='__main__':unittest.main()

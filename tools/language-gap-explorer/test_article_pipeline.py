@@ -127,7 +127,7 @@ class ArticlePipelineTests(unittest.TestCase):
             with self.assertRaises(article.DiskGuardError):article.ensure_disk_space()
 
     def test_disk_pause_stops_claiming_more_jobs(self):
-        with patch('article_pipeline.init'),patch('article_pipeline._claim',return_value=dict(id='a')) as claim,patch('article_pipeline._run_job',return_value=dict(status='paused_disk')):
+        with patch('article_pipeline.init'),patch('article_pipeline._claim',return_value=dict(id='a')) as claim,patch('article_pipeline._run_job',return_value=dict(status='paused_disk')),patch('builtins.print'):
             result=article.work(workers=1)
         self.assertEqual(result[0]['status'],'paused_disk');self.assertEqual(claim.call_count,1)
 
@@ -138,10 +138,39 @@ class ArticlePipelineTests(unittest.TestCase):
             dict(id='old',phases=[dict(start='2020-01-01T00:00:00Z')])])
         cursor.fetchall.side_effect=[[
             dict(topic='Q134949',lang='fi',title='Talvisota'),dict(topic='Q134949',lang='en',title='Dataset title'),dict(topic='Q134949',lang='sv',title='Vinterkriget')],
-            [dict(topic='Q134949',id='run',status='ready',summary=json.dumps(data))]]
+            [dict(topic='Q134949',id='run',status='ready',summary=json.dumps(data))],[]]
         with patch('article_pipeline.connect',return_value=db):rows=article.showcase_articles()
         self.assertEqual(rows[0]['title'],'Dataset title');self.assertEqual(rows[0]['count'],1);self.assertEqual(rows[0]['all_time_count'],2)
         self.assertTrue(rows[0]['featured']);self.assertEqual(rows[0]['status'],'ready')
+
+    def test_failed_batch_remains_unassessed_in_partial_mode(self):
+        db=MagicMock();db.__enter__.return_value=db;db.cursor.return_value.__enter__.return_value.fetchall.return_value=[]
+        pairs={'a':dict(id='a',similarity=.9),'b':dict(id='b',similarity=.8)};on_error=MagicMock()
+        with patch('paired_history.connect',return_value=db),patch('paired_history.verdict_batch',side_effect=RuntimeError('provider unavailable')):
+            result=paired.assess(pairs,workers=1,allow_partial=True,on_error=on_error)
+        self.assertEqual({v['kind'] for v in result.values()},{'unassessed'});on_error.assert_called_once()
+
+    def test_legacy_failed_batch_still_raises(self):
+        db=MagicMock();db.__enter__.return_value=db;db.cursor.return_value.__enter__.return_value.fetchall.return_value=[]
+        with patch('paired_history.connect',return_value=db),patch('paired_history.verdict_batch',side_effect=RuntimeError('provider unavailable')):
+            with self.assertRaises(RuntimeError):paired.assess({'a':dict(id='a',similarity=.9)},workers=1)
+
+    def test_unknown_group_check_defers_possible_duplicate(self):
+        db=MagicMock();db.__enter__.return_value=db;cursor=db.cursor.return_value.__enter__.return_value
+        near=dict(id='known',payload=json.dumps(dict(a='source',b='counterpart')))
+        cursor.fetchall.side_effect=[[],[dict(id='group',representative='known')],[near],[near]]
+        cursor.fetchone.side_effect=[dict(embedding=b'x'),dict(probability=None)]
+        pair=dict(id='a',a=dict(lang='en',section='A',quote='x'),b=dict(lang='fi',section='B',quote='y'))
+        with patch('article_pipeline.connect',return_value=db),patch('paired_history.feature',return_value=b'vector'),patch('paired_history.group_check_batch') as assess:
+            result=article._assign_topics(context(),{'a':pair},{'a':dict(kind='coverage',question='cause')})
+        self.assertEqual(result,{});assess.assert_not_called()
+        self.assertFalse(any('INSERT IGNORE INTO article_semantic_topic' in c.args[0] for c in cursor.execute.call_args_list))
+
+    def test_scoped_group_refusal_is_unknown_not_negative(self):
+        db=MagicMock();db.__enter__.return_value=db
+        with patch('paired_history.connect',return_value=db),patch('paired_history.decisions',return_value={'same_0':dict(type='refusal')}):
+            result=paired.group_check_batch([('id',{}, {})],namespace='article-scope')
+        self.assertIsNone(result['id'])
 
 
 if __name__=='__main__':unittest.main()

@@ -6,7 +6,7 @@ import json
 from urllib.parse import urlsplit,parse_qs
 from werkzeug.datastructures import MultiDict
 
-from skyline import aggregate, phases_at, occurrence_choice, left_language, tracker_context
+from skyline import aggregate, phases_at, occurrence_choice, left_language, tracker_context,assessment_warning
 from explore_preview import app as preview
 
 RUN='a'*64
@@ -29,6 +29,12 @@ def fixture():
 
 
 class SkylineTests(unittest.TestCase):
+    def test_incompatible_model_signals_stay_visible_without_relabeling(self):
+        occurrence=dict(kind='contradiction',scores=dict(compatible=dict(probability=1.0)))
+        self.assertIn('uncertain',assessment_warning(occurrence))
+        self.assertEqual(occurrence['kind'],'contradiction')
+        self.assertEqual(assessment_warning(dict(kind='framing',scores=occurrence['scores'])),'')
+
     def test_one_question_not_passage_or_pair_counts(self):
         data=fixture();data['rows'].append(copy.deepcopy(data['rows'][0]))
         result=aggregate(data,['en','fi','sv'])['observations'][-1]
@@ -69,6 +75,12 @@ class SkylineTests(unittest.TestCase):
         self.assertEqual(context['historical_back'],'/explore?topic=Q134949&kind=framing')
         self.assertEqual(context['historical_evidence'][0]['quote'],'<script>source</script>')
         self.assertIn('&lt;script&gt;',str(context['historical_evidence'][0]['quote_html']))
+
+    def test_featured_collection_is_read_only(self):
+        with patch('article_pipeline.showcase_articles',return_value=[dict(id='Q134949',status='ready',count=135)]),patch('article_pipeline.enqueue',side_effect=AssertionError('GET must not prepare')):
+            with preview.test_client() as client:response=client.get('/explore/api/showcase')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.get_json()['articles'][0]['count'],135)
 
     def test_missing_run_never_falls_back_to_snapshot(self):
         args=MultiDict([('topic','Q134949'),('run',RUN),('group',GROUP),('stamp',STAMP)])

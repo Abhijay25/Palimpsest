@@ -225,6 +225,21 @@ def _run_batches(topic,batches,existing,workers):
         with connect() as db,db.cursor() as c:c.execute("UPDATE question_naming_batch SET status='finished' WHERE id=%s",(batch_id,))
     with ThreadPoolExecutor(max_workers=max(1,min(2,workers))) as pool:
         for future in as_completed([pool.submit(run_batch,key,batch) for key,batch in batches.items()]):future.result()
+    refresh_naming_progress(topic)
+
+
+def refresh_naming_progress(topic):
+    """Refresh derived queue metadata without changing assessment recency."""
+    with connect() as db,db.cursor() as c:
+        c.execute("SELECT COUNT(*) pending FROM question_naming_batch WHERE article_id=%s AND policy_version=%s AND status='pending'",(topic,VERSION))
+        pending=c.fetchone()['pending']
+        c.execute("""UPDATE paired_run SET summary=JSON_SET(summary,
+          '$.progress.naming_pending',JSON_EXTRACT(%s,'$'),
+          '$.progress.naming_pending_batches',%s),updated=updated
+          WHERE topic=%s AND summary IS NOT NULL
+          AND JSON_EXTRACT(summary,'$.progress.naming_pending') IS NOT NULL""",
+          ('true' if pending else 'false',pending,topic))
+    return pending
 
 
 def _prepare(topic,run=None,languages=None,workers=2):

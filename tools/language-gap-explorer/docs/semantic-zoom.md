@@ -1,5 +1,23 @@
 # Semantic zoom: questions → months → years
 
+**Latest presentation:** bare `/explore` is the centered article/language prompt. The main results use Wikipedia styling, a compact floating toolbar and one viewport-filling monthly histogram across the available source range. Zoom changes the date window and adapts to yearly buckets for longer spans; month is the finest time unit. Clicking a bucket opens its searchable issue table rather than zooming. Click an issue to open a wide side-by-side evidence dialog; selected-question deep links restore it directly. The constellation view is removed; older sections and endpoint names below record earlier implementation history.
+
+The source pane explains observed differences using exact passages, machine translations, highlights, revision provenance and the existing article discrepancy tracker. Draft editing was explicitly removed from the visualization's scope: its purpose is awareness and understanding for readers and editors.
+
+`GET /explore/api/showcase` exposes the curated 20-article Finnish-history collection, actual ready/partial/preparation states, source cutoff and latest/all-time counts. It is read-only. Optional `/cell?occurrence=...` preserves a specific stored occurrence, including a weaker category selected within a stronger aggregate group. An invalid or out-of-scope identity fails explicitly.
+
+```sh
+python -B article_pipeline.py showcase
+python -B article_pipeline.py enqueue --showcase --mode snapshot
+python -B article_pipeline.py worker --workers 2
+python -B article_pipeline.py status
+# Resume a selected interrupted article; failed provider reservations stay retained:
+python -B article_pipeline.py resume --topic Q134949
+python -B question_titles.py worker --workers 2
+```
+
+The worker uses two concurrent article jobs with at most two requests each, while shared provider limits remain six total and two title-generation slots. Successful cached assessments may publish as a visibly partial checkpoint when other calls are unavailable; those unavailable cases remain unassessed. Unknown same-question checks defer possible duplicates instead of creating extra question identities. No failed paid request is silently reset or resent. See the [judge walkthrough](../../../docs/hackathon-walkthrough.md) and [data status](../../../docs/hackathon-data-status.txt).
+
 The active research app keeps one visualization on screen. Its latest assessed month opens as equal-size question dots. Hover/focus gives the specific question, category, actual language pair and observed date; selection opens the existing historical article tracker. Zoom out reveals monthly blobs, then yearly blobs. Browser Back preserves the article, selected languages, run, period, search and observation. Search opens from the magnifier rather than occupying permanent chart space.
 
 ## Counting and evidence

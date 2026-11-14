@@ -40,6 +40,14 @@ SHOWCASE_ARTICLES=(
 class DiskGuardError(RuntimeError):pass
 
 
+def safe_error(error):
+    """Provider messages are already scrubbed; redact again before queue/log use."""
+    label=type(error).__name__
+    if label not in ('APIError','BudgetError','DiskGuardError'):return label
+    message=re.sub(r'sk-[A-Za-z0-9_-]+','[redacted]',str(error)).replace(str(ROOT),'[research root]')
+    return label+': '+' '.join(message.split())[:350]
+
+
 def ensure_disk_space():
     free=shutil.disk_usage(ROOT).free
     if free<512*1024*1024:raise DiskGuardError('Preparation paused below the existing 512 MiB disk guard.')
@@ -218,14 +226,25 @@ def _assign_topics(context,pairs,verdicts):
                 else:cases[key]=(key,payloads[identity],json.loads(row['payload']))
     batches=[list(cases.values())[i:i+20] for i in range(0,len(cases),20)]
     with ThreadPoolExecutor(max_workers=context.workers) as pool:
-        for future in as_completed([pool.submit(paired.group_check_batch,b,GROUP_POLICY+':'+context.topic) for b in batches]):checks.update(future.result())
+        futures={pool.submit(paired.group_check_batch,b,GROUP_POLICY+':'+context.topic):b for b in batches}
+        for future in as_completed(futures):
+            try:checks.update(future.result())
+            except Exception as error:
+                print(context.topic,'grouping batch unavailable:',safe_error(error),flush=True)
+                with connect() as db,db.cursor() as c:
+                    for key,_,_ in futures[future]:
+                        checks[key]=None
+                        # NULL means unassessed, never a negative identity judgment.
+                        c.execute('INSERT IGNORE INTO paired_group_check VALUES(%s,NULL)',(key,))
     for identity in sorted(neighbors):
-        choices=[]
+        choices=[];unknown=False
         for candidate in neighbors[identity]:
             if candidate not in topics:continue
             probability=checks.get(storage.digest([GROUP_POLICY,context.topic,sorted([identity,candidate])]),0)
-            if probability>=.88:choices.append((probability,candidate))
+            if probability is None:unknown=True
+            elif probability>=.88:choices.append((probability,candidate))
         if choices:topic_id=topics[max(choices)[1]]['id']
+        elif unknown:continue  # Defer possible duplicates rather than inflate counts.
         else:
             topic_id=storage.digest([GROUP_POLICY,context.topic,'semantic-topic',identity]);pair=actionable[identity];question=verdicts[identity]['question']
             payload=dict(title=paired.QUESTIONS.get(question,paired.QUESTIONS['account'])+' · '+pair['a']['section']+' / '+pair['b']['section'],question=question,representative=payloads[identity],article=context.topic,grouping='article-scoped fixed representative, no fixed K')
@@ -313,9 +332,15 @@ def prepare_article(context,progress_hook=None):
                         # The existing verdict assesses only these exact texts; reuse it.
                         identity=storage.digest([paired.VERSION,la,edge['a'],lb,edge['b']]);pairs[identity]=dict(id=identity,a=nodes[la][edge['a']],b=nodes[lb][edge['b']],similarity=edge['similarity'])
                 progress.update(stage='classifying',candidates_current=len(pairs));publish(run_id,base,progress)
-                verdicts=paired.assess(pairs,workers=context.workers)
+                def assessment_error(error,batch):
+                    progress['assessment_error']=safe_error(error)
+                    progress['assessment_failed_pairs']=progress.get('assessment_failed_pairs',0)+len(batch)
+                    print(context.topic,'assessment batch unavailable:',safe_error(error),flush=True)
+                verdicts=paired.assess(pairs,workers=context.workers,allow_partial=True,on_error=assessment_error)
+                progress['unassessed_current']=sum(v['kind']=='unassessed' for v in verdicts.values())
                 assignments=assign_topics(context,pairs,verdicts);paired.store_occurrences(run_id,point,pairs,verdicts,assignments)
-                incomplete=any(v['kind']=='unassessed' for v in verdicts.values())
+                progress['grouping_deferred_current']=sum(v['kind'] in ('contradiction','framing','coverage') for v in verdicts.values())-len(assignments)
+                incomplete=any(v['kind']=='unassessed' for v in verdicts.values()) or progress['grouping_deferred_current']>0
                 with connect() as db,db.cursor() as c:c.execute('UPDATE article_checkpoint SET status=%s WHERE run_id=%s AND stamp=%s',('partial' if incomplete else 'complete',run_id,stamp))
                 if incomplete:
                     progress['stage']='partial';publish(run_id,base,progress,progress_hook);continue
@@ -325,7 +350,7 @@ def prepare_article(context,progress_hook=None):
         return publish(run_id,base,progress,progress_hook,final=True)
     except Exception as error:
         progress['stage']='partial';publish(run_id,base,progress,final=True)
-        with connect() as db,db.cursor() as c:c.execute('UPDATE paired_run SET error=%s WHERE id=%s',(type(error).__name__,run_id))
+        with connect() as db,db.cursor() as c:c.execute('UPDATE paired_run SET error=%s WHERE id=%s',(safe_error(error),run_id))
         raise
 
 
@@ -372,6 +397,16 @@ def showcase_articles(limit=20,prepared_only=False):
             latest={r['id'] for r in data['rows'] if any(p['start']==data['asOf'] for p in r['phases'])}
             item.update(status=row['status'],count=len(latest),all_time_count=len(data['rows']),run=row['id'],asOf=data['asOf'],
                         preparation_mode=data.get('preparation_mode','history' if len(data.get('observations',[]))>1 else 'snapshot'))
+        try:
+            c.execute('SELECT article,status,error FROM article_preparation_queue WHERE article IN ('+','.join(['%s']*len(identities))+') ORDER BY updated DESC',identities)
+            queued=set()
+            for job in c.fetchall():
+                if job['article'] in queued or job['article'] not in by_id:continue
+                queued.add(job['article']);item=by_id[job['article']];item['job_status']=job['status']
+                if item['status']=='not_prepared':item['status']='preparing' if job['status']=='running' else job['status']
+                if job['error']:item['preparation_error']=job['error']
+        except Exception as error:
+            if getattr(error,'args',[None])[0]!=1146:raise
     results=[by_id[identity] for identity in identities if identity in by_id and len(by_id[identity]['languages'])>=2]
     # Three-edition candidates first, preserving the curated order within each tier.
     results.sort(key=lambda item:len(item['languages'])<3)
@@ -403,15 +438,16 @@ def _run_job(job,hook=None):
 
 
 def _run_job_locked(job,hook=None):
-    raw=json.loads(job['configuration']);anchors=tuple(EditionAnchor(**a) for a in raw['anchors']);context=ArticleContext(raw['topic'],raw['title'],anchors,raw['mode'],raw['since'])
+    raw=json.loads(job['configuration']);anchors=tuple(EditionAnchor(**a) for a in raw['anchors']);context=ArticleContext(raw['topic'],raw['title'],anchors,raw['mode'],raw['since'],min(2,raw.get('workers',2)))
     try:
         result=prepare_article(context,hook)
         with connect() as db,db.cursor() as c:c.execute('UPDATE article_preparation_queue SET status=%s,run_id=%s,error=NULL WHERE id=%s',(result['progress']['stage'],result['run'],job['id']))
         return dict(article=context.topic,run=result['run'],status=result['progress']['stage'],questions=len(result['rows']))
     except Exception as error:
         status='paused_disk' if isinstance(error,DiskGuardError) else 'failed'
-        with connect() as db,db.cursor() as c:c.execute('UPDATE article_preparation_queue SET status=%s,error=%s WHERE id=%s',(status,type(error).__name__,job['id']))
-        return dict(article=context.topic,status=status,error=type(error).__name__)
+        description=safe_error(error)
+        with connect() as db,db.cursor() as c:c.execute('UPDATE article_preparation_queue SET status=%s,error=%s WHERE id=%s',(status,description[:100],job['id']))
+        return dict(article=context.topic,status=status,error=description)
 
 
 def work(workers=2,once=False,progress_hook=None):
@@ -438,12 +474,12 @@ def resume_queue(topic):
     init()
     changed=0
     with connect() as db,db.cursor() as c:
-        c.execute("SELECT id FROM article_preparation_queue WHERE article=%s AND status IN ('running','partial','failed','paused_disk')",(topic,));rows=list(c.fetchall())
+        c.execute("SELECT id FROM article_preparation_queue WHERE article=%s AND status IN ('running','partial','failed','paused_disk','held_provider')",(topic,));rows=list(c.fetchall())
         for row in rows:
             name='article_job_'+row['id'][:48];c.execute('SELECT GET_LOCK(%s,0) locked',(name,))
             if c.fetchone()['locked']!=1:continue
             try:
-                c.execute("UPDATE article_preparation_queue SET status='queued',error=NULL WHERE id=%s AND status IN ('running','partial','failed','paused_disk')",(row['id'],));changed+=c.rowcount
+                c.execute("UPDATE article_preparation_queue SET status='queued',error=NULL WHERE id=%s AND status IN ('running','partial','failed','paused_disk','held_provider')",(row['id'],));changed+=c.rowcount
             finally:c.execute('SELECT RELEASE_LOCK(%s)',(name,))
     return changed
 

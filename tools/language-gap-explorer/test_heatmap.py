@@ -9,7 +9,8 @@ from explore_preview import app
 
 
 class HeatmapTests(unittest.TestCase):
-    def setUp(self):_catalogs.clear()
+    def setUp(self):
+        _catalogs.clear()
 
     def stored(self):
         return dict(id='d'*64,kind='framing',question='cause',evidence=[source('fi','Finnish source'),source('sv','Swedish source')])
@@ -59,6 +60,15 @@ class HeatmapTests(unittest.TestCase):
         with patch('heatmap.catalog',return_value=dict(rows=rows)):
             with self.assertRaises(LookupError):cell_detail(fixture(),['en','fi','sv'],GROUP,STAMP,'en','','EN–FI','framing')
 
+    def test_explicit_occurrence_preserves_weaker_category_in_same_pair(self):
+        rows=[dict(id=GROUP,cells=[dict(stamp=STAMP,pair_kinds=[dict(pair='FI–SV',kind='framing')])])]
+        weaker=self.stored();weaker.update(id='e'*64,kind='coverage')
+        with patch('heatmap.catalog',return_value=dict(rows=rows)),patch('paired_history.detail',return_value=dict(occurrences=[self.stored(),weaker])):
+            result=cell_detail(fixture(),['en','fi','sv'],GROUP,STAMP,'fi','','FI–SV','coverage','e'*64)
+            self.assertEqual(result['occurrence'],'e'*64);self.assertEqual(result['kind'],'coverage')
+            with self.assertRaises(LookupError):cell_detail(fixture(),['en','fi','sv'],GROUP,STAMP,'fi','','EN–FI','all','e'*64)
+            with self.assertRaises(LookupError):cell_detail(fixture(),['en','fi','sv'],GROUP,STAMP,'fi','','all','all','f'*64)
+
     def test_search_requires_local_review_token(self):
         with app.test_client() as client:
             self.assertEqual(client.post('/explore/api/search',json={'query':'peace'}).status_code,403)
@@ -66,6 +76,11 @@ class HeatmapTests(unittest.TestCase):
     def test_matrix_read_has_no_inference(self):
         with patch('paired_history.summary',return_value=fixture()),patch('heatmap.public_catalog',return_value=dict(rows=[])),patch('heatmap.query_vector',side_effect=AssertionError('GET must not embed')):
             with app.test_client() as client:self.assertEqual(client.get('/explore/api/matrix').status_code,200)
+
+    def test_invalid_occurrence_is_rejected_before_database_read(self):
+        with patch('paired_history.summary') as read:
+            with app.test_client() as client:response=client.get('/explore/api/cell?run='+'a'*64+'&group='+GROUP+'&stamp='+STAMP+'&occurrence=invalid')
+        self.assertEqual(response.status_code,400);read.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

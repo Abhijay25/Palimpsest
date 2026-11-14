@@ -41,6 +41,13 @@ def zoom_articles():
     except Exception:return jsonify(error='The local article catalogue is temporarily unavailable.'),503
 
 
+@bp.get('/explore/api/showcase')
+def history_showcase():
+    from article_pipeline import showcase_articles
+    try:return jsonify(articles=showcase_articles())
+    except Exception:return jsonify(error='The prepared history collection is temporarily unavailable.'),503
+
+
 @bp.get('/explore/api/periods')
 def zoom_periods():
     from zoom_read import periods
@@ -111,8 +118,10 @@ def heatmap_cell():
     try:
         if not detail_args(request.args):raise ValueError('Invalid historical cell identity.')
         if len(request.args.get('back',''))>2500:raise ValueError('Invalid return context.')
+        identity=request.args.get('occurrence')
+        if identity and not re.fullmatch(r'[a-f0-9]{64}',identity):raise ValueError('Invalid source occurrence.')
         data,languages=skyline_run()
-        return jsonify(cell_detail(data,languages,request.args['group'],request.args['stamp'],request.args.get('current','en'),request.args.get('back',''),request.args.get('pair','all'),request.args.get('kind','all')))
+        return jsonify(cell_detail(data,languages,request.args['group'],request.args['stamp'],request.args.get('current','en'),request.args.get('back',''),request.args.get('pair','all'),request.args.get('kind','all'),identity))
     except ValueError as error:return jsonify(error=str(error)),400
     except LookupError as error:return jsonify(error=str(error)),404
     except Exception:return jsonify(error='Stored cell evidence is temporarily unavailable.'),503
@@ -152,7 +161,7 @@ def historical():
 @bp.get('/explore')
 def page():
     session.setdefault('review_token',secrets.token_hex(24))
-    return render_template('discrepancy_explorer.html' if request.args.get('layout')=='constellation' else 'lab_explorer.html')
+    return render_template('lab_explorer.html')
 
 
 def detail_args(data):
