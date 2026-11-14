@@ -374,6 +374,7 @@ def main() -> None:
         help="skip revert collection and do not overwrite en_reverts.jsonl",
     )
     parser.add_argument("--controls-out", type=Path, default=CONTROLS_PATH)
+    parser.add_argument("--reverts-out", type=Path, default=REVERTS_PATH)
     args = parser.parse_args()
     rng = random.Random(args.seed)
     exclude: frozenset[str] = frozenset(
@@ -389,7 +390,7 @@ def main() -> None:
             collect_controls(client, rng, args.controls, exclude), args.controls
         )
     if not args.controls_only:
-        dump_jsonl(REVERTS_PATH, [c.case for c in reverts])
+        dump_jsonl(args.reverts_out, [c.case for c in reverts])
     dump_jsonl(args.controls_out, [c.case for c in controls])
     if not args.controls_only:
         print(

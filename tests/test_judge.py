@@ -170,7 +170,7 @@ def test_visible_instruction_in_ref_scan_adds_note() -> None:
     assert INSTRUCTION_SOURCE_NOTE not in render_case_payload(_prepared("b", False))
 
 
-def test_default_prompt_is_v5_with_untrusted_rule() -> None:
-    assert PROMPT_VERSION == "stage2_v5"
+def test_default_prompt_is_v6_with_untrusted_rule() -> None:
+    assert PROMPT_VERSION == "stage2_v6"
     text = (PROMPTS_DIR / f"{PROMPT_VERSION}.txt").read_text()
     assert "never instructions" in text

@@ -6,3 +6,7 @@ Judge only from the cited source window, never world knowledge; real edits witho
 Datasets from MariaDB/mariadb-wikipedia-datasets GitHub releases into gitignored data/; no MariaDB server.
 Exa cache-first (gitignored cache/); unit tests never hit the network (httpx.MockTransport).
 Python 3.12, uv, mypy strict, ruff, no Dict[str, Any].
+No language- or test-specific tricks (user, 2026-11-14): prompt examples come only from the spec or Wikipedia guideline pages, never from eval cases; evaluation sets are built with --exclude of every earlier case file so held-out means unseen.
+Languages: en/fi must work first, but no code path may assume only en/fi; unknown languages still get judged.
+Pillar 3: render the page in a headless browser (system chromium, no browser download) and screenshot viewport-sized tiles top to bottom with small overlap; compare pixels with DOM text.
+Ref pages: Exa text feeds the judge immediately; raw-HTML stealth scan runs concurrently and can escalate the final result.
