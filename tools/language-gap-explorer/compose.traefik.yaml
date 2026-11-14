@@ -1,0 +1,9 @@
+# Optional existing Docker-aware Traefik proxy; does not replace/restart the proxy.
+services:
+  web:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.neowiki-research.rule: Host(`${NEOWIKI_HOSTNAME:?Set NEOWIKI_HOSTNAME}`)
+      traefik.http.routers.neowiki-research.entrypoints: websecure
+      traefik.http.routers.neowiki-research.tls.certresolver: ${NEOWIKI_CERT_RESOLVER:-letsencrypt}
+      traefik.http.services.neowiki-research.loadbalancer.server.port: "8080"

@@ -1,0 +1,126 @@
+name: neowiki-research
+
+x-app: &app
+  image: neowiki-research:${NEOWIKI_IMAGE_TAG:-local}
+  init: true
+  read_only: true
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  tmpfs: [/tmp:rw,nosuid,nodev,size=128m]
+  depends_on:
+    db:
+      condition: service_healthy
+  environment: &app-env
+    DB_HOST: db
+    DB_PORT: "3306"
+    DB_USER: ${DB_USER:-explorer}
+    DB_NAME: ${DB_NAME:-language_gaps}
+    DB_PASSWORD_FILE: /run/secrets/db-password
+    NEOWIKI_RESEARCH_ROOT: /var/lib/neowiki
+    TZ: UTC
+  secrets: [db-password]
+  volumes:
+    - ${NEOWIKI_DATA_DIR:?Set NEOWIKI_DATA_DIR}:/var/lib/neowiki/data
+    - ${NEOWIKI_MODEL_DIR:?Set NEOWIKI_MODEL_DIR}:/var/lib/neowiki/model-cache
+
+services:
+  db:
+    image: mariadb:12.3.3
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db-root-password
+      MARIADB_DATABASE: ${DB_NAME:-language_gaps}
+      MARIADB_USER: ${DB_USER:-explorer}
+      MARIADB_PASSWORD_FILE: /run/secrets/db-password
+      TZ: UTC
+    secrets: [db-root-password, db-password]
+    volumes:
+      - database:/var/lib/mysql
+    healthcheck:
+      test: [CMD, healthcheck.sh, --connect, --innodb_initialized]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    logging: &logging
+      driver: json-file
+      options: {max-size: 10m, max-file: "3"}
+
+  web:
+    <<: *app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      NEOWIKI_ROLE: reader
+      NEOWIKI_SESSION_SECRET_FILE: /run/secrets/session-secret
+      NEOWIKI_COOKIE_SECURE: ${NEOWIKI_COOKIE_SECURE:-1}
+      NEOWIKI_TRUST_PROXY: ${NEOWIKI_TRUST_PROXY:-0}
+    secrets: [db-password, session-secret]
+    volumes:
+      - ${NEOWIKI_DATA_DIR:?Set NEOWIKI_DATA_DIR}:/var/lib/neowiki/data:ro
+      - ${NEOWIKI_MODEL_DIR:?Set NEOWIKI_MODEL_DIR}:/var/lib/neowiki/model-cache:ro
+    ports: ["127.0.0.1:${NEOWIKI_HTTP_PORT:-8080}:8080"]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=5).read()"]
+      interval: 30s
+      timeout: 7s
+      retries: 3
+      start_period: 30s
+    logging: *logging
+
+  init:
+    <<: *app
+    profiles: [setup]
+    environment:
+      <<: *app-env
+      NEOWIKI_ROLE: init
+    command: [python, -m, deploy.init_schema]
+    restart: "no"
+    logging: *logging
+
+  history-worker:
+    <<: *app
+    profiles: [workers]
+    environment: &worker-env
+      <<: *app-env
+      NEOWIKI_ROLE: worker
+      OPENAI_API_KEY_FILE: /run/secrets/provider-key
+      NEOWIKI_API_TOTAL_LIMIT_USD: ${NEOWIKI_API_TOTAL_LIMIT_USD:-}
+    secrets: [db-password, provider-key]
+    command: [python, article_pipeline.py, worker, --workers, "2"]
+    restart: "no"
+    logging: *logging
+
+  title-worker:
+    <<: *app
+    profiles: [workers]
+    environment: *worker-env
+    secrets: [db-password, provider-key]
+    command: [python, question_titles.py, worker, --workers, "2"]
+    restart: "no"
+    logging: *logging
+
+  highlight-worker:
+    <<: *app
+    profiles: [workers]
+    environment: *worker-env
+    secrets: [db-password, provider-key]
+    command: [python, evidence_highlights.py, --showcase, --workers, "2"]
+    restart: "no"
+    logging: *logging
+
+secrets:
+  db-password:
+    file: ${NEOWIKI_SECRETS_DIR:?Set NEOWIKI_SECRETS_DIR}/db-password
+  db-root-password:
+    file: ${NEOWIKI_SECRETS_DIR:?Set NEOWIKI_SECRETS_DIR}/db-root-password
+  session-secret:
+    file: ${NEOWIKI_SECRETS_DIR:?Set NEOWIKI_SECRETS_DIR}/session-secret
+  provider-key:
+    file: ${NEOWIKI_SECRETS_DIR:?Set NEOWIKI_SECRETS_DIR}/provider-key
+
+volumes:
+  database:

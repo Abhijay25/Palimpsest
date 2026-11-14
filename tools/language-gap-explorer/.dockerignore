@@ -1,0 +1,16 @@
+# Allow only source needed by the image. Runtime files and secrets never enter it.
+*
+!*.py
+!requirements.docker.txt
+!templates/
+!templates/**
+!static/
+!static/**
+!deploy/
+!deploy/**
+**/__pycache__/
+**/*.pyc
+**/.env
+**/.env.*
+**/*.log
+**/secrets/

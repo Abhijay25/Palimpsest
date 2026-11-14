@@ -1,0 +1,5 @@
+# Optional SSH-tunnel endpoint; MariaDB remains inaccessible on public interfaces.
+services:
+  db:
+    ports:
+      - "127.0.0.1:${NEOWIKI_DB_TUNNEL_PORT:-3311}:3306"
