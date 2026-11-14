@@ -9,8 +9,12 @@ x-wiki-common: &wiki-common
     db:
       condition: service_healthy
   environment: &wiki-environment
+    MW_PROJECT: ${PROJECT}
     MW_DB_SERVER: db
     MW_DB_TYPE: mysql
+    MW_PORT_FI: ${PORT_FI}
+    MW_PORT_SV: ${PORT_SV}
+    MW_PORT_EN: ${PORT_EN}
     MW_JOB_RUN_RATE: "0"
     TZ: UTC
   networks: [wiki]
@@ -56,6 +60,9 @@ services:
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+      - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
     ports: ["127.0.0.1:${PORT_FI}:80"]
     healthcheck:
       test: ["CMD", "php", "/usr/local/bin/palimpsest-healthcheck.php"]
@@ -76,6 +83,9 @@ services:
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+      - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
     ports: ["127.0.0.1:${PORT_SV}:80"]
     healthcheck:
       test: ["CMD", "php", "/usr/local/bin/palimpsest-healthcheck.php"]
@@ -96,6 +106,9 @@ services:
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+      - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
     ports: ["127.0.0.1:${PORT_EN}:80"]
     healthcheck:
       test: ["CMD", "php", "/usr/local/bin/palimpsest-healthcheck.php"]
@@ -106,36 +119,54 @@ services:
 
   jobs-fi:
     <<: *job-common
-    environment: {MW_LANG: fi}
+    environment:
+      MW_LANG: fi
+      MW_PROJECT: ${PROJECT}
+      MW_PORT_FI: ${PORT_FI}
+      MW_PORT_SV: ${PORT_SV}
+      MW_PORT_EN: ${PORT_EN}
     volumes:
       - ${DATA_ROOT}/config/fi:/etc/palimpsest:ro
       - ${DATA_ROOT}/uploads/fi:/var/www/html/images
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
 
   jobs-sv:
     <<: *job-common
     depends_on:
       wiki-sv:
         condition: service_healthy
-    environment: {MW_LANG: sv}
+    environment:
+      MW_LANG: sv
+      MW_PROJECT: ${PROJECT}
+      MW_PORT_FI: ${PORT_FI}
+      MW_PORT_SV: ${PORT_SV}
+      MW_PORT_EN: ${PORT_EN}
     volumes:
       - ${DATA_ROOT}/config/sv:/etc/palimpsest:ro
       - ${DATA_ROOT}/uploads/sv:/var/www/html/images
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
 
   jobs-en:
     <<: *job-common
     depends_on:
       wiki-en:
         condition: service_healthy
-    environment: {MW_LANG: en}
+    environment:
+      MW_LANG: en
+      MW_PROJECT: ${PROJECT}
+      MW_PORT_FI: ${PORT_FI}
+      MW_PORT_SV: ${PORT_SV}
+      MW_PORT_EN: ${PORT_EN}
     volumes:
       - ${DATA_ROOT}/config/en:/etc/palimpsest:ro
       - ${DATA_ROOT}/uploads/en:/var/www/html/images
       - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
       - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
 
   installer:
     image: ${MEDIAWIKI_IMAGE}

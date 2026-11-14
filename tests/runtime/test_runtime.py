@@ -90,6 +90,11 @@ class RuntimeContractTests(unittest.TestCase):
             self.assertEqual(text.count("wfLoadExtension( 'Cite' )"), 0)
             self.assertEqual(text.count("require_once '/etc/palimpsest/runtime-settings.php';"), 1)
             self.assertTrue((config / "runtime-settings.php").is_file())
+            managed = (config / "runtime-settings.php").read_text()
+            self.assertIn("$wgDefaultSkin = 'vector-2022';", managed)
+            self.assertIn("https://www.wikipedia.org/", managed)
+            self.assertIn("CC BY-SA 4.0", managed)
+            self.assertNotIn("wikipedia.org/wiki/", managed)
             self.assertEqual((config / "LocalSettings.php").stat().st_mode & 0o777, 0o600)
             (config / "LocalSettings.php").chmod(0o644)
             runtime.secure_configs(root)
@@ -160,6 +165,52 @@ class RuntimeContractTests(unittest.TestCase):
             existing = {"schema_version": 1, "project": "palimpsest-a", "initialized": {"fi": False, "sv": False, "en": False}}
             with self.assertRaises(runtime.RuntimeErrorExit):
                 runtime.prepare_setup_marker("palimpsest-a", root, existing)
+
+    def test_repeat_setup_refreshes_managed_settings_without_rotating_credentials(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            marker = {"schema_version": 1, "project": "palimpsest-a", "created_at": "fixture",
+                      "initialized": {lang: True for lang in runtime.LANGS}}
+            root.mkdir()
+            (root / runtime.MARKER).write_text(json.dumps(marker))
+            saved = {"DB_ROOT_PASSWORD": "root-pass"}
+            saved.update({f"DB_{lang.upper()}_PASSWORD": f"db-{lang}-pass" for lang in runtime.LANGS})
+            saved.update({f"ADMIN_{lang.upper()}_PASSWORD": f"admin-{lang}-pass" for lang in runtime.LANGS})
+            (root / "secrets").mkdir()
+            (root / "secrets/.runtime-env.json").write_text(json.dumps(saved))
+            for lang in runtime.LANGS:
+                config = root / f"config/{lang}"
+                config.mkdir(parents=True)
+                (config / "LocalSettings.php").write_text(
+                    "<?php\n$wgDBpassword = 'db-credential-preserved';\nwfLoadSkin( 'Vector' );\n"
+                    "require_once '/etc/palimpsest/runtime-settings.php';\n"
+                )
+                (config / "runtime-settings.php").write_text("<?php // stale managed settings\n")
+
+            inventory = {"mediawiki_version": "1.46.2", "extensions": {}, "skins": {"Vector": {"version": "1.0"}}, "integrations": {}}
+            calls = []
+            def fake_run(command, **kwargs):
+                calls.append(command)
+                if command[:3] == ["docker", "run", "--rm"]:
+                    return subprocess.CompletedProcess(command, 0, json.dumps(inventory), "")
+                return subprocess.CompletedProcess(command, 0, "", "")
+
+            with patch.object(runtime, "run", side_effect=fake_run), patch.object(runtime, "wait_service"):
+                runtime.setup("palimpsest-a", root, {"fi": 18081, "sv": 18082, "en": 18083},
+                              runtime.load_lock(), "docker", {})
+
+            self.assertEqual(json.loads((root / "secrets/.runtime-env.json").read_text()), saved)
+            configure_calls = [" ".join(command) for command in calls
+                               if "/usr/local/bin/palimpsest-configure-interwiki.php" in command]
+            self.assertEqual(len(configure_calls), 3)
+            for lang in runtime.LANGS:
+                settings = (root / f"config/{lang}/LocalSettings.php").read_text()
+                managed = (root / f"config/{lang}/runtime-settings.php").read_text()
+                self.assertIn("db-credential-preserved", settings)
+                self.assertEqual(settings.count("require_once '/etc/palimpsest/runtime-settings.php';"), 1)
+                self.assertNotIn("stale managed settings", managed)
+                self.assertIn("vector-2022", managed)
+                self.assertTrue(any(f"wiki-{lang}" in command for command in configure_calls))
 
 
 if __name__ == "__main__":

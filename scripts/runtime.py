@@ -413,6 +413,8 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
     except (TypeError, json.JSONDecodeError) as exc:
         raise RuntimeErrorExit("Image extension check returned invalid inventory JSON") from exc
     if complete:
+        for lang in LANGS:
+            append_runtime_settings(data_root, lang)
         secure_configs(data_root)
         existing["mediawiki_version"] = image_inventory["mediawiki_version"]
         existing["extension_inventory"] = image_inventory["extensions"]
@@ -423,6 +425,7 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
         for lang in LANGS:
             wait_service(prefix, env_file, f"wiki-{lang}", docker_env, timeout=180)
             run(prefix + ["exec", "-T", f"wiki-{lang}", "php", "maintenance/run.php", "update", "--quick"], env=docker_env, timeout=300)
+            run(prefix + ["exec", "-T", f"wiki-{lang}", "php", "/usr/local/bin/palimpsest-configure-interwiki.php"], env=docker_env, timeout=120)
         run(prefix + ["up", "-d", "jobs-fi", "jobs-sv", "jobs-en"], env=docker_env)
         write_manifest(project, data_root, ports, lock)
         print(f"Runtime for project {project} is already initialized; verified services and refreshed schema state.")
@@ -463,6 +466,7 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
     for lang in LANGS:
         wait_service(prefix, env_file, f"wiki-{lang}", docker_env, timeout=180)
         run(prefix + ["exec", "-T", f"wiki-{lang}", "php", "maintenance/run.php", "update", "--quick"], env=docker_env, timeout=300)
+        run(prefix + ["exec", "-T", f"wiki-{lang}", "php", "/usr/local/bin/palimpsest-configure-interwiki.php"], env=docker_env, timeout=120)
     run(prefix + ["up", "-d", "jobs-fi", "jobs-sv", "jobs-en"], env=docker_env)
     write_manifest(project, data_root, ports, lock)
     print(f"Initialized fi/sv/en wikis for project {project}.")
@@ -568,6 +572,7 @@ def runtime_main(ns: argparse.Namespace) -> int:
         compose_action(prefix, env, "up", "-d", "db", "wiki-fi", "wiki-sv", "wiki-en")
         for lang in LANGS:
             compose_action(prefix, env, "exec", "-T", f"wiki-{lang}", "php", "maintenance/run.php", "update", "--quick")
+            compose_action(prefix, env, "exec", "-T", f"wiki-{lang}", "php", "/usr/local/bin/palimpsest-configure-interwiki.php")
         return 0
     if ns.command == "status":
         m = manifest_value(project, root, ports, lock)
