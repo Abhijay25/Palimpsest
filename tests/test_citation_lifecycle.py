@@ -4,6 +4,7 @@ from datetime import date
 from pathlib import Path
 
 import httpx
+import pytest
 
 from palimpsest.citation_lifecycle import (
     MARIADB_CITATION_SNAPSHOTS_DDL,
@@ -259,3 +260,28 @@ def test_rugpull_simulations_trigger_matching_statuses() -> None:
             audit_citation_drift(snapshot, live_text, live_meta, HashingEmbedder())
         )
         assert report.drift_status == status
+
+
+def test_unresolvable_cited_domain_counts_as_dead_link(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    import socket
+
+    import httpx
+
+    from palimpsest import citation_lifecycle as lifecycle
+
+    async def no_such_host(*_args: object) -> object:
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr("asyncio.base_events.BaseEventLoop.getaddrinfo", no_such_host)
+    assert asyncio.run(lifecycle._host_resolves("gone.example")) is False
+    monkeypatch.undo()
+    with pytest.raises(httpx.ConnectError, match="does not resolve"):
+        monkeypatch.setattr(lifecycle, "_host_resolves", _always_false)
+        asyncio.run(lifecycle.fetch_live_http_meta("https://gone.example/page"))
+
+
+async def _always_false(_host: str) -> bool:
+    return False

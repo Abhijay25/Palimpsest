@@ -65,6 +65,8 @@ class CitationDriftReport(BaseModel):
     infra_changes: list[str] = Field(default_factory=list)
     new_stealth_vectors: list[str] = Field(default_factory=list)
     wayback_fallback_url: str | None = None
+    baseline_excerpt: str = ""
+    live_excerpt: str = ""
     diff_summary: str
 
 
@@ -373,7 +375,7 @@ async def audit_citation_drift(
     )
 
     status: DriftStatus = "CLEAN_STABLE"
-    if live_http_meta.http_status in (404, 410) or live_http_meta.http_status >= 500:
+    if live_http_meta.http_status >= 400:
         status = "HARD_LINK_ROT"
     elif _is_soft_404_redirect(snapshot.url, live_http_meta.final_redirect_url):
         status = "SOFT_404_REDIRECT"
@@ -433,6 +435,15 @@ async def _resolve_value(resolver: AsyncTextResolver | None, url: str) -> str | 
     return None if resolver is None else await resolver(url)
 
 
+async def _host_resolves(host: str) -> bool:
+    """False only when DNS says the name does not exist; other errors count as resolvable."""
+    try:
+        await asyncio.get_running_loop().getaddrinfo(host, None)
+    except socket.gaierror as exc:
+        return exc.errno not in (socket.EAI_NONAME, getattr(socket, "EAI_NODATA", -5))
+    return True
+
+
 async def _fetch_live_payload(
     url: str,
     *,
@@ -446,6 +457,16 @@ async def _fetch_live_payload(
     request_client = client or httpx.AsyncClient(timeout=10.0)
     current_url = url
     try:
+        host = urlsplit(url).hostname
+        if (
+            public_url_checker is _check_public_url
+            and host
+            and not await _host_resolves(host)
+        ):
+            # A cited domain that no longer exists is the clearest dead link there is.
+            raise httpx.ConnectError(
+                f"DNS: {host} does not resolve", request=httpx.Request("GET", url)
+            )
         for _ in range(11):
             if not await public_url_checker(current_url):
                 raise ValueError(
@@ -599,6 +620,8 @@ async def wayback_baseline(
             snapshot, live_text, live_meta, embedder, entails
         )
         report.wayback_fallback_url = fallback_url
+        report.baseline_excerpt = archived_text
+        report.live_excerpt = live_text
         return snapshot, report
     finally:
         if own_client:
