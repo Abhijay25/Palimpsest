@@ -40,7 +40,7 @@ You were away. These are the decisions I made on your behalf, and the questions 
 - **09:53** — confidence-tiered routing (≥0.70 admin queue, 0.45–0.70 review queue). r07 admin-queue false alarms: Haiku 2%, Sonnet 0%. **[review]** The thresholds are a product decision, and they must be re-fit on Gemini's calibrated scores.
 - Exa spend so far: ~$0.09.
 - **09:55–10:15** — Gemini API backend (`prepare --backend gemini`, google-genai 3.3.0, no CVEs; the Decisions API endpoint is a marked TODO). FastAPI `POST /api/v1/audit-diff`, `POST /api/v1/stealth-scan`, `GET /healthz`, smoke-tested on a live server. A whole-package code review found 7 issues; 6 were fixed (judge failures now count in recall, ref-attribution fallback, untrusted-field delimiters with prompt **stage2_v5**, a per-request Exa budget, bounded template scanning that flags truncation, span offsets mapped back to the raw text) and 1 was documented as intended (a poisoned ref page routes to admin without an editor penalty).
-- **10:16 r08en** — **held-out** set of 44 new real English edits: Sonnet caught every revert containing visible POV wording (9/14; the rest are vandalism or neutral changes). Admin-queue false alarms on 30 controls: Sonnet 1 (3.3%), Haiku 2 (6.7%).
+- **10:16 r08en** — ~~held-out~~ (**correction 14:35: 6 of the 14 reverts were also in the r06en tuning set; on the 8 truly new reverts Sonnet flagged 5, Haiku 6**) set of 44 new real English edits: Sonnet caught every revert containing visible POV wording (9/14; the rest are vandalism or neutral changes). Admin-queue false alarms on 30 controls: Sonnet 1 (3.3%), Haiku 2 (6.7%).
 - *(usage limit hit ~10:20; resumed 12:31)*
 - **12:36 r09ctl** — 46 more controls. **Combined 76 English controls, admin-queue false alarms: Sonnet 2.6%, Haiku 5.3%.** Most flagged "clean" edits are real citation mismatches that survived patrol (e.g. a sentence changed 2→3 years against its AP source, the Tito constitution 1963→1974 against its source).
 - **Total Exa spend: ~$0.22** (of the $5–10 budget).
@@ -48,7 +48,7 @@ You were away. These are the decisions I made on your behalf, and the questions 
 ## Where things stand
 | Component | Status | Best number |
 |---|---|---|
-| Bias detector (stage2_v5, Sonnet judge) | working end-to-end on real edits | admin false alarms 2.6% on 76 real EN controls; every POV-worded revert caught |
+| Bias detector (stage2_v5, Sonnet judge) | working end-to-end on real edits | admin false alarms 2.6% on 76 real EN controls; POV-worded reverts caught (but 6/14 r08en reverts overlapped tuning data, see correction) |
 | Stealth scanner (Pillar 1 + Haiku triage) | working, wired before Stage 0 and on ref pages | blind held-out attack recall 92%, 0 false alarms on 42 real hidden-markup edits |
 | API | `/api/v1/audit-diff`, `/api/v1/stealth-scan`, `/healthz` | stealth works now; audit-diff needs `GEMINI_API_KEY` |
 | Gemini swap | `prepare --backend gemini` + API auto-detects the key | untested against the live API |
@@ -60,3 +60,17 @@ You were away. These are the decisions I made on your behalf, and the questions 
 4. Raw-HTML fetch of ref pages (in addition to Exa text) to catch CSS-hidden lures on cited sites?
 5. Split "possible manipulation" from "citation mismatch / likely update" in the admin queue (r09ctl findings)?
 6. API `lang_code` is limited to en/fi (Stage 0 word lists exist only for those); Teammate 1 needs de/fr/es.
+
+---
+
+# Session 2 — 2026-11-14 14:30 → (user away again)
+
+User decisions (14:08): thresholds re-fit on Gemini only; Haiku first pass, Hydrogen expected better; Pillar 3 = headless-browser screenshots in viewport-sized tiles (no separate page download); ref pages: Exa text feeds the judge while a raw-HTML scan runs concurrently and can escalate; split "manipulation" vs "citation mismatch" only if accurate; en/fi first, **no hard-coded language or test tricks anywhere**.
+
+## Audit for test-specific tricks (14:30)
+- **Leak:** stage2_v4/v5 used `"illegal" <-> "undocumented"` as an example — the exact r06en miss. Fixed in **stage2_v6** (example removed; the general WP:LABEL rule stays). r07's catch of that case does not count.
+- **Held-out overlap:** 6/14 r08en reverts were also in the r06en tuning set (the builder was not given the r06en files in `--exclude`). A fresh set `en_reverts3`/`en_controls3` is being built with every earlier case file excluded.
+- **Stealth phrase detector:** English-only and includes our own schema words (`CLEAN_PASS`, `audit_status`) that my synthetic attacks also use. To be made language-neutral.
+- **Stage 0 word lists:** not a trick — they add reasons but any non-typo change reaches the judge anyway. They are why the API only accepts en/fi; to be relaxed.
+
+## Progress log
