@@ -97,7 +97,7 @@ def save_visual(page: Page, root: str, title: str, marker: str) -> None:
     start_editing.click()
     expect(welcome).not_to_be_visible(timeout=30_000)
     page.wait_for_function(
-        "() => { const container = document.querySelector('#mw-page-container'); return !!container && !container.inert; }",
+        "() => { const container = document.querySelector('.mw-page-container'); return !!container && !container.inert; }",
         timeout=30_000,
     )
     surface = page.locator('.ve-ce-rootNode[role="textbox"][contenteditable="true"]')
