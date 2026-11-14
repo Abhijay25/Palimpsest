@@ -240,8 +240,28 @@ def test_citation_lifecycle_timeout_is_unchecked_not_rot() -> None:
             )
 
     result = asyncio.run(run())
-    assert result.findings == []
+    # Timing out twice is reported as an unresponsive site, never as a dead link.
+    assert [f.drift_status for f in result.findings] == ["UNRESPONSIVE_SITE"]
     assert result.error is not None and "Unchecked live URLs" in result.error
+
+
+def test_citation_lifecycle_timeout_that_recovers_on_retry_is_not_flagged() -> None:
+    calls: list[int] = []
+
+    async def run() -> api.CitationLifecycleScan:
+        def flaky(_: httpx.Request) -> httpx.Response:
+            calls.append(1)
+            if len(calls) == 1:
+                raise httpx.ReadTimeout("slow once")
+            return httpx.Response(200, text="<html><body>The article.</body></html>")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(flaky)) as client:
+            return await api.scan_citation_lifecycle(
+                CANDIDATE, client=client, public_url_checker=_public
+            )
+
+    result = asyncio.run(run())
+    assert result.findings == []
 
 
 def test_citation_lifecycle_connection_failure_is_rot() -> None:
@@ -339,3 +359,16 @@ def test_whole_page_drift_is_not_flagged_by_default(
         citation_lifecycle_flags(reports, "Claim.<ref>https://source.test/a</ref>")
         == []
     )
+
+
+def test_refs_in_a_wholly_inserted_paragraph_count_as_changed() -> None:
+    from palimpsest.segment import split_edit
+
+    old = "Intro paragraph.\n\nSecond paragraph."
+    new = (
+        "Intro paragraph.\n\nSecond paragraph.\n\nA new section."
+        "<ref>{{cite web |url=https://dead.test/a |accessdate=12 November 2020}}</ref>"
+    )
+    units = split_edit(old, new, old, new)
+    refs = {u.index: api._unit_changed_refs(u) for u in units}
+    assert any(r and "https://dead.test/a" in r for r in refs.values())

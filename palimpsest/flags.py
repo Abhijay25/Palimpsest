@@ -280,6 +280,7 @@ def citation_lifecycle_flags(
         "SOFT_404_REDIRECT": "Cited page now redirects to an unrelated page",
         "DOMAIN_HIJACK_SUSPECTED": "Cited site changed hands since it was cited",
         "SEMANTIC_RUGPULL": "Cited page changed substantially since it was cited",
+        "UNRESPONSIVE_SITE": "Cited site did not respond (it may be down)",
         "DELAYED_STEALTH_INJECTION": (
             "Cited page gained hidden text since it was cited"
         ),

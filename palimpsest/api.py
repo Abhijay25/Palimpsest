@@ -778,6 +778,35 @@ async def scan_citation_lifecycle(
                     ),
                 )
             )
+        # A single timeout can be a blip; a site that times out again on a second try
+        # is reported for review (it may be down), one finding per domain.
+        retry_by_domain: dict[str, list[str]] = {}
+        for url in unchecked_urls:
+            retry_by_domain.setdefault(registrable_domain(url), []).append(url)
+        retried = await asyncio.gather(
+            *(probe(urls[0]) for urls in retry_by_domain.values())
+        )
+        still_unresponsive = {
+            registrable_domain(url)
+            for url, result in retried
+            if result.outcome == "unchecked"
+        }
+        for domain in sorted(still_unresponsive):
+            urls = retry_by_domain[domain]
+            findings.append(
+                CitationDriftReport(
+                    url=urls[0],
+                    drift_status="UNRESPONSIVE_SITE",
+                    semantic_drift_score=0.0,
+                    still_entails_original_claim=None,
+                    baseline_excerpt="Live availability check; no Wayback baseline used.",
+                    live_excerpt="\n".join(urls),
+                    diff_summary=(
+                        f"{domain} did not respond to two requests. "
+                        f"Affected URLs: {', '.join(urls)}."
+                    ),
+                )
+            )
         if unchecked_urls:
             errors.append(f"Unchecked live URLs: {', '.join(unchecked_urls)}")
         if os.environ.get("PALIMPSEST_A1_DRIFT") != "1":
@@ -878,6 +907,9 @@ def _unit_changed_refs(unit: EditUnit) -> list[str] | None:
             if url not in old_urls and url not in changed:
                 changed.append(url)
         return changed
+    if unit.kind == "inserted" and unit.new_wikitext:
+        # A wholly added paragraph: every reference in it is new to the page.
+        return extract_ref_urls(unit.new_wikitext)
     return None
 
 
