@@ -1,7 +1,7 @@
 # Palimpsest infrastructure specification
 
 Status: **APPROVED — recommended D1–D6 accepted by owner on 2026-11-14**. Prepared 2026-11-14 (Europe/Helsinki).
-Phase 1 only: this document does not certify any running service or imported data.
+Approved requirements from Phase 1; executed results and remaining coverage are recorded separately in verification.md.
 
 ## Repository and authority
 
@@ -19,7 +19,7 @@ The [dataset documentation](https://github.com/MariaDB/mariadb-wikipedia-dataset
 - M: historical Finnish wikitext for 19,742 pages, 862,076 versions; published decompressed text size 12.2 GB. This is not the measured overlap with S.
 - S's snapshot is August 2025; M extends to October 2026. Counts and dates are source declarations, not local measurements.
 
-The [S builder](https://github.com/MariaDB/mariadb-wikipedia-datasets/blob/main/dataset_s.py) aliases FineWiki's `version` to `rev_id`. This alone does not prove every value resolves to a Wikipedia revision. No Parquet asset has been downloaded or inspected in Phase 1. Exact anchors, deleted/merged pages, M/S overlap, history volume, and rendering fidelity remain unverified.
+The [S builder](https://github.com/MariaDB/mariadb-wikipedia-datasets/blob/main/dataset_s.py) aliases FineWiki's `version` to `rev_id`. This alone does not prove every value resolves to a Wikipedia revision. At Phase 1, no Parquet asset had been downloaded or inspected. The later verification record distinguishes the actual full membership audit and six-page anchor/history sample from unverified full histories, M/S overlap and rendering fidelity.
 
 ## Proposed scope and feature matrix
 
@@ -102,9 +102,8 @@ No product features, production hosting, Wikimedia account credentials, automati
 | D5 Long-run completion | Deliver independently verified infrastructure + sample, with full-corpus jobs/status separately reported | PR may be infrastructure-ready while full seed is outstanding; never claim full seed until reconciled |
 | D6 Models/worker chats | One Sol High-or-stronger orchestrator, at most three visible Luna worker chats/worktrees | Verify actual model settings before implementation; no hidden subagents |
 
-Approval recorded: the owner stated “proceed with the recommended proposal for D1-6, then continue with the next phase if there are no more clarifying questions.” All recommended choices are accepted, including D5’s separate full-corpus reporting. Phase 2 is authorized. Model configuration has been verified; visible worker launch awaits registration of the target folder as a Codex project.
+Approval recorded: the owner stated “proceed with the recommended proposal for D1-6, then continue with the next phase if there are no more clarifying questions.” All recommended choices are accepted, including D5’s separate full-corpus reporting. Phase 2 is authorized. Model configuration and the registered Palimpsest source root were verified. Three visible Luna worker chats/worktrees were created; actual identities and integration are recorded in orchestration.md.
 
 ## Evidence and resource uncertainty
 
 [S release metadata](https://api.github.com/repos/MariaDB/mariadb-wikipedia-datasets/releases/tags/s-2026-10) was inspected read-only on 2026-11-14. Published counts and asset metadata are verified declarations; downloaded content and end-to-end behavior are not verified. See design.md for candidate versions, resource planning and sources.
-

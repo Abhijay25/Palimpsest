@@ -1,6 +1,6 @@
 # Conversation and worktree orchestration
 
-Status: PHASE 2 RUNNING — D1–D6 approved; T01 baseline committed at e6d6e657ffe2a10bc7a598bc85f2ab1223741b7f. Three visible Luna workers launched and verified.
+Status: INFRASTRUCTURE/SAMPLE VERIFIED — D1–D6 approved; T01 baseline e6d6e657ffe2a10bc7a598bc85f2ab1223741b7f. Final combined code 0b3564b passed Sol fresh-project browser/restart acceptance. Full seeding and real rendering closure remain outstanding under D5.
 Owner: the orchestrator conversation in which the user invoked the pasted SDD prompt.
 
 ## Verified current state and model gate
@@ -23,10 +23,10 @@ One agent equals one separate visible Codex conversation. This chat remains the 
 
 | Slot/title | Model request | Planned work | Planned branch | Chat ID / path / baseline / commits | Status |
 |---|---|---|---|---|---|
-| A — Palimpsest infra: runtime | gpt-6-luna, high (verified) | T02,T03 | infra/runtime | Chat 01a1d76f-1381-7c72-822a-e29d4d5a2e9a; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-a/Palimpsest; base e6d6e65; no delivered commits yet | RUNNING |
-| B — Palimpsest infra: data | gpt-6-luna, high (verified) | T04–T07,T10 | infra/data | Chat 01a1d76f-2107-7253-9e88-bd25c5cfbf03; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-b/Palimpsest; base e6d6e65; no delivered commits yet | RUNNING |
-| C — Palimpsest infra: verification | gpt-6-luna, high (verified) | T08 | infra/verification | Chat 01a1d76f-2c1e-7071-b5d4-d409f46a9f7e; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-c/Palimpsest; base e6d6e65; no delivered commits yet | RUNNING |
-| Orchestrator — this chat | gpt-6.1-sol, high or stronger | T00,T01,T09,T11 | infra-set-up (verify before use) | Current chat above; approved baseline e6d6e65 | INTEGRATION PREPARATION |
+| A — Palimpsest infra: runtime | gpt-6-luna, high (verified) | T02,T03 | infra/runtime | Chat 01a1d76f-1381-7c72-822a-e29d4d5a2e9a; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-a/Palimpsest; base e6d6e65; delivered 6d73e1a, 44d4c84, 6a85b91, 78f34ab | PRESERVED; bounded final runtime snapshot transferred to B; test runtime stopped |
+| B — Palimpsest infra: data | gpt-6-luna, high (verified) | T04–T07,T10 | infra/data | Chat 01a1d76f-2107-7253-9e88-bd25c5cfbf03; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-b/Palimpsest; base e6d6e65; delivered c68b30e, b3c7814, 916b25c, 75fe76b, e7d8389, 57579d3, f371160, 2dcb82f, 328f5e7, 6ff19e0, 6d9a810 | HANDOFF COMPLETE; sample and integrity fixes integrated; support/full corpus incomplete |
+| C — Palimpsest infra: verification | gpt-6-luna, high (verified) | T08 | infra/verification | Chat 01a1d76f-2c1e-7071-b5d4-d409f46a9f7e; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-c/Palimpsest; base e6d6e65; delivered d1fb04d, cd702e6 and subsequent reviewed UI/networking repairs through de08ce0; integrated identical harness at root 0b3564b (including root reply-node correction 9b833f2) | VERIFIED; all three workflows and down/setup persistence; retained runtime stopped |
+| Orchestrator — this chat | gpt-6.1-sol, high or stronger | T00,T01,T09,T11 | infra-set-up (verify before use) | Current chat above; approved baseline e6d6e65 | VERIFIED; 57 deterministic tests passed, 1 Docker opt-in skip; actual fresh browser/restart passed |
 
 Orchestrator alone updates this registry with actual chat/host IDs, confirmed model/reasoning, worktree paths, base SHA, owned tasks/files, dependencies, status, test-environment allocation, delivered commits and review findings. Missing identifiers stay unassigned, never invented.
 
@@ -70,4 +70,3 @@ PLANNED → RUNNING → READY FOR REVIEW → CHANGES REQUESTED → READY FOR REV
 Sol High-or-stronger performs final verification directly: inspect actual code, reproduce meaningful checks, audit provenance/completeness and exercise the clean quickstart. C's tests and Luna handoffs supply evidence but never substitute for that review. Record findings and fixes in verification.md and this registry.
 
 Before PR: all included worker work handed off, no worker still editing the proposed code, integrated revision identified, evidence current, remaining T10 work accurately stated under approved D5. Orchestrator opens PR with file/reason table; no merge.
-

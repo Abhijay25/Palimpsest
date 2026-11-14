@@ -59,3 +59,7 @@ Reports must distinguish an operational failure from an approved source exceptio
 ## Integration handoff
 
 Workers supply commit SHA(s), precise changed paths, commands/results, verified versus unverified claims and issues. Do not push or open a PR. A and B may proceed independently after receiving the committed baseline. C can implement fixtures after reading this contract; live integration waits for reviewed A/B work. The orchestrator resolves implementation details not specified here without widening product scope.
+
+## Coordinated runtime handoff (2026-11-14)
+
+A's browser tool entered waitingOnApproval during final checks. A was instructed to preserve its worktree. The orchestrator temporarily assigned B the bounded pending runtime snapshot (infra/wiki/**, scripts/runtime.py and tests/runtime/**) in B's existing isolated worktree. B may commit the reviewed Vector 2022, managed-settings refresh, local language links and generic attribution-footer repairs. This changes file ownership for that handoff only, adds no worker/chat and does not authorize accepting a blocked tool action. C retains the browser harness; Sol retains integration and final review. Source data ownership and C1–C5 semantics are unchanged.

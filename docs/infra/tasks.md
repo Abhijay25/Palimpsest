@@ -1,6 +1,6 @@
 # Implementation and verification task plan
 
-Status: D1–D6 approved by owner on 2026-11-14. T00,T01 COMPLETE at approved baseline e6d6e65. T02/T03 assigned to A, T04–T07 to B, T08 to C and RUNNING. T09 integration preparation RUNNING; T10/T11 NOT STARTED. See orchestration.md for actual worker chats and worktrees.
+Status: D1–D6 approved on 2026-11-14. T00–T06 and T08–T09 accepted for infrastructure/sample scope. T07 framework/import adapter verified; real rendering dependency closure remains incomplete. T10 full history/import NOT RUN. T11 delivery branch is infra-set-up; no merge is authorized. See verification.md for exact tested revision, evidence and limits.
 Requirement definitions: [spec.md](spec.md); architecture/contracts: [design.md](design.md).
 Registry and repair protocol: [orchestration.md](orchestration.md).
 
@@ -13,7 +13,7 @@ Registry and repair protocol: [orchestration.md](orchestration.md).
 | T02 Verify pins/dependencies/platforms | A; infra/wiki/version lock, Dockerfiles, config | T01 | R01,R03,R13 | Exact multi-platform digests, extension dependency closure, build smoke; unsupported platform documented |
 | T03 Runtime bootstrap/lifecycle | A; infra/wiki/compose*, config/, runtime/, extensions/, scripts/runtime* | T02 | R01–R03,R10,R11 | Three initialized health-checked wikis, jobs, local ports, persistence, no-op rerun and explicit reset tests |
 | T04 Dataset lock/membership | B; infra/data/*, scripts/data*, dataset lock | T01 | R02,R04,R08 | Checksums, language counts and unique S keys; corruption/duplicate/schema negatives |
-| T05 Anchor/history acquisition | B; same data-owned paths | T04 | R05–R08 | Real fi/sv/en anchor spike, M overlap measurement, complete continuation, failure queue, interrupt/resume evidence |
+| T05 Anchor/history acquisition | B; same data-owned paths | T04 | R05–R08 | Real fi/sv/en anchor spike, complete continuation, failure queue, interrupt/resume evidence; measure M overlap only if using that optional shortcut |
 | T06 XML/provenance/import adapter | B; data export/import modules | T05; C1 available for live integration | R05–R08,R12 | Historical metadata retained; source/local mapping reconciled; duplicate/retry/local-edit tests |
 | T07 Rendering dependency import | B; data support modules | T05,T06; D3 | R03,R09 | Recursive support inventory, loop termination, missing support exceptions, sampled historical rendering |
 | T08 Acceptance harness and CI | C; tests/infra/*, .github/workflows/infra.yml, docs/infra/quickstart.md | T01 for fixture work; T03/T06 for live checks | R01–R13 | Independent behavioral tests, failing fixtures detected, no full-corpus download in ordinary CI |
@@ -68,4 +68,3 @@ T10 acceptance: per-language expected/acquired/imported/reconciled source invent
 D5 may permit an infrastructure PR with T10 explicitly outstanding, with resumable commands and measured progress. Do not mark T10 or full seeding complete.
 
 Final PR: concrete behavior, files/reasons table, quickstart, exact verification model/revision, checks/results, coverage and blockers. Commit runtime, ingestion and verification changes by concern; preserve reviewed integration ancestry; no merge.
-
