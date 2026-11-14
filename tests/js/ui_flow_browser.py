@@ -103,17 +103,19 @@ def main():
         page.wait_for_selector(".pb-breakdown")
         assert page.locator(".pb-selected-text").inner_text() == "lph"
         assert page.locator(".pb-timeline").inner_text().find("unrelated page edit") == -1
+        assert page.locator(".pb-coverage").count() == 1, "selection view must show coverage once"
+        assert page.get_by_role("link", name="Return to latest version").count() == 1
         assert page.locator("#palimpsest-blame").evaluate("node => node.previousElementSibling.id") == "statement", "history panel must sit directly after the selected statement"
         sent_ranges = page.evaluate("window.__requests.filter(r => r.params.ranges).at(-1).params.ranges")
         assert sent_ranges == '[{"start":1,"end":4}]', sent_ranges
 
-        page.get_by_role("button", name="Close history").click()
         page.get_by_role("textbox", name="Describe a date query").fill("Latest version before 1 April 2026")
         page.get_by_role("button", name="Interpret date query").click()
         assert "2026-04-01T00:00:00Z" in page.locator(".pb-date-preview").inner_text()
         assert "does not prove the live source wiki’s state" in page.locator(".pb-date-preview").inner_text()
         page.get_by_role("button", name="Apply these bounds").click()
         page.wait_for_selector(".pb-version")
+        assert page.locator(".pb-breakdown").count() == 1, "date search must remain usable without closing the selection breakdown"
         labels = page.locator(".pb-version").all_inner_texts()
         assert any("Local editor: Editor" in label for label in labels), labels
         assert any("Local import account: Imported>SourceWiki" in label and "source editor unavailable" in label for label in labels), labels
@@ -121,6 +123,10 @@ def main():
         versions_request = page.evaluate("window.__requests.filter(r => r.params.op === 'versions').at(-1)")
         assert versions_request["params"]["mode"] == "before"
         assert versions_request["params"]["to"] == "2026-04-01T00:00:00Z"
+        page.get_by_role("button", name="Close history").click()
+        assert page.locator(".pb-breakdown").count() == 0
+        assert page.get_by_role("textbox", name="Describe a date query").count() == 1, "closing history must restore the full date controls"
+        assert page.get_by_role("link", name="Return to latest version").count() == 1, "closing history must restore the latest-version link"
 
         page.evaluate(
             """() => {

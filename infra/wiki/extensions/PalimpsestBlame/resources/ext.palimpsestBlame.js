@@ -555,6 +555,8 @@
 	function openBreakdown( data, selection ) {
 		placeInline( selection.statement || nearestStatement( window.getSelection() ) );
 		buildActionBar();
+		buildDateForm();
+		addLatestButton();
 		var panel = element( 'section', 'pb-breakdown' );
 		panel.setAttribute( 'aria-labelledby', 'pb-breakdown-title' );
 		var header = element( 'div', 'pb-breakdown-header' );
@@ -585,7 +587,6 @@
 		}
 		appendContributors( panel, data );
 		appendTimeline( panel, data, selection );
-		panel.appendChild( coverageSummary( data ) );
 		root.appendChild( panel );
 		close.focus();
 	}
