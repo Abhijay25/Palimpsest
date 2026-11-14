@@ -30,3 +30,5 @@
 - A valid provenance checksum does not make a partial import complete; fail closed on `history_complete=false` before emitting any attribution.
 
 - Keyboard checks must Tab to the actual control, not match BODY text. Wait for asynchronous controls, then verify Enter/Space, Escape close and focus restoration even after the opening node is replaced.
+
+- A stylesheet can return HTTP200 with HTML from a routed path. Verify asset MIME/content and computed styles before crediting screenshots; ResourceLoader debug paths can differ from the normal bundled route.

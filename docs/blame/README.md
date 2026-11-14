@@ -26,7 +26,7 @@ python3 scripts/blame_provenance.py --data-root .local/wiki --manifest tests/dat
 
 Support and import may return nonzero while rendering dependencies are incomplete, even after all six article histories import successfully. Inspect their reports and the separate sample verifier; never ignore a source/history/mapping failure. Provenance export requires the requested histories fully reconciled against the live runtime and refuses corrupt, incomplete, hidden or changed records. It publishes checksummed operator-trusted metadata, not cryptographic signatures or independently authenticated Wikipedia accounts. Its --install option places only each language's metadata in that wiki's existing read-only config mount.
 
-Select the Blame action alongside Read/View history. Date navigation changes the displayed snapshot and its attribution together. A selection spanning contributors opens its exact wording history directly beneath the selected statement. Generated/template text without a proven source range remains unannotated. Source and local revision IDs differ; imported author names do not create authenticated source-wiki accounts locally.
+Select the Blame action alongside Read/View history. Date navigation changes the displayed snapshot and its attribution together. Revision colours distinguish the edits that last changed each word. A selection spanning revisions opens its exact coloured quote, one section per owning revision and its relevant wording history directly beneath the selected statement. Click a coloured phrase or revision section to focus its history; Show full selection restores all selected wording. Revision labels accompany the colours, which can repeat beyond eight categories in large histories. Generated/template text without a proven source range remains unannotated. Source and local revision IDs differ; imported author names do not create authenticated source-wiki accounts locally.
 
 After sample import/export, try Finnish Myyntimies Jethro matkoilla or Seppo Rapo, Swedish Patis kyrka, and English Ulf Grönholm or Seppo Särkiniemi. A fresh empty wiki also supports Blame on pages you create and edit locally, without downloading Wikipedia data. The sample contains six articles and 148 original revisions; it does not include all 29,460 S articles.
 
@@ -47,3 +47,13 @@ The opt-in `scripts/blame_verify_controls.py` temporarily changes only served me
 Prototype caps are 200 synchronous / 2,000 queued revisions; 2 MiB synchronous / 16 MiB queued source history; 20,000 tokens per revision and 200,000 cumulative tokens; 250,000 LCS cells per changed pair; 1,000,000 charged lineage references; 2 MiB API responses; 64 selection ranges; and three active current-version jobs per wiki. Jobs process at most three revisions per batch by default. Derived caches have page/revision/algorithm/schema identity and recheck current visibility/provenance. Requests exceeding a supported budget fail explicitly; scale-up remains separate.
 
 Full S seeding, full historical rendering, native mobile devices and Wikipedia deployment parity are independent limits. The feature never fabricates unavailable attribution, citations or editor intent.
+
+For a small local colour demonstration without Wikipedia downloads, create a clearly labelled synthetic page and save these three successive edits with the same account:
+
+1. `The old station`
+2. `The old station measures coastal winds`
+3. `The old station measures coastal winds throughout each summer season.`
+
+Open Blame and select the final sentence: its ten words belong 3/3/4 to the three local revisions, even though the editor is the same. This uses real local revision history, not preassigned fictional attribution.
+
+The independent native colour checker is `tests/blame/revision_colours_browser.py`. It requires an explicit seeded URL, quote, owner IDs and independently expected full/focused event IDs; it performs no seeding and has no default green fixture mode. Run it in the pinned browser image. Ordinary CI runs the separate actual-JS/CSS consumer colour suite with mocked Action API responses. Neither mode acquires the corpus.

@@ -77,6 +77,12 @@ jobs:
           --volume "$PWD:/repo:ro" --workdir /repo
           --entrypoint python palimpsest-blame-browser:1.65.1
           /repo/tests/js/selection_ranges_browser.py
+      - name: Verify revision colours and grouped selected wording in Chromium
+        run: >-
+          docker run --rm --network none
+          --volume "$PWD:/repo:ro" --workdir /repo
+          --entrypoint python palimpsest-blame-browser:1.65.1
+          /repo/tests/js/revision_colours_browser.py
 
   live-browser:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_browser }}
