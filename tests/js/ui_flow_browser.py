@@ -32,6 +32,7 @@ def main():
                     events: [{ revision_id: 90, before: 'unrelated page edit', after: 'unrelated page edit', token_ids: ['90:0'], ambiguous: false }],
                     algorithm: { version: 'fixture-v1', semantics: 'last-change', limits: {} }, mapping: { mapped_characters: 9, unmapped_reasons: [] }
                 };
+                window.__fixtureBase = base;
                 window.__requests = [];
                 window.__forceUnavailable = false;
                 window.__forcePermanent = false;
@@ -69,18 +70,25 @@ def main():
         assert page.locator("#mw-content-text > .mw-parser-output").count() == 1, "action-only page must receive a peer article container"
         assert "alpha beta" in page.locator(".mw-parser-output").inner_text()
 
-        page.evaluate(
+        drag_points = page.evaluate(
             """() => {
-                const span = document.querySelector('[data-pb-start="0"]');
-                const range = document.createRange();
-                range.setStart(span.firstChild, 1);
-                range.setEnd(span.firstChild, 4);
-                const selection = window.getSelection();
-                selection.removeAllRanges();
-                selection.addRange(range);
+                const text = document.querySelector('[data-pb-start="0"]').firstChild;
+                const charRect = index => {
+                    const range = document.createRange();
+                    range.setStart(text, index);
+                    range.setEnd(text, index + 1);
+                    const rect = range.getBoundingClientRect();
+                    return { left: rect.left, right: rect.right, y: rect.top + rect.height / 2 };
+                };
+                const first = charRect(1), last = charRect(3);
+                return { startX: first.left + 0.2, endX: last.right - 0.2, y: first.y };
             }"""
         )
-        page.get_by_role("button", name="Inspect selected article text").click()
+        page.mouse.move(drag_points["startX"], drag_points["y"])
+        page.mouse.down()
+        page.mouse.move(drag_points["endX"], drag_points["y"], steps=8)
+        page.mouse.up()
+        assert page.evaluate("window.getSelection().toString()") == "lph"
         page.wait_for_selector(".pb-breakdown")
         assert page.locator(".pb-selected-text").inner_text() == "lph"
         assert page.locator(".pb-timeline").inner_text().find("unrelated page edit") == -1
@@ -139,8 +147,50 @@ def main():
         assert build_request["params"]["token"] == "+\\", "the valid anonymous CSRF token must reach POST unchanged"
         assert status_request["params"]["jobid"] == "job-1"
         assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').at(-1).params.revision") == "91", "selection and retry analysis must stay pinned to the original snapshot"
+
+        fixture = page.evaluate("window.__fixtureBase")
+        touch_page = browser.new_page(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True)
+        touch_page.set_content('<main><div id="mw-content-text"><div id="palimpsest-blame"></div></div></main>')
+        touch_page.evaluate(
+            """base => {
+                window.mw = {
+                    config: { get: () => ({ wgPageName: 'Example', wgRevisionId: 0, wgArticleId: 42, wgCanonicalSpecialPageName: null }) },
+                    util: { wikiScript: () => 'https://example.test/api.php', getUrl: (title, params) => '/wiki/' + title + '?' + new URLSearchParams(params) },
+                    user: { tokens: { get: () => '+\\\\' } }
+                };
+                window.__requests = [];
+                window.fetch = (input, init = {}) => {
+                    const params = new URLSearchParams(new URL(String(input), location.href).search);
+                    window.__requests.push(Object.fromEntries(params.entries()));
+                    const response = params.get('ranges') ? Object.assign({}, base, { selection: { ranges: JSON.parse(params.get('ranges')), revision_ids: [91], events: [{ revision_id: 91, before: 'old', after: 'lph', token_ids: ['91:0'], ambiguous: false }], ambiguous: false, reasons: [] } }) : base;
+                    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ palimpsestblame: response }) });
+                };
+            }""",
+            fixture,
+        )
+        touch_page.add_script_tag(path=str(RESOURCE / "helpers.js"))
+        touch_page.add_script_tag(path=str(RESOURCE / "ext.palimpsestBlame.js"))
+        touch_page.wait_for_selector(".pb-date-query")
+        touch_page.evaluate(
+            """() => {
+                const text = document.querySelector('[data-pb-start="0"]').firstChild;
+                const range = document.createRange();
+                range.setStart(text, 1);
+                range.setEnd(text, 4);
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }"""
+        )
+        touch_button = touch_page.get_by_role("button", name="Inspect selected article text")
+        touch_box = touch_button.bounding_box()
+        touch_page.touchscreen.tap(touch_box["x"] + touch_box["width"] / 2, touch_box["y"] + touch_box["height"] / 2)
+        touch_page.wait_for_selector(".pb-breakdown")
+        assert touch_page.locator(".pb-selected-text").inner_text() == "lph"
+        assert touch_page.evaluate("window.__requests.filter(r => r.ranges).at(-1).ranges") == '[{"start":1,"end":4}]'
+        touch_page.close()
         browser.close()
-    print("UI smoke passed: action-only mount, pinned snapshot, exact selection, filtered timeline, inline placement, UTC version query, and guest-token bounded job flow")
+    print("UI smoke passed: real mouse partial drag, touch-enabled Inspect, pinned snapshot, filtered inline history, UTC cutoff warning, build gating, and guest-token job flow")
 
 
 if __name__ == "__main__":

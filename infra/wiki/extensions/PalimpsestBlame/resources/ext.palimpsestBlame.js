@@ -19,6 +19,7 @@
 	var currentData = null;
 	var currentHost = root;
 	var renderedRevision = null;
+	var retainedArticleSelection = null;
 	var returnFocus = null;
 	var selectedText = '';
 	var article = document.querySelector( '#mw-content-text .mw-parser-output' );
@@ -118,11 +119,51 @@
 		return { id: sequence, signal: activeController.signal };
 	}
 
+	function selectionIsInArticle( selection ) {
+		if ( !article || !selection || !selection.rangeCount ) {
+			return false;
+		}
+		for ( var i = 0; i < selection.rangeCount; i++ ) {
+			if ( !article.contains( selection.getRangeAt( i ).commonAncestorContainer ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	function readArticleSelection() {
+		var nativeSelection = window.getSelection();
+		if ( !nativeSelection || nativeSelection.isCollapsed || !nativeSelection.rangeCount ) {
+			return null;
+		}
+		if ( !selectionIsInArticle( nativeSelection ) ) {
+			retainedArticleSelection = null;
+			return null;
+		}
+		var snapshot = H.selectionRanges( nativeSelection );
+		snapshot.statement = nearestStatement( nativeSelection );
+		retainedArticleSelection = snapshot;
+		return snapshot;
+	}
+
+	document.addEventListener( 'selectionchange', function () {
+		var nativeSelection = window.getSelection();
+		if ( nativeSelection && !nativeSelection.isCollapsed ) {
+			readArticleSelection();
+		}
+	} );
+
 	function isCurrent( request ) {
 		return request.id === sequence && !request.signal.aborted;
 	}
 
 	function startAnalysis( selection ) {
+		if ( selection && selection.ranges.length > 64 ) {
+			buildActionBar();
+			root.appendChild( element( 'p', 'pb-warning', 'This selection contains more than 64 separate verified source ranges. Select a smaller passage; no partial analysis was requested.' ) );
+			return;
+		}
+		retainedArticleSelection = null;
 		var request = beginRequest();
 		setState( 'loading', 'Loading verified revision history…' );
 		var params = { op: 'analyze' };
@@ -198,6 +239,9 @@
 			setState( 'error', invalid, true, false );
 			return;
 		}
+		if ( renderedRevision !== null && renderedRevision !== Number( data.snapshot.revision_id ) ) {
+			retainedArticleSelection = null;
+		}
 		if ( !initialRevision ) {
 			initialRevision = Number( data.snapshot.revision_id );
 		}
@@ -255,9 +299,15 @@
 		inspect.addEventListener( 'mousedown', function ( event ) {
 			event.preventDefault();
 		} );
+		inspect.addEventListener( 'pointerdown', function () {
+			readArticleSelection();
+		} );
 		inspect.addEventListener( 'click', function () {
-			var selection = H.selectionRanges( window.getSelection() );
-			if ( !selection.exactText ) {
+			var selection = readArticleSelection() || retainedArticleSelection;
+			if ( selection ) {
+				selection = Object.assign( {}, selection, { ranges: selection.ranges.slice(), unmapped: selection.unmapped.slice() } );
+			}
+			if ( !selection || !selection.exactText ) {
 				setState( 'error', 'Select text in the article first.' );
 				buildActionBar();
 				return;
@@ -272,7 +322,7 @@
 				root.appendChild( element( 'p', 'pb-warning', 'This selection contains more than 64 separate verified source ranges. Select a smaller passage; no partial analysis was requested.' ) );
 				return;
 			}
-			selection.statement = nearestStatement( window.getSelection() );
+			selection.statement = selection.statement || nearestStatement( window.getSelection() );
 			returnFocus = inspect;
 			startAnalysis( selection );
 		} );
@@ -342,7 +392,11 @@
 			node.setAttribute( 'role', 'button' );
 			node.setAttribute( 'aria-label', 'Inspect attributed wording' + ( revision ? ' changed in revision ' + revision.revision_id + ' by ' + ( revision.user || 'an unavailable identity' ) + ' on ' + formatUtc( revision.timestamp ) : '' ) + ': ' + node.textContent );
 			var activate = function () {
-				var selection = { exactText: node.textContent, ranges: [ { start: mapping.start, end: mapping.end } ], unmapped: [], statement: node.closest( 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dt, dd, figcaption' ) };
+				var selection = readArticleSelection() || retainedArticleSelection;
+				var intersects = selection && selection.ranges.some( function ( range ) { return range.end > mapping.start && range.start < mapping.end; } );
+				if ( !intersects ) {
+					selection = { exactText: node.textContent, ranges: [ { start: mapping.start, end: mapping.end } ], unmapped: [], statement: node.closest( 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dt, dd, figcaption' ) };
+				}
 				returnFocus = node;
 				startAnalysis( selection );
 			};
