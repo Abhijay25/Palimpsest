@@ -62,6 +62,10 @@ def enter_blame_with_keyboard(page: Page) -> None:
     page.keyboard.press("Enter")
     expect(page).to_have_url(re.compile(r"[?&]action=blame(?:&|$)"))
     expect(page.locator("#palimpsest-blame")).to_be_visible()
+    wait_for_article_selection_ready(
+        page,
+        load_fixture("cross_contributor_deletion")["revisions"][-1]["text"],
+    )
 
 
 def verify_keyboard_phrase_activation(page: Page, phrase: str, key: str) -> None:
@@ -633,6 +637,7 @@ def run_language(browser, language: str, language_state: dict, origin: str, auth
     expect(page).to_have_url(re.compile(r"[?&]action=blame(?:&|$)"))
     expect(page.locator("#palimpsest-blame")).to_be_visible()
     verify_article_snapshot(page, load_fixture("cross_contributor_deletion")["revisions"][-1]["text"], cross["revisions"][-1]["revision_id"])
+    wait_for_article_selection_ready(page, load_fixture("cross_contributor_deletion")["revisions"][-1]["text"])
     word = page.locator("#mw-content-text [data-pb-start]").filter(has_text=re.compile(r"^green$"))
     expect(word.first).to_be_visible()
     current_url = page.url
@@ -700,6 +705,7 @@ def run_language(browser, language: str, language_state: dict, origin: str, auth
     labels = keyboard_page.locator("#palimpsest-blame [aria-label], #palimpsest-blame [aria-labelledby]")
     if labels.count() == 0:
         raise AssertionError(f"{language}: Blame panel has no screen-reader labels")
+    expect(labels.first).to_be_visible()
     verify_keyboard_phrase_activation(keyboard_page, "green", "Enter")
     verify_keyboard_phrase_activation(keyboard_page, "new", "Space")
     verify_concurrent_snapshot(keyboard_page, origin, language, auth, run_id)
