@@ -105,6 +105,7 @@ def main():
         assert page.locator(".pb-timeline").inner_text().find("unrelated page edit") == -1
         assert page.locator(".pb-coverage").count() == 1, "selection view must show coverage once"
         assert page.get_by_role("link", name="Return to latest version").count() == 1
+        assert page.locator("#palimpsest-blame").evaluate("node => Array.from(node.children).indexOf(node.querySelector('.pb-breakdown')) < Array.from(node.children).indexOf(node.querySelector('.pb-date-query'))"), "selection details must precede the secondary date query"
         assert page.locator("#palimpsest-blame").evaluate("node => node.previousElementSibling.id") == "statement", "history panel must sit directly after the selected statement"
         sent_ranges = page.evaluate("window.__requests.filter(r => r.params.ranges).at(-1).params.ranges")
         assert sent_ranges == '[{"start":1,"end":4}]', sent_ranges
