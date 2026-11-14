@@ -10,7 +10,7 @@
 	var cfg = mw.config.get( 'wgPalimpsestFlags' );
 	if ( !cfg || !cfg.oldid || !cfg.diff ) { return; }
 	var table, root, workspace, rail, list, summary, tray, live, state = { flags: [], anchored: [], unanchored: [], active: null, reviewed: new Set(), filter: null, layout: 'rail', trigger: null, response: null };
-	var kindLabel = { FACT: 'FACT', MOTIVE: 'MOTIVE', FRAMING: 'FRAMING', REMOVED_CONTEXT: 'REMOVED', HIDDEN_TEXT: 'HIDDEN', CITATION_DATE: 'DATE', CITED_PAGE: 'SOURCE' };
+	var kindLabel = { FACT: 'Fact', MOTIVE: 'Motive', FRAMING: 'Wording', REMOVED_CONTEXT: 'Removed context', HIDDEN_TEXT: 'Hidden text', CITATION_DATE: 'Citation date', CITED_PAGE: 'Cited page' };
 	var kindIcon = { FACT: 'cdxIconAlert', MOTIVE: 'cdxIconUserTalk', FRAMING: 'cdxIconQuotes', REMOVED_CONTEXT: 'cdxIconSubtract', HIDDEN_TEXT: 'cdxIconEyeClosed', CITATION_DATE: 'cdxIconClock', CITED_PAGE: 'cdxIconReference' };
 	function el( tag, cls, text ) { var n = document.createElement( tag ); if ( cls ) { n.className = cls; } if ( text !== undefined ) { n.textContent = text; } return n; }
 	function button( cls, label ) { var b = el( 'button', cls, label ); b.type = 'button'; return b; }
@@ -45,13 +45,37 @@
 	function error( message ) { root.dataset.pfState = 'error'; summary.replaceChildren(); summary.append( chip( 'warning', message ), retryButton() ); rail.replaceChildren( list ); tray.hidden = true; setLive( message ); }
 	function retryButton() { var b = button( 'cdx-button cdx-button--weight-quiet', 'Retry' ); b.addEventListener( 'click', function () { api( true ); } ); return b; }
 	function chip( status, label ) { var c = el( 'span', 'cdx-info-chip cdx-info-chip--' + status ); if ( Vue && Codex && Codex.CdxInfoChip ) { Vue.createApp( { render: function () { return Vue.h( Codex.CdxInfoChip, { status: status }, { default: function () { return label; } } ); } } ).mount( c ); } else { c.appendChild( el( 'span', 'cdx-info-chip__text', label ) ); } return c; }
+	function kbd( text ) { return el( 'kbd', 'pf-kbd', text ); }
 	function renderSummary() {
-		summary.replaceChildren(); if ( !state.flags.length ) { summary.appendChild( chip( 'success', 'No issues flagged' ) ); return; }
-		var admins = state.flags.filter( function ( f ) { return f.tier === 'admin'; } ).length, reviews = state.flags.length - admins;
-		summary.append( chip( 'notice', admins + ' Admin' ), chip( 'notice', reviews + ' Review' ) ); Object.keys( kindLabel ).forEach( function ( kind ) { if ( state.flags.some( function ( f ) { return f.kind === kind; } ) ) { var b = button( 'pf-filter pf-kind--' + kind.toLowerCase(), kindLabel[ kind ] ); b.setAttribute( 'aria-pressed', String( state.filter === kind ) ); b.addEventListener( 'click', function () { state.filter = state.filter === kind ? null : kind; renderSummary(); renderCards(); } ); summary.appendChild( b ); } } );
-		var previous = button( 'cdx-button cdx-button--weight-quiet', 'Prev [' ), next = button( 'cdx-button cdx-button--weight-primary', 'Next ]' ); previous.addEventListener( 'click', function () { navigate( -1 ); } ); next.addEventListener( 'click', function () { navigate( 1 ); } ); summary.append( previous, el( 'span', 'pf-counter', counter() ), next ); if ( state.response && state.response.partial ) { summary.append( chip( 'warning', 'Partial check (some sources timed out)' ), retryButton() ); }
+		summary.replaceChildren(); var brand = el( 'span', 'pf-brand', 'Palimpsest' ); summary.append( brand );
+		if ( !state.flags.length ) { summary.append( el( 'span', 'pf-summary__text pf-summary__text--ok', '✓ No issues flagged in this edit' ) ); floatBar(); return; }
+		var admins = state.flags.filter( function ( f ) { return f.tier === 'admin'; } ).length, reviews = state.flags.length - admins, parts = [];
+		if ( admins ) { parts.push( admins + ' for admin review' ); } if ( reviews ) { parts.push( reviews + ' worth a look' ); }
+		summary.append( el( 'span', 'pf-summary__text', state.flags.length + ( state.flags.length === 1 ? ' flag' : ' flags' ) + ' · ' + parts.join( ' · ' ) ) );
+		var filters = el( 'div', 'pf-filters' ); filters.setAttribute( 'role', 'group' ); filters.setAttribute( 'aria-label', 'Filter flags by type' );
+		Object.keys( kindLabel ).forEach( function ( kind ) { var count = state.flags.filter( function ( f ) { return f.kind === kind; } ).length; if ( !count ) { return; } var b = button( 'pf-filter pf-kind--' + kind.toLowerCase(), '' ); b.append( el( 'span', 'pf-dot' ), document.createTextNode( kindLabel[ kind ] + ' ' + count ) ); b.title = 'Show only ' + kindLabel[ kind ].toLowerCase() + ' flags'; b.setAttribute( 'aria-pressed', String( state.filter === kind ) ); b.addEventListener( 'click', function () { state.filter = state.filter === kind ? null : kind; renderSummary(); renderCards(); } ); filters.appendChild( b ); } );
+		summary.append( filters );
+		var nav = el( 'div', 'pf-nav' ), previous = button( 'cdx-button cdx-button--weight-quiet pf-nav__btn', '' ), next = button( 'cdx-button cdx-button--action-progressive cdx-button--weight-primary pf-nav__btn', '' );
+		previous.append( document.createTextNode( '‹ Prev ' ), kbd( '[' ) ); next.append( document.createTextNode( 'Next › ' ), kbd( ']' ) ); previous.title = 'Previous flag ([ or k)'; next.title = 'Next flag (] or j)';
+		previous.addEventListener( 'click', function () { navigate( -1 ); } ); next.addEventListener( 'click', function () { navigate( 1 ); } );
+		nav.append( previous, el( 'span', 'pf-counter', counter() ), next ); summary.append( nav );
+		if ( state.response && state.response.partial ) { summary.append( chip( 'warning', 'Partial check (some sources timed out)' ), retryButton() ); }
+		floatBar();
 	}
-	function counter() { var flags = visibleFlags(), index = flags.findIndex( function ( row ) { return row.flag.id === state.active; } ); return ( index < 0 ? 0 : index + 1 ) + ' / ' + flags.length; }
+	// Keep the bar visible while the admin scrolls through a long diff: pin it under the
+	// Vector sticky header once its natural position leaves the viewport.
+	var placeholder = null;
+	function floatBar() {
+		if ( !root || !summary ) { return; }
+		if ( !placeholder ) { placeholder = el( 'div', 'pf-summary-placeholder' ); root.insertBefore( placeholder, summary ); window.addEventListener( 'scroll', floatBar, { passive: true } ); window.addEventListener( 'resize', floatBar ); }
+		var header = document.querySelector( '.vector-sticky-header-visible .vector-sticky-header, .vector-sticky-header.vector-sticky-header-visible' );
+		var top = header ? header.getBoundingClientRect().bottom : 0, anchor = placeholder.getBoundingClientRect(), box = root.getBoundingClientRect();
+		var floating = anchor.top < top && box.bottom > top + summary.offsetHeight + 40;
+		summary.classList.toggle( 'pf-summary-bar--floating', floating );
+		placeholder.style.height = floating ? summary.offsetHeight + 'px' : '0';
+		if ( floating ) { summary.style.top = top + 'px'; summary.style.left = box.left + 'px'; summary.style.width = box.width + 'px'; } else { summary.style.top = summary.style.left = summary.style.width = ''; }
+	}
+	function counter() { var flags = visibleFlags(), index = flags.findIndex( function ( row ) { return row.flag.id === state.active; } ); return ( index < 0 ? '–' : index + 1 ) + ' of ' + flags.length; }
 	function renderTray() { tray.replaceChildren(); tray.hidden = !state.unanchored.length; if ( tray.hidden ) { return; } var details = el( 'details', 'pf-unanchored-details' ); details.open = true; details.appendChild( el( 'summary', '', 'Unanchored flags (' + state.unanchored.length + ')' ) ); state.unanchored.forEach( function ( flag ) { var card = cardFor( flag, false ); card.appendChild( el( 'p', 'pf-context', flag.context_sentence || flag.anchor_text ) ); details.appendChild( card ); } ); tray.appendChild( details ); }
 	function cardFor( flag, railCard ) {
 		var reviewed = state.reviewed.has( flag.id ), article = el( 'article', 'pf-card pf-card--' + flag.kind.toLowerCase() + ' pf-card--' + flag.tier + ( reviewed ? ' pf-card--reviewed' : '' ) ); article.id = 'pf-card-' + flag.id;
@@ -61,12 +85,21 @@
 		if ( state.active === flag.id && !reviewed ) { article.appendChild( fullBody( flag ) ); }
 		if ( railCard ) { article.dataset.pfId = flag.id; } return article;
 	}
+	function section( label, child ) { var wrap = el( 'section', 'pf-section' ); wrap.append( el( 'h4', 'pf-section__label', label ), child ); return wrap; }
 	function fullBody( flag ) {
-		var body = el( 'div', 'pf-card__body' ); body.id = 'pf-body-' + flag.id; body.append( el( 'span', 'pf-confidence', ( flag.confidence >= .8 ? 'High ' : flag.confidence >= .5 ? 'Medium ' : 'Low ' ) + Math.round( flag.confidence * 100 ) + '%' ), el( 'p', 'pf-reason', flag.reason ) );
-		( flag.evidence || [] ).forEach( function ( item ) { var quote = el( 'blockquote', 'pf-evidence', item.quote ); var source = el( 'small', 'pf-evidence__source', item.source === 'cited' ? 'Cited source' : item.source === 'old' ? 'Old text' : 'New text' ); var href = safeUrl( item.url ); if ( href ) { var link = el( 'a', '', source.textContent ); link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer'; source.replaceChildren( link ); } body.append( source, quote ); } );
-		var seen = {}; ( flag.citations || [] ).forEach( function ( url ) { var href = safeUrl( url ); if ( href && !seen[ href ] ) { seen[ href ] = true; var a = el( 'a', 'pf-citation', new URL( href ).hostname ); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; body.appendChild( a ); } } );
-		if ( flag.neutral_rewrite ) { var rewrite = el( 'div', 'pf-rewrite', flag.neutral_rewrite ), copy = button( 'cdx-button cdx-button--weight-quiet', 'Copy rewrite' ); copy.addEventListener( 'click', function () { navigator.clipboard && navigator.clipboard.writeText( flag.neutral_rewrite ); copy.textContent = 'Copied'; window.setTimeout( function () { copy.textContent = 'Copy rewrite'; }, 1500 ); } ); rewrite.appendChild( copy ); body.appendChild( rewrite ); }
-		var foot = el( 'div', 'pf-card__footer', 'Check: ' + flag.check + ' · ' ), jump = button( 'cdx-button cdx-button--weight-quiet', 'Jump to text' ); jump.addEventListener( 'click', function () { focusMark( flag.id ); } ); foot.appendChild( jump ); body.appendChild( foot ); return body;
+		var body = el( 'div', 'pf-card__body' ); body.id = 'pf-body-' + flag.id;
+		body.append( el( 'span', 'pf-confidence', ( flag.confidence >= .8 ? 'High confidence ' : flag.confidence >= .5 ? 'Medium confidence ' : 'Low confidence ' ) + Math.round( flag.confidence * 100 ) + '%' ) );
+		body.append( section( 'Why it may need review', el( 'p', 'pf-reason', flag.reason ) ) );
+		var quotes = ( flag.evidence || [] ).filter( function ( item ) { return item.quote && item.quote.trim(); } );
+		var sourceBox = el( 'div', 'pf-sources' );
+		quotes.forEach( function ( item ) { sourceBox.append( el( 'blockquote', 'pf-evidence', item.quote ) ); } );
+		var seen = {}, links = el( 'div', 'pf-citations' );
+		( flag.citations || [] ).concat( quotes.map( function ( q ) { return q.url; } ) ).forEach( function ( url ) { var href = safeUrl( url ); if ( href && !seen[ href ] ) { seen[ href ] = true; var a = el( 'a', 'pf-citation', new URL( href ).hostname ); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = href; links.appendChild( a ); } } );
+		if ( links.childNodes.length ) { sourceBox.append( links ); }
+		if ( !quotes.length && flag.check === 'judge' ) { sourceBox.prepend( el( 'p', 'pf-muted', 'No source text was available to check this claim against.' ) ); }
+		if ( sourceBox.childNodes.length ) { body.append( section( quotes.length ? 'What the source says' : 'Source', sourceBox ) ); }
+		if ( flag.neutral_rewrite ) { var rewrite = el( 'div', 'pf-rewrite', flag.neutral_rewrite ), copy = button( 'cdx-button cdx-button--weight-quiet pf-copy', 'Copy' ); copy.addEventListener( 'click', function () { navigator.clipboard && navigator.clipboard.writeText( flag.neutral_rewrite ); copy.textContent = 'Copied'; window.setTimeout( function () { copy.textContent = 'Copy'; }, 1500 ); } ); var rw = el( 'div', '' ); rw.append( rewrite, copy ); body.append( section( 'Suggested neutral wording', rw ) ); }
+		var foot = el( 'div', 'pf-card__footer' ), jump = button( 'cdx-button cdx-button--weight-quiet', 'Show in diff' ); jump.addEventListener( 'click', function () { focusMark( flag.id ); } ); foot.append( jump, el( 'span', 'pf-muted', ' Found by: ' + ( { judge: 'source comparison', stealth: 'hidden-text scan', citation_dates: 'citation date check', render: 'cited page scan' }[ flag.check ] || flag.check ) ) ); body.appendChild( foot ); return body;
 	}
 	function renderCards() {
 		list.replaceChildren(); if ( state.layout !== 'rail' || !state.flags.length ) { renderPins(); return; } rail.hidden = false; visibleFlags().forEach( function ( row ) { var li = el( 'li', 'pf-rail__item' ); li.dataset.pfId = row.flag.id; li.appendChild( cardFor( row.flag, true ) ); list.appendChild( li ); } ); relayout();

@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from palimpsest import api
 from palimpsest.crosslingual import (
+    MEDIAWIKI_USER_AGENT,
     anchor_terms,
     cross_lingual_fanout,
     resolve_langlinks,
@@ -110,7 +111,7 @@ def test_resolve_langlinks_parses_links_and_uses_required_parameters() -> None:
         "format": "json",
         "formatversion": "2",
     }
-    assert seen[0].headers["user-agent"] == "Palimpsest-MVP/0.1 (hackathon research)"
+    assert seen[0].headers["user-agent"] == MEDIAWIKI_USER_AGENT
 
 
 def test_anchor_terms_and_paragraph_selection_use_neutral_anchors() -> None:

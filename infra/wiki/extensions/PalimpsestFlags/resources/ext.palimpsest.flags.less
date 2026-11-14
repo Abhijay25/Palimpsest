@@ -17,3 +17,34 @@ html.skin-theme-clientpref-night { .pf-card--fact, .pf-kind--fact { --pf-kind-ac
 .pf-card .pf-chip.cdx-info-chip[ data-tier="review" ] { background-color: transparent; .cdx-info-chip__text, .cdx-info-chip__icon, .cdx-icon { color: var( --pf-kind-accent ); } }
 html.skin-theme-clientpref-night .pf-card .pf-chip.cdx-info-chip:not( [ data-tier="review" ] ) { .cdx-info-chip__text, .cdx-info-chip__icon, .cdx-icon { color: #101418; } }
 @media ( prefers-color-scheme: dark ) { html.skin-theme-clientpref-os .pf-card .pf-chip.cdx-info-chip:not( [ data-tier="review" ] ) { .cdx-info-chip__text, .cdx-info-chip__icon, .cdx-icon { color: #101418; } } }
+// Readability: the rail never grows past its column, and long words/URLs wrap.
+.pf-rail, .pf-rail__list, .pf-rail__item, .pf-card { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.pf-rail { overflow-x: hidden; }
+.pf-card, .pf-card * { overflow-wrap: anywhere; word-break: normal; }
+.pf-card { font-size: 13px; line-height: 1.45; }
+.pf-card__body { display: flex; flex-direction: column; gap: 10px; }
+.pf-section__label { margin: 0 0 3px; padding: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var( --color-subtle, #54595d ); border: 0; font-family: inherit; }
+.pf-reason, .pf-context { margin: 0; white-space: normal; }
+.pf-evidence { margin: 0 0 4px; padding: 4px 8px; font-style: italic; max-height: 9em; overflow-y: auto; border-inline-start: 3px solid var( --border-color-subtle, #c8ccd1 ); }
+.pf-citations { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.pf-citation { display: inline; margin: 0; }
+.pf-rewrite { white-space: normal; margin-bottom: 2px; }
+.pf-muted { color: var( --color-subtle, #54595d ); font-size: 12px; margin: 0; }
+.pf-confidence { font-weight: 600; }
+.pf-card__footer { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; border-top: 1px solid var( --border-color-subtle, #c8ccd1 ); padding-top: 6px; }
+// Summary bar: readable summary, type filters with counts, navigation on the right; floats while scrolling.
+.pf-summary-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; padding: 8px 12px; border-radius: 4px; box-shadow: 0 1px 2px rgba( 0, 0, 0, .08 ); font-size: 13px; }
+.pf-summary-bar--floating { position: fixed !important; z-index: 101; margin: 0; box-shadow: 0 2px 10px rgba( 0, 0, 0, .18 ); }
+.pf-brand { font-weight: 700; letter-spacing: .02em; padding-inline-end: 12px; border-inline-end: 1px solid var( --border-color-subtle, #c8ccd1 ); }
+.pf-summary__text { font-weight: 600; }
+.pf-summary__text--ok { color: var( --color-success, #177860 ); }
+.pf-filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.pf-summary-bar .pf-filter { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var( --border-color-subtle, #c8ccd1 ); background: transparent; color: var( --color-base, #202122 ); }
+.pf-summary-bar .pf-filter[ aria-pressed="true" ] { border-color: var( --pf-kind-accent ); box-shadow: inset 0 0 0 1px var( --pf-kind-accent ); background: transparent; color: var( --color-base, #202122 ); }
+.pf-dot { width: 9px; height: 9px; border-radius: 50%; background: var( --pf-kind-accent ); flex: none; }
+.pf-nav { display: flex; align-items: center; gap: 8px; margin-inline-start: auto; }
+.pf-counter { min-width: 4.5em; text-align: center; font-variant-numeric: tabular-nums; color: var( --color-subtle, #54595d ); }
+.pf-kbd { font: 11px/1 monospace; padding: 1px 4px; margin-inline-start: 2px; border: 1px solid currentColor; border-radius: 3px; opacity: .7; }
+.pf-kind--fact { --pf-kind-accent: #b32424; } .pf-kind--motive { --pf-kind-accent: #6b4ba1; } .pf-kind--framing { --pf-kind-accent: #a66200; } .pf-kind--removed_context { --pf-kind-accent: #b95000; } .pf-kind--hidden_text { --pf-kind-accent: #101418; } .pf-kind--citation_date { --pf-kind-accent: #3366cc; } .pf-kind--cited_page { --pf-kind-accent: #0e7369; }
+html.skin-theme-clientpref-night { .pf-summary-bar .pf-filter, .pf-summary-bar .pf-filter[ aria-pressed="true" ] { color: var( --color-base, #eaecf0 ); } .pf-kind--hidden_text { --pf-kind-accent: #eaecf0; } .pf-kind--framing { --pf-kind-accent: #eeb533; } }
+@media ( prefers-color-scheme: dark ) { html.skin-theme-clientpref-os { .pf-summary-bar .pf-filter, .pf-summary-bar .pf-filter[ aria-pressed="true" ] { color: var( --color-base, #eaecf0 ); } .pf-kind--hidden_text { --pf-kind-accent: #eaecf0; } .pf-kind--framing { --pf-kind-accent: #eeb533; } } }

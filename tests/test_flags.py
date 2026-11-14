@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 
 from palimpsest.citation_dates import FutureDateFinding
 from palimpsest.flags import JudgeFlagInput, StealthFlagInput, build_flags
-from palimpsest.schema import AuditOutput, FlagEvidence, Verdict
+from palimpsest.schema import AuditOutput, FlagEvidence, SourceWindow, Verdict
 from palimpsest.stealth.models import HiddenFinding, VectorType
 
 
@@ -141,6 +141,66 @@ def test_build_flags_is_empty_for_a_stage_zero_clean_edit() -> None:
     assert build_flags([], [], [], [], "unchanged", []) == []
 
 
+def test_judge_evidence_uses_the_cited_highlight_not_window_boilerplate() -> None:
+    output = AuditOutput.model_validate(
+        {
+            "verdict": "FLAG_G1_FACT",
+            "confidence": 0.8,
+            "expand_direction": "NONE",
+            "atomic_propositions": [
+                {
+                    "clause_text": "The town has 54,200 people.",
+                    "clause_type": "ACTION_FACT",
+                    "source_entailment": "CONTRADICTED",
+                    "evidence_quote_from_ref": "The census records 51,000 residents.",
+                }
+            ],
+            "flagged_spans": [
+                {
+                    "exact_substring": "54,200",
+                    "guideline_violated": "G1_FACT",
+                    "explanation": "wrong census total",
+                }
+            ],
+            "neutral_rewrite": None,
+        }
+    )
+    flags = build_flags(
+        [
+            JudgeFlagInput(
+                unit_index=0,
+                output=output,
+                reason_code="CONTRADICTS_SOURCE",
+                tier="review",
+                old_text="The town has 51,000 people.",
+                new_text="The town has 54,200 people.",
+                old_wikitext="The town has 51,000 people.",
+                new_wikitext="The town has 54,200 people.",
+                citations=["https://example.test/source"],
+                evidence=[FlagEvidence(source="cited", quote="page navigation")],
+                window=SourceWindow(
+                    url="https://example.test/source",
+                    status="ok",
+                    text=(
+                        "[Highlight 1]\nThe census records 51,000 residents."
+                        "\n\n[Highlight 2]\nSubscribe to our newsletter."
+                    ),
+                    latency_ms=1.0,
+                    method="highlights",
+                ),
+            )
+        ],
+        [],
+        [],
+        [],
+        "The town has 54,200 people.",
+        [],
+    )
+    assert [evidence.quote for evidence in flags[0].evidence] == [
+        "The census records 51,000 residents."
+    ]
+
+
 def test_rendered_values_anchor_on_text_visible_in_the_wikitext_diff() -> None:
     wikitext = (
         "Folkgrupp.<ref>{{enwp|url=https://example.org/a|datum=4 december}}</ref>"
@@ -169,3 +229,30 @@ def test_rendered_values_anchor_on_text_visible_in_the_wikitext_diff() -> None:
     assert render_flag.kind == "CITED_PAGE"
     assert render_flag.anchor_text == "https://example.org/a"
     assert render_flag.anchor_start == wikitext.index("https://example.org/a")
+
+
+def test_deleted_text_anchors_on_the_old_side_whatever_the_kind() -> None:
+    old = (
+        "Units were the best in battle, though this was as much a matter of propaganda."
+    )
+    new = "Units were the best in battle, largely based on their exploits."
+    judge = JudgeFlagInput(
+        unit_index=0,
+        output=_output(
+            Verdict.FLAG_G1_FACT,
+            "though this was as much a matter of propaganda",
+            "G1_FACT",
+        ),
+        reason_code="CONTRADICTS_SOURCE",
+        tier="admin",
+        old_text=old,
+        new_text=new,
+        old_wikitext=old,
+        new_wikitext=new,
+        citations=[],
+        evidence=[],
+    )
+    (flag,) = build_flags([judge], [], [], [], new, [])
+    assert flag.kind == "FACT"
+    assert flag.side == "old"
+    assert flag.anchor_start == old.index("though")

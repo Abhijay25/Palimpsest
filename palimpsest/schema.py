@@ -174,6 +174,9 @@ class Flag(BaseModel):
     citations: list[str]
     neutral_rewrite: str | None
     check: FlagCheck
+    # Plain-text sentence before and after the edit, for a quick "what changed" view.
+    before: str | None = None
+    after: str | None = None
 
 
 class AuditOutput(BaseModel):
@@ -211,6 +214,8 @@ class SourceWindow(BaseModel):
     status: Literal["ok", "unavailable", "fixed", "uncited"]
     text: str
     latency_ms: float
+    # Existing serialized windows predate Exa highlights and remain lexical.
+    method: Literal["lexical", "highlights"] = "lexical"
 
 
 class CaseResult(BaseModel):

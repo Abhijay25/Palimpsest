@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from palimpsest.stealth.models import HiddenFinding
 from palimpsest.stealth.pillar3 import render_findings
 from palimpsest.stealth.render import PageRenderer, RenderAudit
-from palimpsest.stealth.sanitizer import looks_like_instruction
+from palimpsest.stealth.sanitizer import has_strong_instruction
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +143,8 @@ def summarize_render(
         pages_failed=rendered.failed,
         pages_scroll_locked=scroll_locked,
         findings=findings,
-        escalate=any(looks_like_instruction(f.decoded_hidden_text) for f in findings),
+        # Bare mentions of AI on real pages (e.g. accessibility text) must not escalate.
+        escalate=any(has_strong_instruction(f.decoded_hidden_text) for f in findings),
         latency_ms=rendered.latency_ms,
     )
 
