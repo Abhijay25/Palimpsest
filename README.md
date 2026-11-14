@@ -5,6 +5,8 @@ Local MediaWiki infrastructure for the team, with separate Finnish, Swedish and 
 
 This feature branch adds native **Blame**: select article wording to inspect contributing revisions and replaced/deleted wording inline, or find a local version by UTC date. Start with a small local prototype; Hostinger and full-corpus scale-up are deferred. See the [Blame setup and limits](docs/blame/README.md), [specification](docs/blame/spec.md) and [verification evidence](docs/blame/verification.md).
 
+The separate **Library** frontend adds a spatial bookshelf lattice, multilingual semantic search, first-person edition corridors and full article reading with native inline Blame. Its initial collection has three trilingual topics and 133 real revisions. Start with the [Library quickstart](apps/library/README.md); see its [verification and limitations](docs/library/verification.md) before expanding the corpus.
+
 ## Start locally
 
 Install Docker Desktop (or Docker Engine with Compose) and Python 3.11+. Run from a clone of this repository:
