@@ -109,13 +109,17 @@ def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
           });
           const nodes = []; let full = '';
           while (walker.nextNode()) { nodes.push({node: walker.currentNode, start: full.length}); full += walker.currentNode.nodeValue || ''; }
+          // Range.toString() inserts paragraph separators that are not text
+          // nodes. Match without those structural breaks, then assert that the
+          // browser's actual native selection restores the exact quoted text.
+          const searchQuote = quote.includes('\\n\\n') ? quote.replace(/\\n\\n/g, '') : quote;
           let begin = -1, cursor = 0;
           for (let index = 0; index <= occurrence; index++) {
-            begin = full.indexOf(quote, cursor);
+            begin = full.indexOf(searchQuote, cursor);
             if (begin < 0) return null;
-            cursor = begin + quote.length;
+            cursor = begin + searchQuote.length;
           }
-          const finish = begin + quote.length;
+          const finish = begin + searchQuote.length;
           const locate = (offset, isEnd) => {
             for (const item of nodes) {
               const length = item.node.nodeValue.length;

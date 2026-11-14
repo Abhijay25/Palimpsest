@@ -219,6 +219,10 @@ class FixtureContractTests(unittest.TestCase):
         paragraph = load_fixture("paragraph_boundary_selection")
         self.assertIn("\n\n", paragraph["wikitext"])
         self.assertTrue(paragraph["must_retain_exact_selection"])
+        self.assertEqual(paragraph["selection_text"], "First paragraph ends.\n\nSecond begins.")
+        self.assertEqual(paragraph["expected_source_ranges"], [[0, 21], [23, 37]])
+        for (start, end), expected_text in zip(paragraph["expected_source_ranges"], ("First paragraph ends.", "Second begins.")):
+            self.assertEqual(paragraph["wikitext"][start:end], expected_text)
 
 
 if __name__ == "__main__":
