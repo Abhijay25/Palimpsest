@@ -2,7 +2,7 @@ import asyncio
 import threading
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 import pytest
@@ -39,6 +39,11 @@ FRAMING_BODY = {
 
 class FakeFetcher:
     budget_exhausted = False
+    requested_budgets: ClassVar[list[int]] = []
+
+    def for_request(self, max_calls: int = 3) -> "FakeFetcher":
+        FakeFetcher.requested_budgets.append(max_calls)
+        return self
 
     def cached_text(self, url: str) -> str | None:
         return None
@@ -578,3 +583,83 @@ def test_unit_judge_failure_is_502_and_cancels_others(client: TestClient) -> Non
     )
     resp = client.post("/api/v1/audit-diff", json=_article_body(8, [1, 4]))
     assert resp.status_code == 502
+
+
+def test_request_budget_is_sized_to_units_and_capped(client: TestClient) -> None:
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: FakeBackend(
+        _output("CLEAN_PASS", 0.9)
+    )
+    FakeFetcher.requested_budgets.clear()
+    client.post("/api/v1/audit-diff", json=_article_body(8, [1, 4, 6]))
+    assert FakeFetcher.requested_budgets == [9]
+    FakeFetcher.requested_budgets.clear()
+    client.post("/api/v1/audit-diff", json=_article_body(30, list(range(0, 30, 2))))
+    assert FakeFetcher.requested_budgets == [12]
+
+
+def test_screen_findings_are_not_counted_or_listed_as_vectors(
+    client: TestClient,
+) -> None:
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: FakeBackend(
+        _flag_g2()
+    )
+    resp = client.post("/api/v1/audit-diff", json=FRAMING_BODY)
+    stealth = resp.json()["stealth"]
+    assert stealth["finding_count"] == 0
+    assert stealth["vectors"] == []
+
+
+def test_span_offsets_prefer_the_units_own_region() -> None:
+    from palimpsest.stealth.scanner import scan
+
+    first = "The mayor shamelessly pushed it through."
+    second = "Then shamelessly he did it again, shamelessly."
+    raw = f"{first}\n\n{second}"
+    spans = api._spans_with_offsets(
+        _flag_g2(), scan(raw, "WIKIPEDIA_DIFF"), raw, (len(first) + 2, len(raw))
+    )
+    hit = spans[0]
+    assert hit.start == raw.index("shamelessly", len(first))
+    assert hit.occurrences == 2
+    assert api._spans_with_offsets(
+        _flag_g2(), scan(raw, "WIKIPEDIA_DIFF"), raw, (0, len(first))
+    )[0].start == raw.index("shamelessly")
+
+
+def test_render_findings_are_scored_against_the_cached_judged_text(
+    client: TestClient,
+) -> None:
+    hidden = "Quarterly figures were revised after the council vote last week."
+
+    class CachingFetcher(FakeFetcher):
+        def __init__(self) -> None:
+            self.cache: dict[str, str] = {}
+
+        def cached_text(self, url: str) -> str | None:
+            return self.cache.get(url)
+
+        async def window_scored(
+            self, url: str, claim: str, radius: int = 3, on_text: object = None
+        ) -> tuple[SourceWindow, int]:
+            # The Exa text lands in the cache only after the render has finished.
+            await asyncio.sleep(0.1)
+            self.cache[url] = hidden
+            return await super().window_scored(url, claim, radius, on_text)
+
+    fetcher = CachingFetcher()
+    api.app.dependency_overrides[api.get_fetcher] = lambda: fetcher
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: FakeBackend(
+        _flag_g2()
+    )
+    _use_auditor(FakeAuditor(_render_audit(hidden)))
+    resp = client.post("/api/v1/audit-diff", json=FRAMING_BODY)
+    explanation = resp.json()["render"]["findings"][0]["explanation"]
+    assert "the judge would have seen it" in explanation
+
+
+def test_judge_latency_entries_do_not_accumulate(client: TestClient) -> None:
+    backend = FakeBackend(_flag_g2())
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: backend
+    resp = client.post("/api/v1/audit-diff", json=FRAMING_BODY)
+    assert resp.json()["latency_ms"]["stage2"] == 7.0
+    assert backend.latencies_ms == {}

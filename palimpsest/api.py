@@ -15,7 +15,7 @@ from pydantic import AfterValidator, BaseModel, Field
 
 from palimpsest.backends.gemini import GeminiJudgeBackend, gemini_enabled
 from palimpsest.cascade import CascadeJudgeBackend
-from palimpsest.judge import AsyncJudge, PreparedCase
+from palimpsest.judge import AsyncJudge, PreparedCase, judge_with_latencies
 from palimpsest.pipeline import (
     CACHE_DIR,
     _case_result,
@@ -27,10 +27,12 @@ from palimpsest.pipeline import (
 from palimpsest.reasons import REASON_TEXT, ReasonCode, reason_code
 from palimpsest.render_service import (
     AuditorProvider,
+    RenderedPages,
     RenderSummary,
     close_shared_auditor,
-    scan_ref_pages_in_temp_dir,
+    render_ref_pages_in_temp_dir,
     shared_auditor,
+    summarize_render,
 )
 from palimpsest.schema import (
     AtomicProposition,
@@ -45,12 +47,20 @@ from palimpsest.segment import EditUnit, changed_chars, split_edit
 from palimpsest.sources import DailyCallCap, SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import prefilter, refs_for_changed_sentences
 from palimpsest.stealth.models import ScanResult, StealthStatus
-from palimpsest.stealth.scanner import TargetType, scan, worst_status
+from palimpsest.stealth.scanner import (
+    TargetType,
+    reportable_findings,
+    scan,
+    worst_status,
+)
 
 MAX_TEXT_CHARS: Final = 200_000
 MAX_REF_URLS: Final = 50
 UNIT_CONCURRENCY: Final = 4
 MAX_UNITS: Final = 12
+# Per-request Exa budget: up to 3 source URLs per judged unit, capped overall.
+EXA_CALLS_PER_UNIT: Final = 3
+MAX_REQUEST_EXA_CALLS: Final = 12
 ROUTE_RANK: Final[dict[Route, int]] = {"none": 0, "review": 1, "admin": 2}
 # Placeholder rule only: the real trust model lives with the editor-profile service.
 TRUST_DELTA_BY_VERDICT: Final = {
@@ -81,8 +91,8 @@ def _shared_fetcher() -> SourceFetcher:
 
 
 def get_fetcher() -> SourceFetcher:
-    """Per-request fetcher: its own Exa budget, sharing the process-wide daily cap."""
-    return _shared_fetcher().for_request()
+    """Process-wide fetcher; audit_diff derives a per-request budget from it."""
+    return _shared_fetcher()
 
 
 @cache
@@ -209,15 +219,30 @@ def _raw_index_map(raw_length: int, removed: list[tuple[int, int]]) -> list[int]
 
 
 def _spans_with_offsets(
-    output: AuditOutput, new_scan: ScanResult, raw: str
+    output: AuditOutput,
+    new_scan: ScanResult,
+    raw: str,
+    unit_region: tuple[int, int] | None = None,
 ) -> list[SpanOut]:
-    """First-match offsets into the raw text, found in the sanitized text the judge saw."""
+    """First-match offsets into the raw text, found in the sanitized text the judge saw.
+
+    The unit's own region of the sanitized text is searched first (then the whole
+    text), so a phrase repeated elsewhere in the edit does not steal the match.
+    The API supplies only the judged unit's region.
+    """
     sanitized = new_scan.sanitized_human_text
     index_map = _raw_index_map(len(raw), new_scan.removed_spans)
+    region = unit_region or (0, len(sanitized))
     spans: list[SpanOut] = []
     for span in output.flagged_spans:
         needle = span.exact_substring
-        start = sanitized.find(needle) if needle else -1
+        start, occurrences = -1, 0
+        if needle:
+            lo, hi = region
+            inside = sanitized[lo:hi]
+            if needle in inside:
+                start = lo + inside.find(needle)
+                occurrences = inside.count(needle)
         found = start >= 0 and len(index_map) == len(sanitized)
         spans.append(
             SpanOut(
@@ -226,10 +251,33 @@ def _spans_with_offsets(
                 explanation=span.explanation,
                 start=index_map[start] if found else None,
                 end=index_map[start + len(needle) - 1] + 1 if found else None,
-                occurrences=sanitized.count(needle) if needle else 0,
+                occurrences=occurrences,
             )
         )
     return spans
+
+
+def _unit_regions(
+    new_scan: ScanResult, units: list[EditUnit]
+) -> dict[int, tuple[int, int]]:
+    """Locate each changed unit in order in the sanitized new revision.
+
+    Advancing the cursor makes repeated paragraph text unambiguous. A unit that
+    cannot be located receives no offsets rather than borrowing a match from a
+    different part of the edit.
+    """
+    regions: dict[int, tuple[int, int]] = {}
+    cursor = 0
+    for unit in units:
+        if not unit.new_text:
+            continue
+        start = new_scan.sanitized_human_text.find(unit.new_text, cursor)
+        if start < 0:
+            continue
+        end = start + len(unit.new_text)
+        regions[unit.index] = (start, end)
+        cursor = end
+    return regions
 
 
 @app.get("/healthz", response_model=HealthResponse)
@@ -298,12 +346,12 @@ def _units_for(
     ]
 
 
-async def _await_render(task: "asyncio.Task[RenderSummary]") -> RenderSummary:
-    """Render failures degrade to an unavailable summary; they never fail the audit."""
+async def _await_render(task: "asyncio.Task[RenderedPages]") -> RenderedPages:
+    """Render failures degrade to an unavailable result; they never fail the audit."""
     try:
         return await task
     except Exception:  # noqa: BLE001 - render scan is best-effort
-        return RenderSummary(status="unavailable")
+        return RenderedPages(status="unavailable")
 
 
 class _UnitOutcome(BaseModel):
@@ -372,8 +420,8 @@ async def _judge_unit(
             pc.window = await _window_for(case, fetcher, ref_scans)
             pc.ref_scan = _worst_scan(ref_scans)
             pc.stealth_ms = sum(s.scan_latency_ms for s in ref_scans)
-            judged = await backend.judge([pc])
-            stage2_ms = backend.latencies_ms.get(case.case_id, 0.0)
+            judged, latencies = await judge_with_latencies(backend, [pc])
+            stage2_ms = latencies.get(case.case_id, 0.0)
             outcome = judged.get(case.case_id, "no result for this case")
             if isinstance(outcome, str):
                 raise HTTPException(
@@ -405,7 +453,7 @@ async def _cancel_all(tasks: "list[asyncio.Task[_UnitOutcome]]") -> None:
 @app.post("/api/v1/audit-diff", response_model=AuditDiffResponse)
 async def audit_diff(
     req: AuditDiffRequest,
-    fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
+    process_fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
     backend: Annotated[AsyncJudge | None, Depends(get_judge_backend)],
     auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
 ) -> AuditDiffResponse:
@@ -421,6 +469,10 @@ async def audit_diff(
     if partial:
         top = sorted(all_units, key=lambda u: (-changed_chars(u), u.index))[:MAX_UNITS]
         units = sorted(top, key=lambda u: u.index)
+    fetcher = process_fetcher.for_request(
+        max_calls=min(EXA_CALLS_PER_UNIT * len(units), MAX_REQUEST_EXA_CALLS)
+    )
+    unit_regions = _unit_regions(new_scan, units)
     refs_by_unit = {u.index: _unit_changed_refs(u) for u in units}
     # Edit-relative: render only refs the edit touched. Without wikitext the
     # changed refs are unknown, so fall back to ref_urls unless Stage 0 says the
@@ -435,7 +487,7 @@ async def audit_diff(
             if url not in union_refs:
                 union_refs.append(url)
     render_task = asyncio.create_task(
-        scan_ref_pages_in_temp_dir(union_refs, auditor_provider, fetcher.cached_text)
+        render_ref_pages_in_temp_dir(union_refs, auditor_provider)
     )
     semaphore = asyncio.Semaphore(UNIT_CONCURRENCY)
     unit_tasks = [
@@ -468,7 +520,8 @@ async def audit_diff(
         )
         output = top_outcome.output
         stealth_flagged = diff_scan.stealth_status in ADMIN_FLAG_STATUSES
-        render = await _await_render(render_task)
+        # Scored only now: the units' Exa fetches have cached the judged text.
+        render = summarize_render(await _await_render(render_task), fetcher.cached_text)
         unit_routes: list[Route] = [route(o.result) for o in outcomes]
         top_route = max(unit_routes, key=ROUTE_RANK.__getitem__)
         if render.escalate:
@@ -482,7 +535,7 @@ async def audit_diff(
             s for o in outcomes if (s := _stealth_status(o.pc)) is not None
         ]
         ref_findings = sum(
-            len(o.pc.ref_scan.hidden_findings) for o in outcomes if o.pc.ref_scan
+            len(reportable_findings(o.pc.ref_scan)) for o in outcomes if o.pc.ref_scan
         )
         ref_scan_ms = sum(o.pc.stealth_ms for o in outcomes)
         reasons = [
@@ -498,7 +551,9 @@ async def audit_diff(
             flagged_spans=[
                 span
                 for o in contributing
-                for span in _spans_with_offsets(o.output, new_scan, req.new_text)
+                for span in _spans_with_offsets(
+                    o.output, new_scan, req.new_text, unit_regions.get(o.unit.index)
+                )
             ],
             atomic_propositions=output.atomic_propositions,
             neutral_rewrite=output.neutral_rewrite,
@@ -512,7 +567,7 @@ async def audit_diff(
                     else "CLEAN"
                 ),
                 vectors=sorted({v for o in outcomes for v in _stealth_vectors(o.pc)}),
-                finding_count=len(diff_scan.hidden_findings) + ref_findings,
+                finding_count=len(reportable_findings(diff_scan)) + ref_findings,
             ),
             render=render,
             latency_ms=LatencyMs(

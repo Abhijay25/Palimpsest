@@ -14,6 +14,7 @@ from palimpsest.judge import (
     PROMPTS_DIR,
     FileExchangeBackend,
     PreparedCase,
+    judge_with_latencies,
 )
 from palimpsest.report import render_report
 from palimpsest.schema import (
@@ -30,7 +31,7 @@ from palimpsest.scoring import score
 from palimpsest.sources import SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import changed_region_has_citation, prefilter, strip_wikitext
 from palimpsest.stealth.models import ScanResult, StealthStatus
-from palimpsest.stealth.scanner import scan, worst_status
+from palimpsest.stealth.scanner import reportable_findings, scan, worst_status
 
 STAGE1_CONCURRENCY: Final = 8
 MAX_SOURCE_URLS: Final = 3
@@ -192,12 +193,14 @@ async def _judge_with_gemini(
     backend: GeminiJudgeBackend, prepared: list[PreparedCase], run_dir: Path
 ) -> None:
     """Judge inline and write results in the file-exchange format ingest reads."""
-    judged = await backend.judge([pc for pc in prepared if not pc.stage0.clean])
+    judged, latencies = await judge_with_latencies(
+        backend, [pc for pc in prepared if not pc.stage0.clean]
+    )
     lines: list[str] = []
     for case_id, outcome in judged.items():
         row: dict[str, object] = {
             "case_id": case_id,
-            "stage2_ms": backend.latencies_ms.get(case_id, 0.0),
+            "stage2_ms": latencies.get(case_id, 0.0),
         }
         if isinstance(outcome, str):
             row["error"] = outcome
@@ -232,7 +235,9 @@ def _stealth_status(pc: PreparedCase) -> str | None:
 
 
 def _stealth_vectors(pc: PreparedCase) -> list[str]:
-    return sorted({f.vector_type.value for s in _scans(pc) for f in s.hidden_findings})
+    return sorted(
+        {f.vector_type.value for s in _scans(pc) for f in reportable_findings(s)}
+    )
 
 
 def _case_result(
