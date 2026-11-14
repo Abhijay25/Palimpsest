@@ -142,7 +142,7 @@ def create_talk_post_and_reply(page: Page, root: str, title: str, token: str) ->
         reply_link = page.get_by_role("button", name=re.compile("^Reply$", re.I))
     expect(reply_link.first).to_be_visible(timeout=30_000)
     reply_link.first.click()
-    reply_widget = page.locator(".ext-discussiontools-replywidget")
+    reply_widget = page.locator(".ext-discussiontools-ui-replyWidget")
     expect(reply_widget).to_be_visible(timeout=30_000)
     marker = f"DiscussionTools reply acceptance {token}"
     visual_editor = reply_widget.locator("[contenteditable=true]").last

@@ -8,3 +8,4 @@
 - Runtime `setup` may regenerate managed settings on rerun. Reapply disposable browser-only config overrides after every setup, then restart that project before browser navigation.
 - Check the target worktree's actual public entrypoint before cross-worktree integration probes; sibling worktrees may expose `runtime.py` without the `scripts/wiki` dispatcher.
 - Match browser controls to the pinned application's current accessible DOM. A stale VisualEditor class selector can miss a working editor; verify the visible toolbar, accessible textbox, save flow, and persisted article outcome.
+- Check case-sensitive extension class names against the pinned source: DiscussionTools 1.46 uses `.ext-discussiontools-ui-replyWidget` with a capital `W`, not the older guessed lowercase selector.
