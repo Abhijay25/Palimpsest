@@ -45,14 +45,18 @@
 			"description": "Maximum number of public revisions processed by one queued attribution job run."
 		}
 	},
+	"ResourceFileModulePaths": {
+		"localBasePath": "resources",
+		"remoteExtPath": "PalimpsestBlame/resources"
+	},
 	"ResourceModules": {
 		"ext.palimpsestBlame": {
 			"scripts": [
-				"resources/helpers.js",
-				"resources/ext.palimpsestBlame.js"
+				"helpers.js",
+				"ext.palimpsestBlame.js"
 			],
 			"styles": [
-				"resources/ext.palimpsestBlame.css"
+				"ext.palimpsestBlame.css"
 			],
 			"dependencies": [
 				"mediawiki.api",
