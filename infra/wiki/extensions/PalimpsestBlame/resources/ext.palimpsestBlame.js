@@ -9,10 +9,16 @@
 
 	var config = mw.config.get( [ 'wgPageName', 'wgRevisionId', 'wgArticleId', 'wgCanonicalSpecialPageName' ] );
 	var title = config.wgPageName;
-	var initialRevision = Number( config.wgRevisionId );
-	if ( !Number.isInteger( initialRevision ) || initialRevision <= 0 ) {
-		initialRevision = null;
+	var actionRevision = Number( root.dataset.revision );
+	if ( !Number.isInteger( actionRevision ) || actionRevision <= 0 ) {
+		actionRevision = null;
 	}
+	var configuredRevision = Number( config.wgRevisionId );
+	if ( !Number.isInteger( configuredRevision ) || configuredRevision <= 0 ) {
+		configuredRevision = null;
+	}
+	var snapshotTargetConflict = actionRevision && configuredRevision && actionRevision !== configuredRevision;
+	var initialRevision = actionRevision || configuredRevision;
 	var apiUrl = mw.util.wikiScript( 'api' );
 	var sequence = 0;
 	var activeController = null;
@@ -136,6 +142,25 @@
 		return null;
 	}
 
+	function pinResponseRevision( data ) {
+		var revisions = declaredJobRevisions( data );
+		if ( !revisions.length ) {
+			return null;
+		}
+		var target = revisions[ 0 ];
+		if ( revisions.some( function ( revision ) { return revision !== target; } ) ) {
+			return 'The response contains conflicting target revisions.';
+		}
+		var expected = revisionParam() || currentData && Number( currentData.snapshot.revision_id );
+		if ( expected && target !== expected ) {
+			return 'The response refers to revision ' + target + ', but this view is pinned to revision ' + expected + '.';
+		}
+		if ( !initialRevision ) {
+			initialRevision = target;
+		}
+		return null;
+	}
+
 	function validateJobRevision( data ) {
 		var revisions = declaredJobRevisions( data );
 		var expected = revisionParam();
@@ -143,6 +168,32 @@
 			return 'The job status response refers to a different or conflicting revision.';
 		}
 		return null;
+	}
+
+	function selectionFromAnalysis( data, selection ) {
+		var tokenIds = new Set();
+		var revisionIds = new Set();
+		var ambiguous = false;
+		( data.spans || [] ).forEach( function ( span ) {
+			if ( !selection.ranges.some( function ( range ) { return span.start < range.end && span.end > range.start; } ) ) {
+				return;
+			}
+			tokenIds.add( String( span.token_id ) );
+			( span.lineage_ids || [] ).forEach( function ( id ) { tokenIds.add( String( id ) ); } );
+			revisionIds.add( Number( span.revision_id ) );
+			ambiguous = ambiguous || span.ambiguous === true;
+		} );
+		var events = ( data.events || [] ).filter( function ( event ) {
+			return ( event.token_ids || [] ).some( function ( id ) { return tokenIds.has( String( id ) ); } ) ||
+				tokenIds.has( String( event.left_token_id || '' ) ) || tokenIds.has( String( event.right_token_id || '' ) );
+		} );
+		return {
+			ranges: selection.ranges,
+			revision_ids: Array.from( revisionIds ),
+			events: events,
+			ambiguous: ambiguous || events.some( function ( event ) { return event.ambiguous === true; } ),
+			reasons: selection.unmapped ? selection.unmapped.map( function ( item ) { return item.reason; } ) : []
+		};
 	}
 
 	function beginRequest() {
@@ -219,7 +270,7 @@
 					setState( 'error', pendingRevisionError, false, false );
 					return;
 				}
-				return pollJob( data.job.id, request );
+				return pollJob( data.job.id, request, selection );
 			}
 			showResponse( data, selection, request );
 		} ).catch( function ( error ) {
@@ -230,7 +281,7 @@
 		} );
 	}
 
-	function pollJob( jobId, request ) {
+	function pollJob( jobId, request, selection ) {
 		var attempts = 0;
 		function poll() {
 			if ( !isCurrent( request ) ) {
@@ -251,7 +302,7 @@
 				}
 				var jobState = status.job && status.job.status || status.status;
 				if ( jobState === 'ready' ) {
-					return null;
+					return status.status === 'ready' && status.snapshot && typeof status.source_text === 'string' ? status : null;
 				}
 				if ( jobState === 'failed' || jobState === 'unavailable' ) {
 					var jobError = new Error( status.job && status.job.reason || 'History analysis could not be completed.' );
@@ -266,14 +317,26 @@
 				} ).then( poll );
 			} );
 		}
-		return poll().then( function () {
+		return poll().then( function ( readyAnalysis ) {
 			if ( isCurrent( request ) ) {
-				startAnalysis( null );
+				if ( readyAnalysis ) {
+					if ( selection && !readyAnalysis.selection ) {
+						readyAnalysis.selection = selectionFromAnalysis( readyAnalysis, selection );
+					}
+					showResponse( readyAnalysis, selection || null, request );
+				} else {
+					startAnalysis( selection || null );
+				}
 			}
 		} );
 	}
 
 	function showResponse( data, selection, request ) {
+		var responseRevisionError = pinResponseRevision( data );
+		if ( responseRevisionError ) {
+			setState( 'error', responseRevisionError, false, false );
+			return;
+		}
 		if ( !data || data.status === 'unavailable' || data.status === 'failed' ) {
 			setState( 'error', data && data.reason || 'Verified attribution is unavailable for this revision.', mayRetry( data ), mayPrepare( data ) );
 			return;
@@ -402,7 +465,7 @@
 			if ( revisionError ) {
 				throw new Error( revisionError );
 			}
-			return pollJob( data.job.id, request );
+			return pollJob( data.job.id, request, null );
 		} ).catch( function ( error ) {
 			if ( isCurrent( request ) && error.name !== 'AbortError' ) {
 				var retryable = error.retryable === true || error.buildAvailable === true || error.retryable === undefined && error.buildAvailable === undefined;
@@ -843,6 +906,20 @@
 		} );
 	}
 
+	function versionIdentityLabel( revision, coverage ) {
+		var sourceUser = revision.source_user || revision.source && revision.source.user;
+		var snapshot = revision.source_snapshot;
+		var snapshotId = snapshot && typeof snapshot === 'object' ? snapshot.revision_id || snapshot.id : revision.source_snapshot_revision_id;
+		if ( sourceUser ) {
+			return 'Source editor: ' + sourceUser + ( snapshotId ? ' · source snapshot ' + snapshotId : snapshot ? ' · source snapshot' : '' );
+		}
+		var localUser = revision.user || 'Identity unavailable';
+		if ( typeof localUser === 'string' && ( /^Imported>/i.test( localUser ) || coverage && ( coverage.source_wiki || coverage.source_anchor_timestamp ) ) ) {
+			return 'Local import account: ' + localUser + ' · source editor unavailable in this version result';
+		}
+		return 'Local editor: ' + localUser;
+	}
+
 	function renderVersions( response, results, append, query ) {
 		if ( append ) {
 			var status = results.querySelector( '.pb-status' );
@@ -872,7 +949,7 @@
 		}
 		response.versions.forEach( function ( revision ) {
 			var item = element( 'li', '' );
-			var button = element( 'button', 'pb-version', formatUtc( revision.timestamp ) + ' · ' + ( revision.user || 'Identity unavailable' ) + ' · revision ' + revision.revision_id );
+			var button = element( 'button', 'pb-version', formatUtc( revision.timestamp ) + ' · ' + versionIdentityLabel( revision, response.coverage ) + ' · revision ' + revision.revision_id );
 			button.type = 'button';
 			button.addEventListener( 'click', function () {
 				var url = mw.util.getUrl( title, { oldid: revision.revision_id, action: 'blame' } );
@@ -910,6 +987,10 @@
 	function boot() {
 		if ( !title || config.wgCanonicalSpecialPageName ) {
 			setState( 'error', 'Blame is available only on readable article pages.' );
+			return;
+		}
+		if ( snapshotTargetConflict ) {
+			setState( 'error', 'This Blame action is pinned to revision ' + actionRevision + ', but the page configuration identifies revision ' + configuredRevision + '. Reload the page before analyzing history.' );
 			return;
 		}
 		startAnalysis( null );

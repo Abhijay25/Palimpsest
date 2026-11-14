@@ -13,7 +13,7 @@ def main():
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         page = browser.new_page(viewport={"width": 1280, "height": 900})
-        page.set_content('<main><div id="mw-content-text"><div id="palimpsest-blame"></div></div></main>')
+        page.set_content('<main><div id="mw-content-text"><div id="palimpsest-blame" data-revision="91"></div></div></main>')
         page.evaluate(
             """() => {
                 window.mw = {
@@ -51,7 +51,7 @@ def main():
                         if (params.get('revision') !== '91' || !params.get('jobid')) {
                             return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: { info: 'status requires the exact pinned revision and job ID' } }) });
                         }
-                        response = { status: 'ready', revision_id: 91, job: { id: params.get('jobid'), revision_id: 91, status: 'ready', processed: 2, total: 2 } };
+                        response = Object.assign({}, base, { revision_id: 91, job: { id: params.get('jobid'), revision_id: 91, status: 'ready', processed: 2, total: 2 } });
                     } else if (params.get('op') === 'analyze' && params.get('ranges') && window.__pendingMismatch) {
                         response = { status: 'pending', revision_id: 92, buildable: true, job: { id: 'wrong-revision-job', revision_id: 92, status: 'pending' } };
                     } else if (params.get('op') === 'analyze' && window.__forcePermanent && !window.__buildComplete) {
@@ -59,7 +59,11 @@ def main():
                     } else if (params.get('op') === 'analyze' && window.__forceUnavailable && !window.__buildComplete) {
                         response = { status: 'unavailable', reason: 'Fixture exceeds synchronous analysis limits.', buildable: true };
                     } else if (params.get('op') === 'versions') {
-                        response = { status: 'ready', mode: params.get('mode'), bounds: { from: params.get('from'), to: params.get('to') }, versions: [{ revision_id: 91, timestamp: '2025-12-31T23:59:59Z', user: 'Editor' }], selected_revision_id: 91, continuation: null, coverage: base.coverage };
+                        response = { status: 'ready', mode: params.get('mode'), bounds: { from: params.get('from'), to: params.get('to') }, versions: [
+                            { revision_id: 91, timestamp: '2025-12-31T23:59:59Z', user: 'Editor' },
+                            { revision_id: 90, timestamp: '2025-12-30T23:59:59Z', user: 'Imported>SourceWiki' },
+                            { revision_id: 89, timestamp: '2025-12-29T23:59:59Z', user: 'Importer', source_user: 'Source Editor', source_snapshot: { revision_id: 789 } }
+                        ], selected_revision_id: 91, continuation: null, coverage: base.coverage };
                     } else if (params.get('ranges')) {
                         response = Object.assign({}, base, { selection: { ranges: JSON.parse(params.get('ranges')), revision_ids: [91], events: [{ revision_id: 91, before: 'old phrase', after: 'lph', token_ids: ['91:0'], ambiguous: false }], ambiguous: false, reasons: [] } });
                     } else {
@@ -73,6 +77,7 @@ def main():
         page.add_script_tag(path=str(RESOURCE / "ext.palimpsestBlame.js"))
 
         page.wait_for_selector(".pb-date-query")
+        assert page.evaluate("window.__requests.find(r => r.params.op === 'analyze').params.revision") == "91", "the action element's data-revision must pin the first analysis"
         assert page.locator("#mw-content-text > .mw-parser-output").count() == 1, "action-only page must receive a peer article container"
         assert "alpha beta" in page.locator(".mw-parser-output").inner_text()
 
@@ -109,6 +114,10 @@ def main():
         assert "does not prove the live source wiki’s state" in page.locator(".pb-date-preview").inner_text()
         page.get_by_role("button", name="Apply these bounds").click()
         page.wait_for_selector(".pb-version")
+        labels = page.locator(".pb-version").all_inner_texts()
+        assert any("Local import account: Editor" in label and "source editor unavailable" in label for label in labels), labels
+        assert any("Local import account: Imported>SourceWiki" in label and "source editor unavailable" in label for label in labels), labels
+        assert any("Source editor: Source Editor" in label and "source snapshot 789" in label for label in labels), labels
         versions_request = page.evaluate("window.__requests.filter(r => r.params.op === 'versions').at(-1)")
         assert versions_request["params"]["mode"] == "before"
         assert versions_request["params"]["to"] == "2026-04-01T00:00:00Z"
@@ -151,8 +160,10 @@ def main():
 
         page.evaluate("window.__forcePermanent = false; window.__forceUnavailable = true")
         page.locator('[data-pb-start="0"]').click()
+        analyze_before_build = page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length")
         page.get_by_role("button", name="Prepare attribution").click()
         page.wait_for_selector(".pb-date-query")
+        assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analyze_before_build, "a ready status response with full analysis must be rendered without repeating synchronous analysis"
         build_request = page.evaluate("window.__requests.filter(r => r.params.op === 'build').at(-1)")
         status_request = page.evaluate("window.__requests.filter(r => r.params.op === 'status').at(-1)")
         assert build_request["method"] == "POST"
@@ -173,6 +184,7 @@ def main():
                 };
                 window.__requests = [];
                 window.__initialPending = true;
+                window.__selectionPending = false;
                 window.fetch = (input, init = {}) => {
                     const params = new URLSearchParams(new URL(String(input), location.href).search);
                     window.__requests.push(Object.fromEntries(params.entries()));
@@ -181,10 +193,13 @@ def main():
                         if (params.get('revision') !== '91') {
                             return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: { info: 'status requires revision 91' } }) });
                         }
-                        response = { status: 'ready', revision_id: 91, job: { id: params.get('jobid'), revision_id: 91, status: 'ready' } };
+                        response = Object.assign({}, base, { revision_id: 91, job: { id: params.get('jobid'), revision_id: 91, status: 'ready' } });
                     } else if (params.get('op') === 'analyze' && window.__initialPending) {
                         window.__initialPending = false;
                         response = { status: 'pending', revision_id: 91, job: { id: 'initial-job', revision_id: 91, status: 'pending' } };
+                    } else if (params.get('op') === 'analyze' && params.get('ranges') && window.__selectionPending) {
+                        window.__selectionPending = false;
+                        response = { status: 'pending', revision_id: 91, job: { id: 'selection-job', revision_id: 91, status: 'pending' } };
                     } else if (params.get('ranges')) {
                         response = Object.assign({}, base, { selection: { ranges: JSON.parse(params.get('ranges')), revision_ids: [91], events: [{ revision_id: 91, before: 'old', after: 'lph', token_ids: ['91:0'], ambiguous: false }], ambiguous: false, reasons: [] } });
                     } else {
@@ -202,6 +217,7 @@ def main():
         assert initial_status["revision"] == "91", "a pending initial response must pin the job revision before polling"
         touch_page.evaluate(
             """() => {
+                window.__selectionPending = true;
                 const text = document.querySelector('[data-pb-start="0"]').firstChild;
                 const range = document.createRange();
                 range.setStart(text, 1);
@@ -216,8 +232,28 @@ def main():
         touch_page.touchscreen.tap(touch_box["x"] + touch_box["width"] / 2, touch_box["y"] + touch_box["height"] / 2)
         touch_page.wait_for_selector(".pb-breakdown")
         assert touch_page.locator(".pb-selected-text").inner_text() == "lph"
+        assert "unrelated page edit" not in touch_page.locator(".pb-timeline").inner_text(), "ready-job selection must filter events against verified span tokens"
+        assert touch_page.locator(".pb-timeline").inner_text().find("No verified wording changes") >= 0, "unmatched events must not be shown as selected history"
         assert touch_page.evaluate("window.__requests.filter(r => r.ranges).at(-1).ranges") == '[{"start":1,"end":4}]'
         touch_page.close()
+
+        conflict_page = browser.new_page()
+        conflict_page.set_content('<main><div id="mw-content-text"><div id="palimpsest-blame" data-revision="91"></div></div></main>')
+        conflict_page.evaluate(
+            """() => {
+                window.mw = {
+                    config: { get: () => ({ wgPageName: 'Example', wgRevisionId: 92, wgArticleId: 42, wgCanonicalSpecialPageName: null }) },
+                    util: { wikiScript: () => 'https://example.test/api.php', getUrl: () => '/wiki/Example' }
+                };
+                window.__requests = 0;
+                window.fetch = () => { window.__requests++; return Promise.reject(new Error('unexpected API request')); };
+            }"""
+        )
+        conflict_page.add_script_tag(path=str(RESOURCE / "helpers.js"))
+        conflict_page.add_script_tag(path=str(RESOURCE / "ext.palimpsestBlame.js"))
+        assert "pinned to revision 91" in conflict_page.get_by_role("alert").inner_text()
+        assert conflict_page.evaluate("window.__requests") == 0, "conflicting action and page revisions must block API analysis"
+        conflict_page.close()
         browser.close()
     print("UI smoke passed: real mouse partial drag, touch-enabled Inspect, pinned snapshot, filtered inline history, UTC cutoff warning, build gating, and guest-token job flow")
 
