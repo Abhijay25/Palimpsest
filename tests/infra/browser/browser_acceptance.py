@@ -206,9 +206,12 @@ def create_talk_post_and_reply(page: Page, root: str, title: str, token: str) ->
     reply_input = page.get_by_role("textbox", name=re.compile("^Reply to", re.I)).last
     expect(reply_input).to_be_visible(timeout=30_000)
     marker = f"DiscussionTools reply acceptance {token}"
-    reply_input.fill(marker)
+    reply_input.click()
+    page.keyboard.type(marker, delay=50)
+    typed_reply = reply_input.evaluate("element => element.value ?? element.innerText ?? element.textContent ?? ''")
+    assert marker in typed_reply, f"DiscussionTools composer did not retain the full reply text: {typed_reply!r}"
     submit_reply = page.get_by_role("button", name="Reply", exact=True)
-    expect(submit_reply.last).to_be_enabled()
+    expect(submit_reply.last).to_be_enabled(timeout=30_000)
     submit_reply.last.click()
     expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=60_000)
     page.reload(wait_until="domcontentloaded")
