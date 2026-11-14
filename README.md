@@ -81,6 +81,10 @@ audits the current revision. It always scans the whole wikitext for stealth cont
 and checks rendered dates using month names supplied by that wiki's interface messages.
 It also compares dates beside historical Wikipedia revision links. Add `--no-judge`
 for deterministic checks only; otherwise cited paragraphs use the existing source/judge path.
+`audit-diff` also renders only changed wikitext units containing a template or `<ref>`
+against the target wiki, returning `citation_dates` (`ok`, `skipped`, or `unavailable`)
+with any FUTURE_DATE or REVISION_DATE_MISMATCH findings; findings preserve the edit
+verdict but route it to at least `review` with reason `CITATION_DATE`.
 
 ## Design notes
 

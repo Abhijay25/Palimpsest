@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from palimpsest.schema import AuditOutput, Verdict
+from palimpsest.schema import AuditOutput, DisplayFlaggedSpan, Verdict
 
 EXAMPLE = """{
   "verdict": "FLAG_G3_MOTIVE",
@@ -38,3 +38,11 @@ def test_audit_output_rejects_unknown_verdict() -> None:
     bad = EXAMPLE.replace('FLAG_G3_MOTIVE"', 'MAYBE_BIASED"', 1)
     with pytest.raises(ValidationError):
         AuditOutput.model_validate_json(bad)
+
+
+def test_display_span_context_uses_language_neutral_sentence_boundaries() -> None:
+    context = DisplayFlaggedSpan.context_for(
+        "A. The value was 3.14. This claim is loaded！ Next sentence.",
+        "claim is loaded",
+    )
+    assert context == "This claim is loaded！"

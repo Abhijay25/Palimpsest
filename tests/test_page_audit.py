@@ -10,7 +10,7 @@ import pytest
 from palimpsest import page_audit
 from palimpsest.crosslingual import LanguageAuditState
 from palimpsest.judge import PreparedCase
-from palimpsest.schema import AuditOutput, Verdict
+from palimpsest.schema import AuditOutput, FlaggedSpan, Guideline, Verdict
 
 
 def _async_test[**P](
@@ -68,6 +68,7 @@ def _handler(
     rendered: str,
     messages: dict[str, str],
     old_timestamp: str | None = None,
+    page_timestamp: str = "2026-01-01T12:00:00Z",
 ) -> Callable[[httpx.Request], httpx.Response]:
     def handler(request: httpx.Request) -> httpx.Response:
         params = request.url.params
@@ -79,7 +80,11 @@ def _handler(
                 json={
                     "query": {
                         "allmessages": [
-                            {"name": name, "content": value}
+                            {
+                                "name": name,
+                                "normalizedname": name,
+                                "content": value,
+                            }
                             for name, value in messages.items()
                         ]
                         + [{"name": "unused-message", "missing": True}]
@@ -118,11 +123,7 @@ def _handler(
             json={
                 "query": {
                     "pages": [
-                        {
-                            "revisions": [
-                                {"revid": 99, "timestamp": "2026-01-01T12:00:00Z"}
-                            ]
-                        }
+                        {"revisions": [{"revid": 99, "timestamp": page_timestamp}]}
                     ]
                 }
             },
@@ -158,6 +159,22 @@ async def test_future_date_flags_only_dates_after_current_revision() -> None:
 
 
 @_async_test
+async def test_rendered_date_snippets_exclude_style_and_edit_controls() -> None:
+    page_audit._MONTH_CACHE.clear()
+    html = (
+        "<style>@media screen,handheld { .x { display: none; } }</style>"
+        "<p>Visible 4 december 2026 "
+        "<span class='mw-editsection'>[ redigera | redigera wikitext ]</span></p>"
+    )
+    async with _client(_handler("Body", html, SWEDISH_MESSAGES)) as client:
+        report = await page_audit.audit_page("sv", "Example", judge=None, client=client)
+    snippet = report.future_dates[0].snippet
+    assert "@media" not in snippet and "redigera" not in snippet
+    assert "Visible 4 december 2026" in snippet
+    assert "FUTURE_DATE date=4 december 2026" in page_audit.render_page_report(report)
+
+
+@_async_test
 async def test_revision_date_mismatch_for_tornedalingar_style_citation() -> None:
     page_audit._MONTH_CACHE.clear()
     html = "<ol class='references'><li><cite>4 december 2026 <a href='https://en.wikipedia.org/w/index.php?title=X&amp;oldid=1261100216'>source</a></cite></li></ol>"
@@ -170,6 +187,33 @@ async def test_revision_date_mismatch_for_tornedalingar_style_citation() -> None
     assert len(report.revision_date_mismatches) == 1
     assert report.revision_date_mismatches[0].revid == 1261100216
     assert report.revision_date_mismatches[0].rendered_date == "4 december 2026"
+
+
+@_async_test
+async def test_tornedalingar_fixture_scopes_dates_to_their_elements() -> None:
+    page_audit._MONTH_CACHE.clear()
+    rendered = Path(
+        "tests/fixtures/sv_tornedalingar_rev59841274_referenser.html"
+    ).read_text()
+    async with _client(
+        _handler(
+            "Text",
+            rendered,
+            SWEDISH_MESSAGES,
+            "2024-12-04T07:07:28Z",
+            "2026-11-07T10:03:21Z",
+        )
+    ) as client:
+        report = await page_audit.audit_page(
+            "sv", "Tornedalingar", judge=None, client=client
+        )
+    assert [item.rendered_date for item in report.revision_date_mismatches] == [
+        "4 december 2026"
+    ]
+    assert [item.rendered_date for item in report.future_dates] == ["4 december 2026"]
+    rendered_findings = str([*report.revision_date_mismatches, *report.future_dates])
+    assert "3 maj 2012" not in rendered_findings
+    assert "18 april 2024" not in rendered_findings
 
 
 class _FakeJudge:
@@ -211,6 +255,43 @@ async def test_paragraph_cap_marks_partial(monkeypatch: pytest.MonkeyPatch) -> N
         3,
         2,
         True,
+    )
+
+
+@_async_test
+async def test_paragraph_flagged_span_includes_judged_sentence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page_audit._MONTH_CACHE.clear()
+
+    async def fake_audit(*_: object) -> LanguageAuditState:
+        return LanguageAuditState(
+            lang="sv",
+            state="AUDITED",
+            verdict=Verdict.FLAG_G2_FRAMING,
+            confidence=0.9,
+            latency_ms=1.0,
+            flagged_spans=[
+                FlaggedSpan(
+                    exact_substring="loaded wording",
+                    guideline_violated=Guideline.G2_FRAMING,
+                    explanation="x",
+                )
+            ],
+        )
+
+    monkeypatch.setattr(page_audit, "audit_single_language_claim", fake_audit)
+    wikitext = (
+        "First sentence. This contains loaded wording.<ref>https://example.org</ref>"
+    )
+    async with _client(
+        _handler(wikitext, "<p>Nothing</p>", SWEDISH_MESSAGES)
+    ) as client:
+        report = await page_audit.audit_page(
+            "sv", "Example", judge=_FakeJudge(), client=client
+        )
+    assert report.paragraph_audits[0].flagged_spans[0].context_sentence == (
+        "This contains loaded wording."
     )
 
 

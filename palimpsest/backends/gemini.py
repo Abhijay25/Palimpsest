@@ -228,8 +228,12 @@ class GeminiJudgeBackend:
         """Results plus latencies, with no per-call state kept on the instance."""
 
         async def one(pc: PreparedCase) -> tuple[str, AuditOutput | str, float]:
+            # Payload normalisation is CPU-bound and can be large for a full
+            # revision.  Keep it off the loop so concurrent best-effort checks
+            # (such as rendered citation dates) can start their I/O promptly.
+            contents = await asyncio.to_thread(render_case_payload, pc)
             result, ms = await self._caller.generate(
-                self._system, render_case_payload(pc), AuditOutput
+                self._system, contents, AuditOutput
             )
             return pc.case.case_id, result, ms
 

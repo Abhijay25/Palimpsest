@@ -15,6 +15,7 @@ ReasonCode = Literal[
     "UNSUPPORTED_CLAIM",
     "LOADED_WORDING",
     "REMOVED_CONTEXT",
+    "CITATION_DATE",
 ]
 
 REASON_TEXT: Final[dict[ReasonCode, str]] = {
@@ -25,6 +26,7 @@ REASON_TEXT: Final[dict[ReasonCode, str]] = {
     "LOADED_WORDING": "The edit adds evaluative, loaded or certainty-changing wording "
     "the source does not use.",
     "REMOVED_CONTEXT": "The edit removes sourced context, attribution or a qualifier.",
+    "CITATION_DATE": "A rendered citation date needs review against the edited source link.",
 }
 
 # The judge prompt asks it to mark quoted deleted text, e.g. "... (removed)".

@@ -118,3 +118,46 @@ def test_table_includes_neutral_rewrite_from_fake_judge(
     )
 
     assert "The mayor signed the bill." in capsys.readouterr().out
+
+
+def test_table_includes_flagged_span_context(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output = AuditOutput.model_validate(
+        {
+            "verdict": "FLAG_G2_FRAMING",
+            "confidence": 0.8,
+            "expand_direction": "NONE",
+            "atomic_propositions": [],
+            "flagged_spans": [
+                {
+                    "exact_substring": "shamelessly",
+                    "guideline_violated": "G2_FRAMING",
+                    "explanation": "loaded wording",
+                }
+            ],
+            "neutral_rewrite": None,
+        }
+    )
+    _configure(monkeypatch, FakeJudge(output))
+
+    assert (
+        diagnose.main(
+            [
+                "--old",
+                "The mayor signed the bill.",
+                "--new",
+                "The mayor shamelessly pushed through the bill.",
+                "--lang",
+                "en",
+                "--title",
+                "Example",
+            ]
+        )
+        == 0
+    )
+
+    assert (
+        "context='The mayor shamelessly pushed through the bill.'"
+        in capsys.readouterr().out
+    )

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -13,7 +14,7 @@ from palimpsest.backends.gemini import (
     gemini_enabled,
     load_gemini_api_key,
 )
-from palimpsest.judge import PreparedCase
+from palimpsest.judge import PreparedCase, render_case_payload
 from palimpsest.pipeline import ingest, prepare
 from palimpsest.schema import Case, Verdict, dump_jsonl
 from palimpsest.stage0 import Stage0Result
@@ -97,6 +98,23 @@ def test_success_parses_and_records_latency() -> None:
     assert call["config"].response_mime_type == "application/json"
     assert call["config"].temperature == 0
     assert "CASE a" in call["contents"]
+
+
+def test_judge_renders_payload_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    threads: list[str] = []
+
+    def recording_payload(case: PreparedCase) -> str:
+        threads.append(threading.current_thread().name)
+        return render_case_payload(case)
+
+    monkeypatch.setattr(
+        "palimpsest.backends.gemini.render_case_payload", recording_payload
+    )
+    backend, _ = _backend([json.dumps(VALID_OUTPUT)])
+    asyncio.run(backend.judge([_prepared("a")]))
+    assert threads and all(name != threading.main_thread().name for name in threads)
 
 
 def test_invalid_json_gives_error_string() -> None:

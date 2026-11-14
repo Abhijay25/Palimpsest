@@ -112,6 +112,17 @@ def _response_rows(response: AuditDiffResponse) -> list[tuple[str, str]]:
         ("route", response.route),
         ("reason", str(response.reason or "none")),
         ("reason text", response.reason_text or "none"),
+        ("citation dates", response.citation_dates.status),
+        ("citation dates error", response.citation_dates.error or "none"),
+        (
+            "citation date findings",
+            "; ".join(
+                f"{finding.code} date={finding.rendered_date} "
+                f"revision={finding.revision_timestamp.isoformat()} url={finding.url}"
+                for finding in response.citation_dates.findings
+            )
+            or "none",
+        ),
         (
             "units",
             "; ".join(f"{unit.index}:{unit.verdict.value}" for unit in response.units),
@@ -128,7 +139,8 @@ def _response_rows(response: AuditDiffResponse) -> list[tuple[str, str]]:
         (
             "flagged spans",
             "; ".join(
-                f"[{span.guideline_violated}] {span.exact_substring!r}"
+                f"[{span.guideline_violated}] {span.exact_substring!r} "
+                f"context={span.context_sentence!r}"
                 for span in response.flagged_spans
             )
             or "none",
