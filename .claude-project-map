@@ -14,3 +14,4 @@ palimpsest/pipeline.py    prepare(): Stage 0 + concurrent Stage 1 (sem 8) + batc
 palimpsest/__main__.py    CLI: prepare / ingest
 palimpsest/scoring.py     Metrics, score(), agreement(); pass bar constants
 palimpsest/report.py      render_report(): static HTML (diff, span highlight, metrics, compare)
+palimpsest/stealth/        Pillar 1 deterministic scanner: models.py (spec s5 contract), sanitizer.py (tags, controls, homoglyphs, hidden channels), scanner.py scan(text,target,old_text) edit-relative; CLI python -m palimpsest.stealth <file> (tests/test_stealth.py)
