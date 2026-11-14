@@ -91,22 +91,24 @@ def save_source(page: Page, root: str, title: str, content: str, summary: str) -
 def save_visual(page: Page, root: str, title: str, marker: str) -> None:
     page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&veaction=edit"), wait_until="domcontentloaded")
     start_editing = page.get_by_role("button", name=re.compile("^Start editing$", re.I))
-    surface = page.locator(".ve-ce-surface[contenteditable=true]").first
+    surface = page.get_by_role("textbox").last
     expect(start_editing.or_(surface).first).to_be_visible(timeout=60_000)
     if start_editing.count() and start_editing.first.is_visible():
         start_editing.first.click()
     expect(surface).to_be_visible(timeout=60_000)
+    expect(page.locator(".ve-ui-toolbar")).to_be_visible()
     surface.click()
     page.keyboard.press("End")
     page.keyboard.type(f"\n{marker}")
-    save_button = page.get_by_role("button", name=re.compile("save changes|publish changes|save page", re.I))
+    save_button = page.get_by_role("button", name=re.compile(r"^Save(?:…|\.\.\.)?$", re.I))
     expect(save_button.last).to_be_visible()
+    expect(save_button.last).to_be_enabled()
     save_button.last.click()
     save_dialog = page.locator(".ve-ui-mwSaveDialog")
-    if save_dialog.count() and save_dialog.is_visible():
-        dialog_save = save_dialog.get_by_role("button", name=re.compile("publish changes|save changes", re.I))
-        if dialog_save.count():
-            dialog_save.last.click()
+    expect(save_dialog).to_be_visible(timeout=30_000)
+    dialog_save = save_dialog.get_by_role("button", name=re.compile("publish changes|save changes|save page|^save$", re.I))
+    expect(dialog_save.last).to_be_visible()
+    dialog_save.last.click()
     expect(page.locator(".ve-ui-toolbar")).to_have_count(0, timeout=60_000)
     page.reload(wait_until="domcontentloaded")
     expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=30_000)
