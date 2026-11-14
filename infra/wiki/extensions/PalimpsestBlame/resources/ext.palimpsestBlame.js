@@ -479,8 +479,7 @@
 				return;
 			}
 			if ( selection.ranges.length > 64 ) {
-				buildActionBar();
-				root.appendChild( element( 'p', 'pb-warning', 'This selection contains more than 64 separate verified source ranges. Select a smaller passage; no partial analysis was requested.' ) );
+				showIncompleteSelection( selection, 'This selection contains more than 64 separate verified source ranges. Select a smaller passage; no partial analysis was requested.' );
 				return;
 			}
 			selection.statement = selection.statement || nearestStatement( window.getSelection() );

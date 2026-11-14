@@ -315,8 +315,14 @@ def main():
             }"""
         )
         analysis_count = page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length")
+        limit_quote = page.evaluate("window.getSelection().toString()")
         page.get_by_role("button", name="Inspect selected article text").click()
         assert "no partial analysis was requested" in page.get_by_text("This selection contains more than 64 separate verified source ranges.").inner_text()
+        assert page.locator(".pb-selected-text").text_content() == limit_quote
+        page.evaluate("window.getSelection().removeAllRanges()")
+        assert page.locator(".pb-selected-text").text_content() == limit_quote, "the unsupported selection quote must survive native selection clearing"
+        assert page.locator(".pb-breakdown").count() == 0
+        assert page.locator("#mw-content-text").evaluate("content => content.contains(document.getElementById('palimpsest-blame')) && !document.querySelector('.mw-parser-output').contains(document.getElementById('palimpsest-blame'))")
         assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analysis_count
 
         status_count = page.evaluate("window.__requests.filter(r => r.params.op === 'status').length")
