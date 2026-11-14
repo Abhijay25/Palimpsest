@@ -100,7 +100,7 @@ def test_recall_counts_wrong_category_as_caught() -> None:
     assert metrics.category_accuracy == 0.5
 
 
-def test_parse_error_excluded_from_recall_denominator_but_counted() -> None:
+def test_parse_error_counts_as_missed_violation() -> None:
     prepared = [
         _prepared("a", Verdict.FLAG_G1_FACT),
         _prepared("b", Verdict.FLAG_G1_FACT),
@@ -112,8 +112,26 @@ def test_parse_error_excluded_from_recall_denominator_but_counted() -> None:
         ]
     }
     metrics = score(prepared, results)["m"]
-    assert metrics.violation_recall == 1.0
+    assert metrics.violation_recall == 0.5
     assert metrics.parse_error_rate == 0.5
+
+
+def test_parse_error_blocks_pass_bar() -> None:
+    prepared = [_prepared("a", Verdict.FLAG_G1_FACT)] * 1 + [
+        _prepared(f"v{i}", Verdict.FLAG_G1_FACT) for i in range(9)
+    ]
+    prepared += [_prepared(f"c{i}", Verdict.CLEAN_PASS) for i in range(20)]
+    outs = [
+        _result(pc.case.case_id, _output(Verdict.FLAG_G1_FACT)) for pc in prepared[:10]
+    ]
+    outs += [
+        _result(pc.case.case_id, _output(Verdict.CLEAN_PASS)) for pc in prepared[10:29]
+    ]
+    outs.append(_result(prepared[29].case.case_id, None, error="bad"))
+    metrics = score(prepared, {"m": outs})["m"]
+    assert metrics.clean_flag_rate == 0.0
+    assert metrics.violation_recall == 1.0
+    assert not metrics.passes_bar
 
 
 def test_stage0_false_pass_and_exit_rate() -> None:

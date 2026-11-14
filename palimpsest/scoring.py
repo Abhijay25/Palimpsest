@@ -110,16 +110,8 @@ def route(result: CaseResult) -> Route:
 def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Metrics:
     cases = {pc.case.case_id: pc for pc in prepared}
     paired = [(cases[r.case_id], r) for r in results if r.case_id in cases]
-    violations = [
-        (pc, r)
-        for pc, r in paired
-        if pc.case.expected in FLAGS and r.output is not None
-    ]
-    controls = [
-        (pc, r)
-        for pc, r in paired
-        if pc.case.expected == Verdict.CLEAN_PASS and r.output is not None
-    ]
+    violations = [(pc, r) for pc, r in paired if pc.case.expected in FLAGS]
+    controls = [(pc, r) for pc, r in paired if pc.case.expected == Verdict.CLEAN_PASS]
     caught = sum(1 for _, r in violations if r.output and r.output.verdict in FLAGS)
     exact = sum(
         1 for pc, r in violations if r.output and r.output.verdict == pc.case.expected
@@ -179,6 +171,7 @@ def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Met
         confusion=confusion,
         passes_bar=bool(violations)
         and bool(controls)
+        and parse_errors == 0
         and recall >= MIN_VIOLATION_RECALL
         and clean_flag_rate <= MAX_CLEAN_FLAG_RATE,
     )
