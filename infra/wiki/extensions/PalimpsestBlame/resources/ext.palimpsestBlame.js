@@ -586,13 +586,13 @@
 		if ( !selection || !selection.rangeCount ) {
 			return null;
 		}
-		var lastSelectedNode = null;
+		var lastStatement = null;
 		for ( var index = 0; index < selection.rangeCount; index++ ) {
 			var range = selection.getRangeAt( index );
 			var walker = document.createTreeWalker( article || range.commonAncestorContainer, NodeFilter.SHOW_TEXT );
 			var textNode;
 			while ( ( textNode = walker.nextNode() ) ) {
-				if ( !range.intersectsNode( textNode ) ) {
+				if ( root.contains( textNode ) || !range.intersectsNode( textNode ) ) {
 					continue;
 				}
 				var selectedPart = document.createRange();
@@ -604,12 +604,14 @@
 					selectedPart.setEnd( range.endContainer, range.endOffset );
 				}
 				if ( selectedPart.toString() ) {
-					lastSelectedNode = textNode;
+					var statement = textNode.parentElement && textNode.parentElement.closest( 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dt, dd, figcaption' );
+					if ( statement ) {
+						lastStatement = statement;
+					}
 				}
 			}
 		}
-		var node = lastSelectedNode && lastSelectedNode.parentElement;
-		return node && node.closest( 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dt, dd, figcaption' );
+		return lastStatement;
 	}
 
 	function placeInline( statement ) {

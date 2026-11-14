@@ -120,7 +120,7 @@ def main():
                 const second = document.createElement('p');
                 second.id = 'paragraph-two';
                 second.append(beta);
-                document.getElementById('paragraph-one').after(second);
+                document.getElementById('paragraph-one').after(document.createTextNode('\\n'), second);
                 article.parentNode.insertBefore(document.getElementById('palimpsest-blame'), article.nextSibling);
             }"""
         )
