@@ -1,5 +1,13 @@
 # NeoWiki agent context
 
+## Shared VPS runtime (2026-11-15)
+
+The deployed stored-data research reader is https://neowiki.srv2161484.hstgr.cloud/explore on the existing Hostinger VPS. It has the actual migrated research database, source/revision caches, E5 model and local translation models. Public reads cannot invoke providers or preparation; private dashboards/mutations are denied. Existing Hermes and Traefik services were preserved. Deployment files and operations are in `tools/language-gap-explorer/docs/docker-vps.md`.
+
+Keep two incompatible embedding contracts separate: research `language_gaps` uses E5 passage vectors (384 dimensions); main `apps/library` uses `library.library_articles`, BGE-M3 article vectors (1024 dimensions). All 29,460 locked BGE article vectors are seeded on the VPS (EN 5,254 / FI 19,285 / SV 4,921), with model/release/source revision provenance; 410 unlinked articles use explicit source-page IDs. This does not expand the Library's three-topic imported-history catalog. A resumable offline E5 corpus worker has started after a successful five-topic pilot; do not claim the entire passage corpus is complete. No paid corpus-wide comparison sweep was launched.
+
+New BGE index M=16 and server ef_search=80 were verified against exact search for 15 stored-vector queries: tie-aware recall@9 was 100% for this sample, with the ANN index actually used. This is not guaranteed recall for all queries. Existing imported research indexes retain their previous M. Private BGE query encoding works on VPS loopback11435; the pinned CPU repack and verified upstream executable hash are recorded in `docs/shared-embeddings.md`. Main's catalog-scoped search excludes unimported source identities before top-k. Follow that guide for private config and SSH tunnel access; never commit credentials or share the dedicated root deployment key with teammates. The SVT experiment remains isolated in `feature/discrepancy-svt`, not deployed here.
+
 ## Current hackathon surface
 
 The latest user-approved research journey is prompt-first at bare `/explore`, then a viewport-filling monthly histogram across the available history with a floating toolbar. Zoom changes the date window and adapts to yearly buckets only for longer ranges; month is the finest unit. Clicking a bucket opens a searchable issue table for that period; clicking an issue opens exact evidence. Bucket selection is not zoom. The evidence pane starts closed; selected-question deep links restore it. Earlier constellation and crowded split-inspection layouts below are recorded exploration history, not instructions to restore their default layout.

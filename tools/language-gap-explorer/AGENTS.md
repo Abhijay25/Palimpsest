@@ -1,5 +1,11 @@
 # Existing research implementation
 
+## VPS deployment
+
+The real stored-data reader is live at https://neowiki.srv2161484.hstgr.cloud/explore. `deploy/wsgi.py` enforces its read surface and disables provider access; use explicit CLI workers for all preparation. Persistent runtime/model/database data live outside the image/repository. See `docs/docker-vps.md` and root `docs/shared-embeddings.md`. Private MariaDB is VPS loopback3311, reached through SSH; never expose it publicly or publish credentials.
+
+Do not confuse the E5 research passage database (`language_gaps`,384dimensions) with main Library's separately seeded BGE-M3 article database (`library`,1024dimensions). All29,460 BGE articles are imported from checksum-locked upstream vectors without re-embedding. Offline E5 preparation is resumable and running after its five-topic pilot; completion counts must be queried, not assumed. Research source revisions/checkpoints still power the shipped historical view; the isolated SVT investigation is not part of this deployment.
+
 ## Latest delivery contract
 
 Main `/explore` uses `lab_explorer.html` and `static/lab-explorer.js/.css`: bare URL opens the centered article/language prompt; explicit topic opens a monthly histogram across the complete source range. Floating zoom controls change the date window, with yearly buckets only when a longer range requires them; month is the finest time unit. Clicking a bucket opens a searchable issue table, not a zoom transition. Counts are period UNIONs with exact selected-pair categories. Clicking an issue opens a wide side-by-side evidence dialog. The constellation view, template and static assets are deleted; legacy read API names remain compatibility only. The historical notes below describe earlier iterations.

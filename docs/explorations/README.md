@@ -1,5 +1,11 @@
 # NeoWiki exploration registry
 
+## Shared VPS deployment
+
+The current research reader is deployed at [NeoWiki](https://neowiki.srv2161484.hstgr.cloud/explore), with migrated real findings, source revisions, E5 vectors and local translation caches. Its public adapter blocks preparation/provider access and private ledgers. HTTPS/API acceptance checked the20-article showcase, Winter War431questions/86observations, language-order invariants, exact EN–FI/EN–SV/FI–SV tracker handoffs, hybrid search and cached translation. Root browser verification also reached the live histogram, July135-question issue list and highlighted EN–SV source dialog with local translation.
+
+The separate shared main-compatible BGE-M3 index has all29,460 article vectors (1024dimensions) imported from checksum-locked upstream assets. E5 passage preparation (384dimensions) has passed a five-topic/14-edition/86-passage pilot and continues as a resumable offline job. This is embedding preparation, not a new full-corpus discrepancy assessment. Existing main Library still requires its own verified three-topic histories; neither vector import manufactures those histories. Configuration is documented in [shared embeddings](../shared-embeddings.md) and the [VPS runbook](../../tools/language-gap-explorer/docs/docker-vps.md). SVT remains a separate branch experiment.
+
 These experiments answer different questions. They share evidence conventions, but their counts, dates, identities and review states are not interchangeable. The existing research app is copied directly into [tools/language-gap-explorer](../../tools/language-gap-explorer/PORT.md). Prototype source paths below refer to that directory. Its source manifest records 82 byte-for-byte copied files; databases, secrets, model caches and reports are excluded. The native extension remains a separate unpublished branch.
 
 ## Map of independent explorations

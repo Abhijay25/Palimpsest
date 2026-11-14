@@ -98,10 +98,10 @@ If SQL access is needed, publish MariaDB **only on VPS loopback**, using an oper
 # /etc/neowiki/team-db.yaml
 services:
   db:
-    ports: ["127.0.0.1:3310:3306"]
+    ports: ["127.0.0.1:3311:3306"]
 ```
 
-Apply this override only after reviewing the existing DB service configuration. It is not enabled by the base package. A teammate can then tunnel `ssh -N -L 3311:127.0.0.1:3310 USER@VPS` and connect to `127.0.0.1:3311`, database `language_gaps`, using their own DB account. Keep port 3306/3310 closed publicly. Use local port 3311 to avoid colliding with the existing laptop research database on 3310.
+Apply this override only after reviewing the existing DB service configuration, or include the equivalent packaged `compose.team-db.yaml`. It is not enabled by the base package. A teammate can then tunnel `ssh -N -L 3311:127.0.0.1:3311 USER@VPS` and connect to `127.0.0.1:3311`, database `language_gaps`, using their own DB account. Keep port 3306/3311 closed publicly. Use local port 3311 to avoid colliding with the existing laptop research database on 3310.
 
 For a local research process, set `DB_HOST=127.0.0.1`, `DB_PORT=3311`, `DB_NAME=language_gaps`, `DB_USER` to the teammate account and `DB_PASSWORD` through an untracked runtime secret/environment. These settings are for this Python research app only. **Do not change the native MediaWiki `MW_DB_*` settings or its database volume.** Read-only SQL access cannot run schema initializers or preparation jobs; the server operator runs those explicitly.
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 import mysql from 'mysql2/promise';
 import { ROOT, loadConfig, loadCatalog, publicTopic } from './catalog.mjs';
 import { LANGUAGES, groupHits, escapeHtml } from './domain.mjs';
+import { catalogVectorQuery } from './search-query.mjs';
 
 const APP = path.join(ROOT, 'apps/library');
 const config = await loadConfig();
@@ -362,10 +363,8 @@ const server = http.createServer(async (req, res) => {
       match = /^\/api\/related\/(Q\d+)$/.exec(url.pathname);
       if (match && req.method === 'GET') {
         const { article } = getArticle(topics, match[1], 'en');
-        const [rows] = await db.execute(
-          'SELECT topic_id,language,title,VEC_DISTANCE_COSINE(embedding,VEC_FromText(?)) AS distance FROM library_articles WHERE topic_id<>? ORDER BY distance LIMIT 9',
-          [JSON.stringify(article.embedding), match[1]],
-        );
+        const candidates = catalogVectorQuery(topics, article.embedding, match[1]);
+        const [rows] = await db.execute(candidates.sql, candidates.params);
         return json(res, 200, {
           results: groupHits(rows),
           source: 'MariaDB cosine vector query',
@@ -406,10 +405,8 @@ const server = http.createServer(async (req, res) => {
               'The embedding model returned an incompatible vector.',
               503,
             );
-          const [rows] = await db.execute(
-            'SELECT topic_id,language,title,VEC_DISTANCE_COSINE(embedding,VEC_FromText(?)) AS distance FROM library_articles ORDER BY distance LIMIT 9',
-            [JSON.stringify(embedding)],
-          );
+          const candidates = catalogVectorQuery(topics, embedding);
+          const [rows] = await db.execute(candidates.sql, candidates.params);
           return json(res, 200, {
             query,
             results: groupHits(rows),
