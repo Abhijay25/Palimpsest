@@ -382,13 +382,15 @@ export default function App() {
   }, [selectedId, language, updateRoute]);
   function switchLanguage(next: Language) {
     if (next === language) return;
-    languageChanged.current = true;
+    languageChanged.current = Boolean(selectedId);
     setReaderTarget(null);
     setDisplayedRevision(null);
     setVersions([]);
     setWalk(0);
     setAnnouncement(
-      'Opening the latest imported ' + languageNames[next] + ' edition…',
+      selectedId
+        ? 'Opening the latest imported ' + languageNames[next] + ' edition…'
+        : 'Library language changed to ' + languageNames[next] + '. Choose a book to explore.',
     );
     setLanguage(next);
     updateRoute(selectedId, next);
