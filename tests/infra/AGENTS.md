@@ -23,3 +23,4 @@
 - Compact spans must keep the full union of inherited ancestry and every member token ID; partial-selection consumers should include only IDs whose token ranges overlap the selection.
 - MediaWiki JobFactory passes `(Title, params)` to ordinary mapped Job subclasses. Match the factory signature and exercise a real queued run; lint/direct construction alone will not catch this mismatch.
 - Keep internal job leases separate from the public job state contract; map `running` to the documented pending state in every response.
+- Every pinned async response, including ready analysis, must carry the same positive top-level `revision_id` as its snapshot and job object.

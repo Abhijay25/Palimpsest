@@ -344,7 +344,11 @@ final class BlameApi extends ApiBase {
 		];
 		if ( $row->pbj_status === 'ready' && isset( $result ) ) {
 			$engine = [ 'tokens' => $result['tokens'], 'events' => $result['events'], 'algorithm' => $result['algorithm'] ];
-			return $this->buildAnalysisResponse( $title, $target, $history, $engine, false, $params['ranges'] ) + [ 'job' => $job ];
+			return $this->buildAnalysisResponse( $title, $target, $history, $engine, false, $params['ranges'] ) + [
+				// Pin the ready response at the same level as pending/build replies.
+				'revision_id' => $target->getId(),
+				'job' => $job,
+			];
 		}
 		return [ 'schema_version' => 1, 'status' => $publicStatus, 'revision_id' => $params['revision'], 'job' => $job ];
 	}
