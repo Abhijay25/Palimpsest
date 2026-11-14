@@ -12,7 +12,7 @@ from typing import TypedDict
 import httpx
 from pydantic import BaseModel
 
-from palimpsest.schema import Case, dump_jsonl
+from palimpsest.schema import Case, dump_jsonl, load_cases
 from palimpsest.stage0 import (
     extract_ref_urls,
     refs_for_changed_sentences,
@@ -24,6 +24,7 @@ USER_AGENT = "Palimpsest-MVP/0.1 (hackathon research)"
 REVERTS_PATH = Path("eval/cases/en_reverts.jsonl")
 CONTROLS_PATH = Path("eval/cases/en_controls.jsonl")
 N_CASES = 10
+DEFAULT_SEED = 1114
 MAX_NO_REF_SHARE = 1 / 3
 MAX_CHARS = 1500
 MIN_SIMILARITY = 0.6
@@ -256,7 +257,10 @@ def select(cands: list[Candidate], count: int = N_CASES) -> list[Candidate]:
 
 
 def collect_reverts(
-    client: httpx.Client, rng: random.Random, count: int = N_CASES
+    client: httpx.Client,
+    rng: random.Random,
+    count: int = N_CASES,
+    exclude: frozenset[str] = frozenset(),
 ) -> list[Candidate]:
     rcs: dict[int, RecentChange] = {}
     for tag in ("mw-undo", "mw-rollback", "mw-manual-revert"):
@@ -274,6 +278,8 @@ def collect_reverts(
     cands: list[Candidate] = []
     for rc in pool[:300]:
         reverted = rc.old_revid
+        if f"en_revert_{reverted}" in exclude:
+            continue
         revs = fetch_revisions(client, [reverted])
         if reverted not in revs or not revs[reverted]["parentid"]:
             continue
@@ -304,7 +310,10 @@ def collect_reverts(
 
 
 def collect_controls(
-    client: httpx.Client, rng: random.Random, count: int = N_CASES
+    client: httpx.Client,
+    rng: random.Random,
+    count: int = N_CASES,
+    exclude: frozenset[str] = frozenset(),
 ) -> list[Candidate]:
     cutoff = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     # rcdir=older with rcstart=cutoff walks backwards from 7 days ago.
@@ -323,6 +332,8 @@ def collect_controls(
     rng.shuffle(pool)
     cands: list[Candidate] = []
     for rc in pool[:300]:
+        if f"en_control_{rc.revid}" in exclude:
+            continue
         revs = fetch_revisions(client, [rc.old_revid, rc.revid])
         if rc.old_revid not in revs or rc.revid not in revs:
             continue
@@ -348,16 +359,42 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reverts", type=int, default=N_CASES)
     parser.add_argument("--controls", type=int, default=N_CASES)
-    args = parser.parse_args()
-    rng = random.Random(1114)
-    with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30) as client:
-        reverts = select(collect_reverts(client, rng, args.reverts), args.reverts)
-        controls = select(collect_controls(client, rng, args.controls), args.controls)
-    dump_jsonl(REVERTS_PATH, [c.case for c in reverts])
-    dump_jsonl(CONTROLS_PATH, [c.case for c in controls])
-    print(
-        f"reverts: {len(reverts)} (POV {sum(c.pov for c in reverts)}, with ref {sum(c.has_ref for c in reverts)})"
+    parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--exclude",
+        type=Path,
+        nargs="*",
+        default=[],
+        metavar="PATH",
+        help="JSONL case files; any case_id found in them is skipped when collecting candidates",
     )
+    parser.add_argument(
+        "--controls-only",
+        action="store_true",
+        help="skip revert collection and do not overwrite en_reverts.jsonl",
+    )
+    parser.add_argument("--controls-out", type=Path, default=CONTROLS_PATH)
+    args = parser.parse_args()
+    rng = random.Random(args.seed)
+    exclude: frozenset[str] = frozenset(
+        case.case_id for path in args.exclude for case in load_cases(path)
+    )
+    reverts: list[Candidate] = []
+    with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30) as client:
+        if not args.controls_only:
+            reverts = select(
+                collect_reverts(client, rng, args.reverts, exclude), args.reverts
+            )
+        controls = select(
+            collect_controls(client, rng, args.controls, exclude), args.controls
+        )
+    if not args.controls_only:
+        dump_jsonl(REVERTS_PATH, [c.case for c in reverts])
+    dump_jsonl(args.controls_out, [c.case for c in controls])
+    if not args.controls_only:
+        print(
+            f"reverts: {len(reverts)} (POV {sum(c.pov for c in reverts)}, with ref {sum(c.has_ref for c in reverts)})"
+        )
     print(f"controls: {len(controls)} (with ref {sum(c.has_ref for c in controls)})")
 
 
