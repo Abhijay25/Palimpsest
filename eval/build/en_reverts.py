@@ -1,5 +1,6 @@
 """Build eval/cases/en_reverts.jsonl (UNLABELLED) and en_controls.jsonl (CLEAN_PASS) from English Wikipedia."""
 
+import argparse
 import difflib
 import random
 import re
@@ -12,14 +13,18 @@ import httpx
 from pydantic import BaseModel
 
 from palimpsest.schema import Case, dump_jsonl
-from palimpsest.stage0 import extract_ref_urls, strip_wikitext
+from palimpsest.stage0 import (
+    extract_ref_urls,
+    refs_for_changed_sentences,
+    strip_wikitext,
+)
 
 API_URL = "https://en.wikipedia.org/w/api.php"
 USER_AGENT = "Palimpsest-MVP/0.1 (hackathon research)"
 REVERTS_PATH = Path("eval/cases/en_reverts.jsonl")
 CONTROLS_PATH = Path("eval/cases/en_controls.jsonl")
 N_CASES = 10
-MAX_NO_REF = 3
+MAX_NO_REF_SHARE = 1 / 3
 MAX_CHARS = 1500
 MIN_SIMILARITY = 0.6
 MAX_PER_PAGE = {"en_revert": 2, "en_control": 1}
@@ -209,6 +214,7 @@ def build_case(
         return None
     old_p, new_p = pair
     ref_urls = extract_ref_urls(new_p)
+    changed_ref_urls = refs_for_changed_sentences(old_p, new_p)
     case = Case(
         case_id=case_id,
         lang="en",
@@ -218,19 +224,23 @@ def build_case(
         old_text=strip_wikitext(old_p).strip(),
         new_text=strip_wikitext(new_p).strip(),
         ref_urls=ref_urls,
+        old_wikitext=old_p,
+        new_wikitext=new_p,
+        changed_ref_urls=changed_ref_urls,
         expected=expected,
         notes=rc.comment,
     )
-    return case, bool(ref_urls)
+    return case, bool(changed_ref_urls)
 
 
-def select(cands: list[Candidate]) -> list[Candidate]:
+def select(cands: list[Candidate], count: int = N_CASES) -> list[Candidate]:
     """Priority: POV with ref, other with ref, POV no-ref, other no-ref (no-ref capped)."""
+    max_no_ref = int(count * MAX_NO_REF_SHARE)
     chosen: list[Candidate] = []
     no_ref = 0
     for pov, has_ref in [(True, True), (False, True), (True, False), (False, False)]:
         for c in cands:
-            if len(chosen) >= N_CASES:
+            if len(chosen) >= count:
                 return chosen
             if c.pov != pov or c.has_ref != has_ref:
                 continue
@@ -238,14 +248,16 @@ def select(cands: list[Candidate]) -> list[Candidate]:
             if same_page >= MAX_PER_PAGE[c.case.bucket]:
                 continue
             if not has_ref:
-                if no_ref >= MAX_NO_REF:
+                if no_ref >= max_no_ref:
                     continue
                 no_ref += 1
             chosen.append(c)
     return chosen
 
 
-def collect_reverts(client: httpx.Client, rng: random.Random) -> list[Candidate]:
+def collect_reverts(
+    client: httpx.Client, rng: random.Random, count: int = N_CASES
+) -> list[Candidate]:
     rcs: dict[int, RecentChange] = {}
     for tag in ("mw-undo", "mw-rollback", "mw-manual-revert"):
         for rc in recent_changes(client, {"rctag": tag}, pages=6):
@@ -285,13 +297,15 @@ def collect_reverts(client: httpx.Client, rng: random.Random) -> list[Candidate]
                     case=built[0], pov=bool(POV_RE.search(rc.comment)), has_ref=built[1]
                 )
             )
-        if len(cands) >= 30:
+        if len(cands) >= max(30, 2 * count):
             break
     rng.shuffle(cands)
     return cands
 
 
-def collect_controls(client: httpx.Client, rng: random.Random) -> list[Candidate]:
+def collect_controls(
+    client: httpx.Client, rng: random.Random, count: int = N_CASES
+) -> list[Candidate]:
     cutoff = (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
     # rcdir=older with rcstart=cutoff walks backwards from 7 days ago.
     rcs = recent_changes(
@@ -325,16 +339,20 @@ def collect_controls(client: httpx.Client, rng: random.Random) -> list[Candidate
         if built:
             print(f"  cand {len(cands)}", flush=True)
             cands.append(Candidate(case=built[0], pov=False, has_ref=built[1]))
-        if len(cands) >= 30:
+        if len(cands) >= max(30, 2 * count):
             break
     return cands
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--reverts", type=int, default=N_CASES)
+    parser.add_argument("--controls", type=int, default=N_CASES)
+    args = parser.parse_args()
     rng = random.Random(1114)
     with httpx.Client(headers={"User-Agent": USER_AGENT}, timeout=30) as client:
-        reverts = select(collect_reverts(client, rng))
-        controls = select(collect_controls(client, rng))
+        reverts = select(collect_reverts(client, rng, args.reverts), args.reverts)
+        controls = select(collect_controls(client, rng, args.controls), args.controls)
     dump_jsonl(REVERTS_PATH, [c.case for c in reverts])
     dump_jsonl(CONTROLS_PATH, [c.case for c in controls])
     print(

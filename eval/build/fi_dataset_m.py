@@ -1,5 +1,6 @@
 """Build Finnish revert and control cases from dataset M (fi.wikipedia history of Finland)."""
 
+import argparse
 import difflib
 import random
 import re
@@ -11,7 +12,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from palimpsest.schema import Case, dump_jsonl
-from palimpsest.stage0 import extract_ref_urls, strip_wikitext
+from palimpsest.stage0 import (
+    extract_ref_urls,
+    refs_for_changed_sentences,
+    strip_wikitext,
+)
 
 SEED = 1114
 DATA_DIR = Path("data/m")
@@ -83,6 +88,9 @@ class Extracted:
     old_text: str
     new_text: str
     ref_urls: list[str]
+    old_wikitext: str
+    new_wikitext: str
+    changed_ref_urls: list[str]
 
 
 def load_versions() -> dict[int, list[Version]]:
@@ -212,9 +220,17 @@ def extract_changed_paragraph(old_wikitext: str, new_wikitext: str) -> Extracted
             if new_plain == old_plain:
                 continue
             urls = extract_ref_urls(new_para)
-            score = 10 * len(urls) + (5 if old_para else 0)
+            changed_urls = refs_for_changed_sentences(old_para, new_para)
+            score = (
+                10 * len(urls) + (20 if changed_urls else 0) + (5 if old_para else 0)
+            )
             if best is None or score > best[0]:
-                best = (score, Extracted(old_plain, new_plain, urls))
+                best = (
+                    score,
+                    Extracted(
+                        old_plain, new_plain, urls, old_para, new_para, changed_urls
+                    ),
+                )
     return best[1] if best else None
 
 
@@ -248,7 +264,7 @@ def select(
     tiers.sort(
         key=lambda t: (
             not t[0].matches_pov,
-            not t[1].ref_urls,
+            not t[1].changed_ref_urls,
             not t[1].old_text,
             t[0].year < RECENT_YEAR,
         )
@@ -258,7 +274,7 @@ def select(
     for cand, extracted in tiers:
         if len(chosen) >= count:
             break
-        if not extracted.ref_urls:
+        if not extracted.changed_ref_urls:
             if no_ref >= max_no_ref:
                 continue
             no_ref += 1
@@ -281,6 +297,9 @@ def to_case(cand: Candidate, extracted: Extracted, expected: str, bucket: str) -
             "old_text": extracted.old_text,
             "new_text": extracted.new_text,
             "ref_urls": extracted.ref_urls,
+            "old_wikitext": extracted.old_wikitext,
+            "new_wikitext": extracted.new_wikitext,
+            "changed_ref_urls": extracted.changed_ref_urls,
             "expected": expected,
             "notes": cand.comment,
         }
@@ -288,6 +307,10 @@ def to_case(cand: Candidate, extracted: Extracted, expected: str, bucket: str) -
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--reverts", type=int, default=REVERT_COUNT)
+    parser.add_argument("--controls", type=int, default=CONTROL_COUNT)
+    args = parser.parse_args()
     rng = random.Random(SEED)
     pages = load_versions()
     reverts = revert_candidates(pages)
@@ -304,10 +327,10 @@ def main() -> None:
     revert_pool = pov_hits + others
     needed = {r for c in revert_pool + control_pool for r in (c.old_rev, c.new_rev)}
     texts = load_texts(needed)
-    pov_selected = select(pov_hits, texts, REVERT_COUNT, rng, False)
+    pov_selected = select(pov_hits, texts, args.reverts, rng, False)
     selected = pov_selected
-    if len(selected) < REVERT_COUNT:
-        selected = select(revert_pool, texts, REVERT_COUNT, rng, True)
+    if len(selected) < args.reverts:
+        selected = select(revert_pool, texts, args.reverts, rng, True)
     print(
         f"reverts selected: {len(selected)} "
         f"(POV regex: {sum(c.matches_pov for c, _ in selected)}, "
@@ -316,7 +339,7 @@ def main() -> None:
     revert_cases = [to_case(c, e, "UNLABELLED", "fi_revert") for c, e in selected]
     control_cases = [
         to_case(c, e, "CLEAN_PASS", "fi_control")
-        for c, e in select(control_pool, texts, CONTROL_COUNT, rng, False)
+        for c, e in select(control_pool, texts, args.controls, rng, False)
     ]
     dump_jsonl(OUT_DIR / "fi_reverts.jsonl", revert_cases)
     dump_jsonl(OUT_DIR / "fi_controls.jsonl", control_cases)

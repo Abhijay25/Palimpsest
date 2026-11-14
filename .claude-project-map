@@ -15,3 +15,8 @@ palimpsest/__main__.py    CLI: prepare / ingest
 palimpsest/scoring.py     Metrics, score(), agreement(); pass bar constants
 palimpsest/report.py      render_report(): static HTML (diff, span highlight, metrics, compare)
 palimpsest/stealth/        Pillar 1 deterministic scanner: models.py (spec s5 contract), sanitizer.py (tags, controls, homoglyphs, hidden channels), scanner.py scan(text,target,old_text) edit-relative; CLI python -m palimpsest.stealth <file> (tests/test_stealth.py)
+palimpsest/stage0.py: refs_for_changed_sentences(old_wikitext, new_wikitext) -> URLs of refs on sentences new vs old (named refs resolved)
+palimpsest/sources.py: discourse_window_scored, SourceFetcher.window_scored (overlap score), calls/cost_dollars counters, EXA_MAX_CALLS budget guard
+palimpsest/pipeline.py: _window_for picks best-overlap window over changed_ref_urls (<=3); empty list -> "uncited"; prepare prints Exa calls/cost
+palimpsest/scoring.py: Metrics.uncited_rate; judge.py UNCITED_LINE payload
+eval/build/fi_dataset_m.py, en_reverts.py: emit old_wikitext/new_wikitext/changed_ref_urls; argparse --reverts/--controls
