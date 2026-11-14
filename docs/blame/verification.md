@@ -1,14 +1,14 @@
 # Blame verification record
 
-Status: specification/contracts frozen; implementation not yet accepted. Full S import remains outside this feature.
+Status: native attribution, source provenance and focused job/privacy controls verified; combined browser, persistence and final delivery checks remain pending. Full S import remains outside this feature.
 
 Human scope update: defer Hostinger and full-corpus scale-up; deliver the local sample prototype first. No cloud resources were provisioned.
 
 Actual orchestrator gpt-6.1-sol/high verified. Base15f713a; infrastructure PR1 open. Host macOS ARM64 with14GiB free at feature preflight; existing pinned images reused, no host package installs or full-history acquisition.
 
-Executed preflight: verified actual Git root/remote, isolated feature branch and direct human fork authorization. Read-only current sample REST HTML200 and action=parse200; both omit data-parsoid, so arbitrary substring mapping rejected. Installed core1.46.2 paths discovered under includes/Parser and includes/Rest. No feature tests have passed yet.
+Executed preflight: verified actual Git root/remote, isolated feature branch and direct human fork authorization. Read-only current sample REST HTML200 and action=parse200; both omit data-parsoid, so arbitrary substring mapping rejected. Installed core1.46.2 paths discovered under includes/Parser and includes/Rest. The initial preflight did not count as feature acceptance.
 
-Record each worker's real SHA/models/tests, Sol findings/repairs/retests, real sample source/local audit, deliberate failure controls, desktop/mobile visual captures, performance measurements and final CI here. G1–G7 all pending. Never turn incomplete provenance or unsupported generated text into authoritative blame.
+This record separates historical failures, targeted repairs and subsequent verification. Never turn incomplete provenance or unsupported generated text into authoritative blame.
 
 ## Root T3 executed evidence
 
@@ -19,7 +19,7 @@ Record each worker's real SHA/models/tests, Sol findings/repairs/retests, real s
 - Five root exporter tests passed with mocked transports: ordinary unrelated source/local IDs +Unicode/canonical hashes, corrupt batch, forged mapping, hidden source identity and local-state change between audit/export. No sockets or production state mutated.
 - Actual worker session metadata verified Luna/high for A01a1d8b8-752c-7a03-bb06-fc30e1e74079,B01a1d8b8-8595-7523-99ef-999357bf8b18,C01a1d8b8-93f5-75f2-9b10-3fbd0b0d6cab before implementation.
 
-Feature API/UI and G1–G7 remain pending integration. Runtime/sample infrastructure success is not a Blame pass.
+Runtime/sample infrastructure success alone was not credited as a Blame pass.
 
 ## UI handoff and independent reproduction
 
@@ -33,3 +33,22 @@ Findings returned to the same worker chats: quadratic whole-document LCS limit; 
 - B repairs4653e22 and37391f1 integrated. Sol independently reran actual Chromium mouse partial drag, touch Inspect, pending initial revision pinning, mismatched-job rejection, exact status revision and anonymous CSRF mock flow: passed. Responses are mocked; this is not a native API pass.
 - C8977fba integrated. Sol reproduced18 offline fixture/client checks; exporter5 checks also pass. Native ordinary API/action failed, so no downstream acceptance was credited.
 - Sol reproduced installed compatibility failures through native maintenance eval: ParamValidator::PARAM_MIN undefined and Title::userCan removed. Review also found out-of-scope selection params, misspelled timestamp helper, silent200-revision truncation, missing durable-cache reuse, mismatched single-date bound field and query-style link normalization. Findings sent to the same A worker for repair. C harness repairs cover actual interpret/apply interactions, proper diff/contributions actions and missing-job semantics.
+
+## Native results independently reproduced by Sol
+
+- All six real imported pages passed `tests/blame/verify_provenance.py` against original C3 text/hash/metadata, C4 joins, exported and served bundles, and actual native API output: fi2pages/62revisions, sv2/12, en2/74. Tested after b6c9fec integration. Original source/local IDs are deliberately different.
+- All18 native synthetic histories (six per language) and UTC boundary/order tests passed, including unchanged/multiple contributors, multistep replacements, deletion ancestry, repeated/moved/reverted ambiguity, noncomposable combining marks/emoji/Japanese and640-word sparse histories. Full `verify_live.py` then passed all three isolated local-edit invalidation probes without mutating shared history fixtures. Native large-fixture example:640words,5759source bytes,233985response bytes,49.24ms on one warm English request; not a throughput guarantee.
+- `scripts/blame_verify_controls.py` passed four intended negative guards in each language: corrupt checksum, missing page in a valid bundle, forged revision hash inside a valid checksummed bundle, and missing bundle. Each began with a valid ordinary response, exposed no attribution/content on failure, and restored the exact served bytes. Original C3/C4 and export copies were untouched. Host bind-mounted fixture changes required observable container-byte confirmation; earlier invalid-JSON setup failures were not credited as checksum coverage.
+- A real local edit on imported English Ulf Grönholm acquired local revision357 with no fabricated source provenance and correct new-token ownership. The source anchor remained unchanged. Article wording was restored by a subsequent real local edit; original imported revisions remain immutable.
+- Native job construction initially failed because JobFactory supplies Title+params. After132aaa1, a clearly synthetic9-revision control processed3 revisions in one bounded run, persisted pending state, resumed after restarting only the English feature worker, and completed the pinned historical target's8 revisions. A public cached analysis/status both rejected newly hidden underlying content; visibility and service configuration were restored. The visibility test temporarily granted deleterevision only to the disposable English sysop, since the pinned default excludes that right. It did not change repository permissions or imported pages.
+- The native205-revision Finnish job independently reached ready with processed=total=205. Its harness stopped on a missing top-level ready revision_id; that response-contract repair and public running-state normalization remain pending acceptance. No three-language long-job pass is claimed yet.
+- Existing core browser regression passed in fi/sv/en with the extension enabled: account/login/logout, read/search, source+VisualEditor save, history/diff, DiscussionTools post/reply, second-user watchlist edits, upload/display and anonymous permission boundary. Persisted browser state is private and retained for the upcoming down/up check.
+- Actual native desktop and touch-emulated phrase activation passed without JS errors. The first batched visual inspection found missing title, disappearing date/recovery controls and Vector's default desktop-width mobile canvas. Title/control repairs and feature-only VectorResponsive=true are integrated; final combined mobile/layout confirmation remains pending. Native iOS/Android selection gestures are not covered by emulation.
+
+## Bounded algorithm comparison and memory evidence
+
+`scripts/blame_benchmark.php` compares a whole-document bounded LCS baseline with the selected edge-trimmed LCS plus unique-anchor fallback, checking independently expected changed/unchanged ownership. On pinned PHP8.3.36/macOS ARM64 Docker, one run measured199-token sparse edit: baseline4.128ms versus selected0.544ms;1799-token sparse edit: baseline refused3236401cells above250000, selected6.038ms; dispersed edits: selected9.476ms with902tokens explicitly ambiguous. Combined peak10MiB; timings include different tokenization work and are illustrative, not database benchmarks.
+
+The real Seppo Rapo history needs558849 charged lineage references (46revisions,138789history bytes,1677final tokens), measured91.6ms/16MiB peak in an isolated read-only engine copy. The initial250000-reference ceiling correctly refused it. A measured1000000-reference ceiling plus same-owner/ancestry span coalescing preserves IDs and fits the real provenance gate. A separate synthetic100000-cumulative-token workload peaked128MiB before MediaWiki overhead, motivating a conservative per-revision token guard before allocation; its repair is pending. Response ceiling stays2MiB, with fail-closed attribution when a budget is exceeded.
+
+Pending gates: final native three-language long-job/security response checks; integrated desktop/mobile/keyboard/link/date/paragraph browser acceptance; restart and second isolated environment; final performance table, reviewed worker-file comparison, CI and stacked PR. Infrastructure PR1 was rechecked open/unmerged at e49be05; feature PR must target infra-set-up.
