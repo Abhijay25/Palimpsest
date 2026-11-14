@@ -43,8 +43,9 @@ CASE_4_WINDOW = (
 )
 
 CASE_5_WINDOW = (
-    "In its first assessment, the ministry put the number of households without power at 4,200. "
-    "However, the ministry later retracted that figure after the second review."
+    "The storm made landfall on the coast late on Monday. "
+    "A ministry spokesperson said the earlier estimate had been revised after a second review. "
+    "She declined to give the new figure."
 )
 
 CASES = [
@@ -111,7 +112,7 @@ CASES = [
         ref_urls=[],
         source_window=CASE_5_WINDOW,
         expected=Verdict.EXPAND_CONTEXT,
-        notes="Spec case 5: window truncated to 2 sentences ending in a dangling retraction; the model must abstain.",
+        notes="Spec case 5: window never states either figure (dangling pronoun, no antecedent number); the model must abstain.",
     ),
 ]
 
