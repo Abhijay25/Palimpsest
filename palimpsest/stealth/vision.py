@@ -12,12 +12,9 @@ from typing import Final
 from pydantic import BaseModel, ValidationError
 
 from palimpsest.stealth.models import HiddenFinding, VectorType
-from palimpsest.stealth.render import RenderAudit, RenderedTile
+from palimpsest.stealth.render import RenderAudit, RenderedTile, overlaps_text_image
 
 VISION_PROMPT_PATH: Final = Path(__file__).parent / "prompts" / "vision_v1.txt"
-# An image smaller than this cannot carry a readable headline or quote.
-MIN_TEXT_IMAGE_W: Final = 120
-MIN_TEXT_IMAGE_H: Final = 60
 MAX_VISION_TILES_PER_PAGE: Final = 3
 _TAG: Final = re.compile(r"<(?=\s*/?\s*untrusted_dom_text)", re.IGNORECASE)
 
@@ -33,15 +30,11 @@ class VisionVerdict(BaseModel):
 
 def vision_tiles(audit: RenderAudit) -> list[RenderedTile]:
     """Tiles that overlap an image large enough to carry text, at most a few per page."""
-    big = [
-        r.rect
-        for r in audit.image_regions
-        if r.rect[2] >= MIN_TEXT_IMAGE_W and r.rect[3] >= MIN_TEXT_IMAGE_H
-    ]
     chosen = [
         tile
         for tile in audit.tiles
-        if any(y < tile.y_end and y + h > tile.y_start for _, y, _, h in big)
+        if tile.png_path
+        and overlaps_text_image(audit.image_regions, tile.y_start, tile.y_end)
     ]
     return chosen[:MAX_VISION_TILES_PER_PAGE]
 

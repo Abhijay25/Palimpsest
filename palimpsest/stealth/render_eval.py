@@ -103,7 +103,7 @@ async def _render_all(
     cases: list[PageCase], run_dir: Path, fetcher: SourceFetcher
 ) -> list[RenderedCase]:
     out: list[RenderedCase] = []
-    async with PageRenderer() as renderer:
+    async with PageRenderer(screenshots="images") as renderer:
         for case in cases:
             tiles_dir = run_dir / "tiles" / case.case_id
             try:

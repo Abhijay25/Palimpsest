@@ -132,7 +132,7 @@ async def shared_auditor() -> PageAuditor | None:
         if _renderer_failed:
             return None
         try:
-            _renderer = await PageRenderer().__aenter__()
+            _renderer = await PageRenderer(screenshots="none").__aenter__()
         except Exception:  # missing chromium or launch failure
             _renderer_failed = True
             logger.exception("render scan disabled: could not start chromium")

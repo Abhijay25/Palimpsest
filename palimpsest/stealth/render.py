@@ -58,6 +58,25 @@ class ImageRegion(BaseModel):
     alt: str
 
 
+# An image smaller than this cannot carry a readable headline or quote.
+MIN_TEXT_IMAGE_W = 120
+MIN_TEXT_IMAGE_H = 60
+# "none": deterministic checks only (no PNGs); "images": only tiles that overlap a
+# text-capable image (what the vision layer reads); "all": every tile.
+Screenshots = Literal["none", "images", "all"]
+
+
+def text_capable(region: ImageRegion) -> bool:
+    return region.rect[2] >= MIN_TEXT_IMAGE_W and region.rect[3] >= MIN_TEXT_IMAGE_H
+
+
+def overlaps_text_image(images: list[ImageRegion], y_start: int, y_end: int) -> bool:
+    return any(
+        text_capable(r) and r.rect[1] < y_end and r.rect[1] + r.rect[3] > y_start
+        for r in images
+    )
+
+
 class RenderedTile(BaseModel):
     index: int
     y_start: int
@@ -383,7 +402,8 @@ def _resolve_chromium() -> str:
 
 
 class PageRenderer:
-    def __init__(self) -> None:
+    def __init__(self, screenshots: Screenshots = "all") -> None:
+        self._screenshots: Screenshots = screenshots
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
 
@@ -478,7 +498,7 @@ class PageRenderer:
             raw = _RawCollect.model_validate(await page.evaluate(_COLLECT_JS))
             page_height = raw.scroll_height
             starts, truncated = _tile_starts(page_height)
-            png_paths: list[Path] = []
+            png_paths: list[Path | None] = []
             locked: set[int] = set()
 
             async def capture_from_layout(png: Path, y_start: int) -> None:
@@ -497,15 +517,20 @@ class PageRenderer:
                 return abs(int(str(scrolled)) - y_start) > SCROLL_TOLERANCE_PX
 
             for index, y_start in enumerate(starts):
+                want_png = self._screenshots == "all" or (
+                    self._screenshots == "images"
+                    and overlaps_text_image(raw.images, y_start, y_start + VIEWPORT[1])
+                )
                 png = out_dir / f"tile_{index:02d}.png"
-                png_paths.append(png)
+                png_paths.append(png if want_png else None)
                 await page.evaluate(
                     "y => window.scrollTo({top: y, left: 0, behavior: 'instant'})",
                     y_start,
                 )
                 if moved(await page.evaluate(_SCROLL_Y_AFTER_FRAMES_JS), y_start):
                     locked.add(index)
-                    await capture_from_layout(png, y_start)
+                    if want_png:
+                        await capture_from_layout(png, y_start)
                     continue
                 candidates = [i for i, n in enumerate(raw.nodes) if n.reason is None]
                 occ = _RawOcclusion.model_validate(
@@ -513,6 +538,8 @@ class PageRenderer:
                 )
                 for i in occ.occluded:
                     raw.nodes[i].reason = "occluded"
+                if not want_png:
+                    continue
                 await page.screenshot(path=str(png))
                 # A late scroll reset can land after the frames waited above.
                 if moved(
@@ -540,7 +567,7 @@ class PageRenderer:
                     index=index,
                     y_start=y_start,
                     y_end=y_end,
-                    png_path=str(png_paths[index]),
+                    png_path=str(png_paths[index]) if png_paths[index] else "",
                     visible_text=_join(in_tile),
                     scroll_locked=index in locked,
                 )

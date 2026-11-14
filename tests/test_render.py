@@ -16,6 +16,7 @@ from palimpsest.stealth.render import (
     HiddenTextNode,
     PageRenderer,
     RenderAudit,
+    Screenshots,
     check_public_url,
 )
 
@@ -319,3 +320,25 @@ def test_judged_text_absent_from_dom_is_drift_not_finding() -> None:
     audit = make_audit(human_text=human)
     assert render_findings(audit, f"{human} {stale}") == []
     assert judged_drift(audit, f"{human} {stale}") == 0.5
+
+
+@needs_browser
+def test_screenshot_policy_none_and_images(tmp_path: Path) -> None:
+    img = (
+        "<img style='display:block;width:300px;height:200px' src='data:image/svg+xml,"
+        "%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22300%22 height=%22200%22/%3E'>"
+    )
+    html = f"<body style='margin:0'><div style='height:2000px'>text</div>{img}</body>"
+
+    async def audit(policy: Screenshots, out: Path) -> RenderAudit:
+        async with PageRenderer(screenshots=policy) as r:
+            return await r.audit_html(html, out)
+
+    none = run(audit("none", tmp_path / "none"))
+    assert len(none.tiles) >= 3
+    assert all(t.png_path == "" for t in none.tiles)
+    assert not list((tmp_path / "none").glob("*.png"))
+    images = run(audit("images", tmp_path / "images"))
+    with_png = [t for t in images.tiles if t.png_path]
+    assert with_png and len(with_png) < len(images.tiles)
+    assert all(t.y_end > 2000 for t in with_png)
