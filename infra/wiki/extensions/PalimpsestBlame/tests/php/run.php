@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/Attribution/AttributionEngine.php';
 require_once __DIR__ . '/../../includes/Attribution/ParsoidTextMapper.php';
 require_once __DIR__ . '/../../includes/Attribution/ParsoidLinkNormalizer.php';
 require_once __DIR__ . '/../../includes/Attribution/AttributionSpanCompactor.php';
+require_once __DIR__ . '/../../includes/Attribution/SelectionEventFilter.php';
 require_once __DIR__ . '/../../includes/Api/UtcDateBoundParser.php';
 
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionEngine;
@@ -13,6 +14,7 @@ use MediaWiki\Extension\PalimpsestBlame\Attribution\SourceTokenizer;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidTextMapper;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidLinkNormalizer;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionSpanCompactor;
+use MediaWiki\Extension\PalimpsestBlame\Attribution\SelectionEventFilter;
 use MediaWiki\Extension\PalimpsestBlame\Api\UtcDateBoundParser;
 
 function check( bool $condition, string $message ): void {
@@ -86,6 +88,25 @@ $deletedRed = $deletion['events'][1];
 check( $deletedRed['before'] === 'red ', 'pure deletion preserves exact removed wording and adjacent whitespace' );
 check( $deletedRed['after'] === '', 'pure deletion has empty replacement text' );
 check( in_array( $selectedFox['token_id'], [ $deletedRed['left_token_id'], $deletedRed['right_token_id'] ], true ), 'deleted wording remains anchored to selected surviving phrase' );
+$selectedFoxIds = array_merge( [ $selectedFox['token_id'] ], $selectedFox['lineage_ids'] );
+$selectedDeletionEvents = SelectionEventFilter::filter( [ $deletedRed ], $selectedFoxIds );
+check( count( $selectedDeletionEvents ) === 1 && $selectedDeletionEvents[0]['revision_id'] === 31, 'anchor-only selection retains a pure deletion beside a selected surviving word' );
+
+// Selecting the opening phrase must not pull in later additions merely because they share an adjacent anchor.
+$scopedHistory = $engine->analyze( [
+	[ 'id' => 392, 'text' => 'The old station' ],
+	[ 'id' => 393, 'text' => 'The old station measures coastal winds' ],
+	[ 'id' => 394, 'text' => 'The old station measures coastal winds throughout each summer season.' ],
+] );
+$scopedTokenIds = [];
+foreach ( $scopedHistory['tokens'] as $token ) {
+	if ( $token['utf16_start'] < 15 && $token['utf16_end'] > 0 ) {
+		$scopedTokenIds[] = $token['token_id'];
+		$scopedTokenIds = array_merge( $scopedTokenIds, $token['lineage_ids'] );
+	}
+}
+$scopedEvents = SelectionEventFilter::filter( $scopedHistory['events'], $scopedTokenIds );
+check( array_column( $scopedEvents, 'revision_id' ) === [ 392 ], 'selection returns directly matching initial text without unrelated later additions' );
 
 // UTF-16 offsets account for supplementary emoji and combining marks.
 $unicode = SourceTokenizer::tokenize( "😀e\u{0301} x" );
@@ -214,4 +235,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 24 isolated attribution, DSR, date-bound, and link fixtures\n";
+echo "PASS: 26 isolated attribution, DSR, selection, date-bound, and link fixtures\n";

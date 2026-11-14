@@ -19,6 +19,7 @@ use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Title\Title;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionEngine;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionSpanCompactor;
+use MediaWiki\Extension\PalimpsestBlame\Attribution\SelectionEventFilter;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\SourceTokenizer;
 use MediaWiki\Extension\PalimpsestBlame\Job\BlameBuildJob;
 use Throwable;
@@ -731,10 +732,7 @@ final class BlameApi extends ApiBase {
 				}
 			}
 		}
-		$selectedEvents = array_values( array_filter( $events, static fn ( $event ) =>
-			array_intersect( $event['token_ids'], array_keys( $tokenIds ) ) ||
-			isset( $tokenIds[$event['left_token_id'] ?? ''] ) || isset( $tokenIds[$event['right_token_id'] ?? ''] )
-		) );
+		$selectedEvents = SelectionEventFilter::filter( $events, array_keys( $tokenIds ) );
 		return [
 			'ranges' => $ranges,
 			'revision_ids' => array_map( 'intval', array_keys( $revisionIds ) ),
