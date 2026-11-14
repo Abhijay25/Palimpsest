@@ -21,6 +21,20 @@ from palimpsest.stealth.sanitizer import (
 )
 
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
+# Scripts that never need joiners: an invisible character between two of their
+# letters splits a word to dodge keyword filters (language-neutral signal).
+_NO_JOINER_LETTER = "A-Za-z\u00c0-\u024f\u0370-\u03ff\u0400-\u04ff"
+_INTRA_WORD_INVISIBLE = re.compile(
+    f"(?<=[{_NO_JOINER_LETTER}])[\u200b-\u200d\u2060\ufeff]+(?=[{_NO_JOINER_LETTER}])"
+)
+_WORD = re.compile(r"\w+")
+_MARKUP_TAG = re.compile(r"<[^>]*>")
+# One stray zero-width space is a common copy-paste or line-break hint in long
+# compounds; an attacker splits several words.
+SPLIT_WORD_MIN = 2
+VISIBLE_SCREEN_MIN_WORDS = 4
+VISIBLE_SCREEN_MAX_CHARS = 2000
+SCREEN_CLASSIFICATION = "SCREEN_FOR_INJECTION"
 _INVISIBLE_TABLE = {ord(c): None for c in INVISIBLE_CHARS}
 
 _TRIAGE_FIRST_VECTORS = frozenset(
@@ -186,11 +200,25 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
         [p.span for p in tags.payloads] + [i.span for i in channels.quarantined_items],
     )
     old_stripped = old_text.translate(_INVISIBLE_TABLE) if old_text else None
+    screen_sentences: list[str] = []
+    screen_spans: list[tuple[int, int]] = []
     for sentence in _SENTENCE_BREAK.split(visible):
         clean = sentence.translate(_INVISIBLE_TABLE)
-        if not looks_like_instruction(clean):
-            continue
         if old_stripped is not None and clean in old_stripped:
+            continue
+        instruction_hint = looks_like_instruction(clean)
+        split_word = len(_INTRA_WORD_INVISIBLE.findall(sentence)) >= SPLIT_WORD_MIN
+        if not instruction_hint and not split_word:
+            prose = _MARKUP_TAG.sub(" ", clean).strip()
+            if (
+                target_type == "WIKIPEDIA_DIFF"
+                and old_text is not None
+                and len(_WORD.findall(prose)) >= VISIBLE_SCREEN_MIN_WORDS
+            ):
+                screen_sentences.append(prose)
+                first = text.find(sentence)
+                if first >= 0:
+                    screen_spans.append((first, first + len(sentence)))
             continue
         start = max(text.find(sentence), 0)
         span = (start, start + len(sentence))
@@ -201,13 +229,20 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
                     raw_snippet=sentence,
                     decoded_hidden_text=clean,
                     char_span=span,
-                    classification="FLAG_STEALTH_PROMPT_INJECTION",
-                    confidence=0.95,
-                    explanation="Invisible characters split an instruction inside "
-                    "visible text; de-obfuscated sentence shown.",
+                    classification="FLAG_STEALTH_PROMPT_INJECTION"
+                    if instruction_hint
+                    else "NEEDS_TRIAGE",
+                    confidence=0.95 if instruction_hint else 0.6,
+                    explanation="Invisible characters split "
+                    + ("an instruction" if instruction_hint else "words")
+                    + " inside visible text; de-obfuscated sentence shown.",
                 ),
-                StealthStatus.CRITICAL_AI_POISONING,
+                StealthStatus.CRITICAL_AI_POISONING
+                if instruction_hint
+                else StealthStatus.BENIGN_NOTES_ONLY,
             )
+        elif not instruction_hint:
+            continue
         else:
             add(
                 HiddenFinding(
@@ -222,6 +257,40 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
                 ),
                 StealthStatus.BENIGN_NOTES_ONLY,
             )
+
+    for item in channels.screen_items:
+        if is_new(item.raw_snippet):
+            add(
+                HiddenFinding(
+                    vector_type=item.vector_type,
+                    raw_snippet=item.raw_snippet,
+                    decoded_hidden_text=item.hidden_text,
+                    char_span=item.span,
+                    classification=SCREEN_CLASSIFICATION,
+                    confidence=0.2,
+                    explanation="Prose template parameter that may not render; "
+                    "screened for instructions.",
+                ),
+                None,
+            )
+    if screen_sentences:
+        joined = " ".join(screen_sentences)[:VISIBLE_SCREEN_MAX_CHARS]
+        add(
+            HiddenFinding(
+                vector_type=VectorType.VISIBLE_INSTRUCTION,
+                raw_snippet=joined,
+                decoded_hidden_text=joined,
+                char_span=(
+                    min((sp[0] for sp in screen_spans), default=0),
+                    max((sp[1] for sp in screen_spans), default=0),
+                ),
+                classification=SCREEN_CLASSIFICATION,
+                confidence=0.1,
+                explanation="Added visible prose screened for instructions "
+                "aimed at AI readers.",
+            ),
+            None,
+        )
 
     removals = [p.span for p in tags.payloads] + [r.span for r in controls.runs]
     removals.extend(i.span for i in channels.quarantined_items)

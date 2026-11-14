@@ -13,6 +13,7 @@ from palimpsest.stealth.models import (
     StealthStatus,
     VectorType,
 )
+from palimpsest.stealth.scanner import SCREEN_CLASSIFICATION
 
 TRIAGE_PROMPT_PATH: Final = Path(__file__).parent / "prompts" / "triage_v1.txt"
 
@@ -151,6 +152,19 @@ def apply_triage(result: ScanResult, verdicts: dict[str, TriageVerdict]) -> Scan
             if provisional is not None:
                 statuses.append(provisional)
             findings.append(finding)
+        elif finding.classification == SCREEN_CLASSIFICATION:
+            verdict_or_none = verdicts.get(fid)
+            if verdict_or_none is not None and verdict_or_none.is_prompt_injection:
+                statuses.append(StealthStatus.CRITICAL_AI_POISONING)
+                findings.append(
+                    finding.model_copy(
+                        update={
+                            "classification": "FLAG_STEALTH_PROMPT_INJECTION",
+                            "confidence": verdict_or_none.confidence,
+                            "explanation": verdict_or_none.explanation,
+                        }
+                    )
+                )
         elif fid in verdicts:
             verdict = verdicts[fid]
             status, classification = _final_for_triaged(finding, verdict)

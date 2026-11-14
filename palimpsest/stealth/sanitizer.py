@@ -18,6 +18,7 @@ ZERO_WIDTH_CHARS = frozenset(
 )
 INVISIBLE_CHARS = BIDI_CHARS | ZERO_WIDTH_CHARS
 SUSPICIOUS_ALT_WORD_LIMIT = 15
+PROSE_PARAM_MIN_WORDS = 8
 
 _TAG_RUN = re.compile("[\U000e0000-\U000e007f]+")
 _WORD = re.compile(r"\w+")
@@ -145,6 +146,9 @@ class HiddenChannelResult(BaseModel):
     sanitized_human_text: str
     quarantined_items: list[QuarantinedItem]
     unscanned_span: tuple[int, int] | None = None
+    # Prose template parameters (any language) that may not render; screened by
+    # triage but not removed from the human text.
+    screen_items: list[QuarantinedItem] = []
 
 
 def looks_like_instruction(text: str) -> bool:
@@ -662,6 +666,7 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
                 name not in _LEGACY_ATTRS,
             )
     template_params, unscanned_span = _template_params(masked)
+    screen_items: list[QuarantinedItem] = []
     for start, end, value in template_params:
         if looks_like_instruction(value):
             item = _item(text, VectorType.TEMPLATE_PARAM_TEXT, start, end, value)
@@ -670,6 +675,10 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
                     update={"instruction_like": has_strong_instruction(value)}
                 )
             )
+        elif len(_WORD.findall(value)) >= PROSE_PARAM_MIN_WORDS:
+            screen_items.append(
+                _item(text, VectorType.TEMPLATE_PARAM_TEXT, start, end, value)
+            )
 
     kept = _drop_nested(items)
     removals.extend(i.span for i in kept)
@@ -677,6 +686,7 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
         sanitized_human_text=remove_spans(text, removals),
         quarantined_items=kept,
         unscanned_span=unscanned_span,
+        screen_items=screen_items,
     )
 
 
