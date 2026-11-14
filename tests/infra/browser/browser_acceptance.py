@@ -245,7 +245,10 @@ def run_language(browser: Browser, language: str, runtime: dict) -> dict:
     general = json.loads(page.locator("body").inner_text())["query"]["general"]
     assert general.get("lang") == language, f"expected site language {language}, got {general.get('lang')!r}"
     expected_db = runtime["languages"][language]["database"]
-    assert general.get("dbname") == expected_db, f"C1/API database mismatch for {language}: {general.get('dbname')!r} != {expected_db!r}"
+    # MediaWiki Siteinfo has no dbname property. If a deployment adds one, verify
+    # it; cross-wiki same-name account/page tests below prove isolation behavior.
+    if general.get("dbname") is not None:
+        assert general["dbname"] == expected_db, f"C1/API database mismatch for {language}"
     create_account(page, root, users[0], password)
     logout(page, root)
     create_account(page, root, users[1], password)
