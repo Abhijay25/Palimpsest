@@ -17,6 +17,10 @@ from palimpsest.schema import SourceWindow
 EXA_CONTENTS_URL: Final = "https://api.exa.ai/contents"
 REQUEST_TIMEOUT_S: Final = 10.0
 MIN_TEXT_CHARS: Final = 200
+# A window shorter than this, or sharing fewer claim tokens than MIN_OVERLAP,
+# is a stub or off-topic page and is treated as unavailable (r04 finding).
+MIN_WINDOW_CHARS: Final = 150
+MIN_OVERLAP: Final = 2
 DEFAULT_MAX_EXA_CALLS: Final = 400
 _SENTENCE_SPLIT: Final = re.compile(r"(?<=[.!?])\s+")
 _TOKEN: Final = re.compile(r"\w+")
@@ -177,6 +181,13 @@ class SourceFetcher:
                 0,
             )
         window, overlap = discourse_window_scored(text, claim, radius)
+        if len(window) < MIN_WINDOW_CHARS or overlap < MIN_OVERLAP:
+            return (
+                SourceWindow(
+                    url=url, status="unavailable", text="", latency_ms=latency_ms
+                ),
+                0,
+            )
         return (
             SourceWindow(url=url, status="ok", text=window, latency_ms=latency_ms),
             overlap,

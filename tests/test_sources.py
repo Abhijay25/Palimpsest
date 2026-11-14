@@ -57,8 +57,8 @@ def test_window_centres_on_best_sentence(tmp_path: Path) -> None:
 def test_cache_hit_skips_network(tmp_path: Path) -> None:
     calls: list[httpx.Request] = []
     fetcher = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
-    asyncio.run(fetcher.window(URL, "topic6"))
-    second = asyncio.run(fetcher.window(URL, "topic6"))
+    asyncio.run(fetcher.window(URL, "topic6 detail"))
+    second = asyncio.run(fetcher.window(URL, "topic6 detail"))
     assert len(calls) == 1
     assert second.status == "ok"
 
@@ -119,7 +119,7 @@ def test_call_budget_blocks_further_network_calls(
     calls: list[httpx.Request] = []
     fetcher = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
     results = [
-        asyncio.run(fetcher.window(f"https://example.com/{i}", "topic6"))
+        asyncio.run(fetcher.window(f"https://example.com/{i}", "topic6 detail"))
         for i in range(4)
     ]
     assert [r.status for r in results] == ["ok", "ok", "unavailable", "unavailable"]
@@ -134,8 +134,8 @@ def test_cache_hits_do_not_count_against_budget(
     monkeypatch.setenv("EXA_MAX_CALLS", "1")
     calls: list[httpx.Request] = []
     fetcher = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
-    asyncio.run(fetcher.window(URL, "topic6"))
-    assert asyncio.run(fetcher.window(URL, "topic6")).status == "ok"
+    asyncio.run(fetcher.window(URL, "topic6 detail"))
+    assert asyncio.run(fetcher.window(URL, "topic6 detail")).status == "ok"
     assert fetcher.calls == 1
 
 
@@ -150,3 +150,22 @@ def test_cost_is_accumulated(tmp_path: Path) -> None:
     asyncio.run(fetcher.window("https://example.com/1", "x"))
     asyncio.run(fetcher.window("https://example.com/2", "x"))
     assert fetcher.cost_dollars == pytest.approx(0.004)
+
+
+def test_off_topic_window_is_unavailable(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+    fetcher = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
+    result = asyncio.run(fetcher.window(URL, "Kanerva buried Lokalahti cemetery"))
+    assert result.status == "unavailable"
+    assert result.text == ""
+
+
+def test_stub_page_window_is_unavailable(tmp_path: Path) -> None:
+    stub = " ".join(["Vaalit Helsinki."] * 20)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"results": [{"text": stub}]})
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    result = asyncio.run(fetcher.window(URL, "Vaalit Helsinki Sauri"))
+    assert result.status == "unavailable"

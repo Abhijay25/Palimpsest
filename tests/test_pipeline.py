@@ -141,6 +141,11 @@ def test_none_changed_ref_urls_falls_back_to_ref_urls(
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr("palimpsest.pipeline.load_exa_api_key", lambda: None)
     _prime_cache(("https://a.example/a", LONG_A))
-    window = _window_status(tmp_path, _case("c", None, ["https://a.example/a"]))
+    window = _window_status(
+        tmp_path,
+        _case("c", None, ["https://a.example/a"]).model_copy(
+            update={"new_text": "Alpha sentence covers apples and pears."}
+        ),
+    )
     assert window.status == "ok"
     assert window.url == "https://a.example/a"
