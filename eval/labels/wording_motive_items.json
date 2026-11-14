@@ -1,0 +1,262 @@
+[
+ {
+  "src": "demo",
+  "page": "Jose Villa",
+  "link": "http://127.0.0.1:8090/index.php?title=Jose_Villa&diff=17&oldid=16",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "a great American",
+  "reason": "The edit injects the subjective, non-neutral puffery adjective 'great' into Wikipedia's objective voice (WP:WTW / WP:NPOV).",
+  "n": 1
+ },
+ {
+  "src": "demo",
+  "page": "Kyle Larson",
+  "link": "http://127.0.0.1:8090/index.php?title=Kyle_Larson&diff=15&oldid=14",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "He is widely considered the best current Motorsports driver in the world currently and one of the best all-time.",
+  "reason": "Adds unattributed, non-neutral superlative praise ('best current Motorsports driver in the world', 'one of the best all-time') using weasel phrasing ('widely considered') without any inline citation.",
+  "n": 2
+ },
+ {
+  "src": "demo",
+  "page": "Sparta",
+  "link": "http://127.0.0.1:8090/index.php?title=Sparta&diff=3&oldid=2",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "largely based on their exploits before and during the Peloponnesian Wars",
+  "reason": "The edit removes the skeptical qualifier 'though this was as much a matter of propaganda as battlefield prowess' (which aligns with the cited source's argument) and replaces it with an unsupported causal explanation ('largely based on their exploits before and during the Peloponnesian Wars') not found in the citation window.",
+  "n": 3
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 1)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_1)&diff=24&oldid=23",
+  "kind": "MOTIVE",
+  "tier": "admin",
+  "words": "To maintain footfall",
+  "reason": "States an unverified motive for retail parks replacing fashion space with leisure operators without a supporting source.",
+  "n": 4
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 1)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_1)&diff=24&oldid=23",
+  "kind": "MOTIVE",
+  "tier": "admin",
+  "words": "To safeguard local jobs and business rate revenues against the threat of e-commerce",
+  "reason": "States an unverified motive for local authorities partnering with or investing in out-of-town developments without a supporting source.",
+  "n": 5
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 1)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_1)&diff=24&oldid=23",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "fiercely",
+  "reason": "Uses an intensifying adverb ('fiercely') that editorializes the opposition without source support.",
+  "n": 6
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 1)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_1)&diff=24&oldid=23",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "due to the resulting decline of Dudley town centre",
+  "reason": "States a causal motive for the council's opposition in Wikipedia's objective voice without source verification.",
+  "n": 7
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 1)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_1)&diff=24&oldid=23",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "ironically",
+  "reason": "Injects editorial commentary ('ironically') rather than maintaining a neutral, encyclopedic tone.",
+  "n": 8
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 2)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_2)&diff=26&oldid=25",
+  "kind": "MOTIVE",
+  "tier": "admin",
+  "words": "using tourism and brownfield regeneration planning arguments",
+  "reason": "Adds an unattributed claim about the developers' planning arguments and motives without any supporting inline citation.",
+  "n": 9
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 2)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_2)&diff=26&oldid=25",
+  "kind": "MOTIVE",
+  "tier": "admin",
+  "words": "an exhaustive list",
+  "reason": "Uses an absolute quantifier ('exhaustive') in Wikipedia's objective voice without a source.",
+  "n": 10
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 2)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_2)&diff=26&oldid=25",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "One of the largest retail and leisure parks in Europe",
+  "reason": "Unattributed superlative/promotional framing without a supporting source.",
+  "n": 11
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 2)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_2)&diff=26&oldid=25",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "One of Britain's largest open-air retail parks",
+  "reason": "Unattributed superlative/promotional framing without a supporting source.",
+  "n": 12
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 2)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_2)&diff=26&oldid=25",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "Sprawling",
+  "reason": "Subjective, evaluative descriptor ('peacock' term) not supported by a cited source.",
+  "n": 13
+ },
+ {
+  "src": "demo",
+  "page": "Out-of-town shopping centres (real edit 2)",
+  "link": "http://127.0.0.1:8090/index.php?title=Out-of-town_shopping_centres_(real_edit_2)&diff=26&oldid=25",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "Prime examples",
+  "reason": "Subjective, promotional phrasing ('peacock' term) without attribution.",
+  "n": 14
+ },
+ {
+  "src": "eval:en_revert_1385548211",
+  "page": "Sparta",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1385548211&oldid=1385083764",
+  "kind": "MOTIVE",
+  "tier": "admin",
+  "words": "largely based on their exploits before and during the Peloponnesian Wars",
+  "reason": "The edit introduces an unsupported causal explanation for why Spartan phalanx units were considered among the best in battle, which is not stated in the cited source.",
+  "n": 15
+ },
+ {
+  "src": "eval:en_revert_1385548211",
+  "page": "Sparta",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1385548211&oldid=1385083764",
+  "kind": "MOTIVE",
+  "tier": "admin",
+  "words": "though this was as much a matter of propaganda as battlefield prowess",
+  "reason": "The edit removed a skeptical qualifier that contextualized Spartan military reputation, shifting the balance of the passage.",
+  "n": 16
+ },
+ {
+  "src": "eval:en_revert_1385525274",
+  "page": "Kyle Larson",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1385525274&oldid=1385452541",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "He is widely considered the best current Motorsports driver in the world currently and one of the best all-time.",
+  "reason": "Adds unattributed, unverifiable superlatives and promotional peacock phrasing ('widely considered the best', 'one of the best all-time') without any supporting source.",
+  "n": 17
+ },
+ {
+  "src": "eval:en_revert_1385407418",
+  "page": "Joe Hudepohl",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1385407418&oldid=1366884420",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "He is widely considered to be one of the greatest high school swimmers of all time.",
+  "reason": "Injects an unverifiable superlative and peacock phrasing ('widely considered', 'one of the greatest... of all time') without attribution or source support.",
+  "n": 18
+ },
+ {
+  "src": "eval:en_revert_1385321795",
+  "page": "Jose Villa",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1385321795&oldid=1365020488",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "a great American",
+  "reason": "Adds the subjective, evaluative adjective 'great' to the subject's description, violating Wikipedia's neutral point of view and peacock-term guidelines (WP:NPOV, WP:PEACOCK).",
+  "n": 19
+ },
+ {
+  "src": "eval:en_revert_1385450576",
+  "page": "Arda Güler",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1385450576&oldid=1385341518",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "powerhouse",
+  "reason": "Replaces the neutral term 'club' with the promotional, evaluative descriptor 'powerhouse', violating WP:NPOV and WP:WTW.",
+  "n": 20
+ },
+ {
+  "src": "eval:en_revert_1385312976",
+  "page": "Nottingham",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1385312976&oldid=1383622338",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "the best city in the world",
+  "reason": "The edit replaces the neutral noun phrase 'a city' with an unverifiable superlative ('the best city in the world'), introducing promotional and non-neutral framing.",
+  "n": 21
+ },
+ {
+  "src": "eval:en_control_1384233463",
+  "page": "List of automobiles notable for negative reception",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1384233463&oldid=1384176838",
+  "kind": "MOTIVE",
+  "tier": "admin",
+  "words": "due to the 3.0L engine’s proclivity to fail due to the timing belt tensioner failing, causing the engine to trash itself",
+  "reason": "The edit introduces an unsupported causal explanation for the Catera's unreliability (3.0L engine and timing belt tensioner failure) that is not stated in the cited source.",
+  "n": 22
+ },
+ {
+  "src": "eval:en_control_1384233463",
+  "page": "List of automobiles notable for negative reception",
+  "link": "https://en.wikipedia.org/w/index.php?diff=1384233463&oldid=1384176838",
+  "kind": "MOTIVE",
+  "tier": "admin",
+  "words": "causing the engine to trash itself",
+  "reason": "The phrase 'trash itself' is informal, colloquial wording that violates encyclopedic tone.",
+  "n": 23
+ },
+ {
+  "src": "eval:fi_revert_23102514",
+  "page": "Joutseno (fi)",
+  "link": "https://fi.wikipedia.org/w/index.php?diff=23102513&oldid=23060089",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "Доброго дня, думаю тут мене почують. Дякую вам за те ,що ми маємо житло,їжу і все не обхідне. Тільки будь ласка,не такою ціною,що все через сварку!!!! Я не люблю чогось вимагати,а у вас треба вимагати те,що мені належить по праву. У вас дуже погано працюють соціальні працівники. Наприклад вчора кірсі забула,що треба зі мною зустрітися... Назначила зустріч і забула, сьогодні пайва... Мені треба терміново зробити документи,які я сама не можу зробити,а соц працівники забувають свої обов'язки ,а коли їм це кажеш,то вони говорять,що розмова не серйозна. Думаю мабуть для них так,але ми такі ж точно люди як ви,у нас також є дві руці,дві ноги,є серце і душа. І багато хто з нас має велику душевну біль,пов'язану з війною в Україні. Я нічого не вимагаю,прошу просто допомоги зробити мені 8 документів. І допомоги перейти на муніципалітет. Зробіть будь ласка свою роботу вчасно!!! Ми люди і ми маємо на це право,жити в гідних умовах!",
+  "reason": "The edit appends a first-person personal complaint and appeal in Ukrainian addressed to social workers, which is non-encyclopedic and completely unsupported by the cited source.",
+  "n": 24
+ },
+ {
+  "src": "eval:fi_revert_22027634",
+  "page": "Suomenlinna (fi)",
+  "link": "https://fi.wikipedia.org/w/index.php?diff=22027631&oldid=22027624",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "älkää suuttuko koska minulla on isä ja lapsi jotka mummoilevat",
+  "reason": "The edit appends a first-person, nonsensical personal remark/test edit to the end of the article, violating encyclopedic tone and integrity.",
+  "n": 25
+ },
+ {
+  "src": "eval:fi_revert_22115704",
+  "page": "Rosa Meriläinen (fi)",
+  "link": "https://fi.wikipedia.org/w/index.php?diff=22115690&oldid=21389833",
+  "kind": "FRAMING",
+  "tier": "admin",
+  "words": "Simolla tuo on ollut elämänsä paras päätös.",
+  "reason": "The added sentence introduces an unsupported, non-encyclopedic subjective opinion and superlative ('best decision of his life') about an identifiable person, which is not present in the cited source.",
+  "n": 26
+ }
+]
