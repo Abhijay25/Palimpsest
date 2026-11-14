@@ -5,11 +5,13 @@ require_once __DIR__ . '/../../includes/Attribution/SourceTokenizer.php';
 require_once __DIR__ . '/../../includes/Attribution/AttributionEngine.php';
 require_once __DIR__ . '/../../includes/Attribution/ParsoidTextMapper.php';
 require_once __DIR__ . '/../../includes/Attribution/ParsoidLinkNormalizer.php';
+require_once __DIR__ . '/../../includes/Attribution/AttributionSpanCompactor.php';
 
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionEngine;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\SourceTokenizer;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidTextMapper;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidLinkNormalizer;
+use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionSpanCompactor;
 
 function check( bool $condition, string $message ): void {
 	if ( !$condition ) { fwrite( STDERR, "FAIL: $message\n" ); exit( 1 ); }
@@ -69,6 +71,37 @@ $duplicate = $engine->analyze( [ [ 'id' => 40, 'text' => 'same same end' ], [ 'i
 check( (bool)array_filter( $duplicate['tokens'], static fn ( $t ) => $t['text'] === 'same' && $t['ambiguous'] ), 'repeated text is marked ambiguous' );
 $numericDuplicate = $engine->analyze( [ [ 'id' => 42, 'text' => 'score 2000 2000 points' ], [ 'id' => 43, 'text' => 'score 2000 points' ] ] );
 check( (bool)array_filter( $numericDuplicate['tokens'], static fn ( $t ) => $t['text'] === '2000' && $t['ambiguous'] ), 'numeric token keys remain strings during ambiguity checks' );
+
+$stressOld = implode( ' ', array_map( static fn ( $i ) => 'old' . $i, range( 1, 160 ) ) );
+$stressMiddle = implode( '-', array_map( static fn ( $i ) => 'middle' . $i, range( 1, 160 ) ) );
+$stressNew = implode( '/', array_map( static fn ( $i ) => 'new' . $i, range( 1, 160 ) ) );
+$lineageLimitReached = false;
+try {
+	$engine->analyze( [ [ 'id' => 44, 'text' => $stressOld ], [ 'id' => 45, 'text' => $stressMiddle ], [ 'id' => 46, 'text' => $stressNew ] ] );
+} catch ( DomainException $e ) {
+	$lineageLimitReached = $e->getMessage() === 'lineage-derivation-reference-limit-exceeded';
+}
+check( $lineageLimitReached, 'large cross-gap ancestry fails explicitly before unbounded fanout' );
+
+$phraseAnalysis = $engine->analyze( [ [ 'id' => 70, 'text' => 'old red blue fox' ], [ 'id' => 71, 'text' => 'new-fast-dog' ] ] );
+$phraseTokens = $phraseAnalysis['tokens'];
+$phraseSpans = ( new AttributionSpanCompactor() )->compact( $phraseTokens );
+$legacyPhraseSpans = array_map( static function ( array $token ): array {
+	$start = $token['utf16_start'];
+	$end = $token['utf16_end'];
+	unset( $token['start'], $token['end'], $token['utf16_start'], $token['utf16_end'] );
+	$token['start'] = $start;
+	$token['end'] = $end;
+	$token['confidence'] = $token['ambiguous'] ? 'ambiguous' : 'aligned';
+	return $token;
+}, $phraseTokens );
+$fastToken = array_values( array_filter( $phraseTokens, static fn ( $t ) => $t['text'] === 'fast' ) )[0];
+$partStart = $fastToken['utf16_start'] + 1;
+$partEnd = $fastToken['utf16_end'] - 1;
+$selectedPhraseTokens = array_values( array_filter( $phraseSpans[0]['token_ranges'], static fn ( $r ) => $r[0] < $partEnd && $r[1] > $partStart ) );
+check( count( $phraseSpans ) === 1 && count( $phraseSpans[0]['token_ranges'] ) === count( $phraseTokens ), 'same-owner phrase spans compact while retaining every stable token range' );
+check( count( $selectedPhraseTokens ) === 1 && $selectedPhraseTokens[0][2] === $fastToken['token_id'], 'partial selection inside a compact phrase resolves only its exact token ID' );
+check( strlen( json_encode( $phraseSpans, JSON_THROW_ON_ERROR ) ) < strlen( json_encode( $legacyPhraseSpans, JSON_THROW_ON_ERROR ) ), 'shared ancestry serialization shrinks when adjacent spans are coalesced' );
 
 $longOld = implode( ' ', array_map( static fn ( $i ) => 'word' . $i, range( 1, 900 ) ) );
 $longNew = preg_replace( '/word450/', 'changed450', $longOld );
@@ -136,4 +169,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 15 isolated attribution, DSR, and link fixtures\n";
+echo "PASS: 17 isolated attribution, DSR, and link fixtures\n";

@@ -18,6 +18,7 @@ use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
 use MediaWiki\Title\Title;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionEngine;
+use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionSpanCompactor;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\SourceTokenizer;
 use MediaWiki\Extension\PalimpsestBlame\Job\BlameBuildJob;
 use Throwable;
@@ -362,14 +363,7 @@ final class BlameApi extends ApiBase {
 				...$render['reasons'],
 			] ) ),
 		];
-		$spanRows = array_map( static function ( array $token ): array {
-			$row = $token;
-			unset( $row['start'], $row['end'], $row['utf16_start'], $row['utf16_end'] );
-			$row['start'] = $token['utf16_start'];
-			$row['end'] = $token['utf16_end'];
-			$row['confidence'] = $token['ambiguous'] ? 'ambiguous' : 'aligned';
-			return $row;
-		}, $engine['tokens'] );
+		$spanRows = ( new AttributionSpanCompactor() )->compact( $engine['tokens'] );
 		$result = [
 			'schema_version' => 1,
 			'status' => 'ready',

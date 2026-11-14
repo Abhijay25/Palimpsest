@@ -7,14 +7,16 @@ use DomainException;
 
 /** Last-change attribution over source tokens; alignment ambiguity is exposed, not resolved by guess. */
 final class AttributionEngine {
-	public const VERSION = 'lcs-anchor-v1';
+	public const VERSION = 'lcs-anchor-v2';
 	public const MAX_DIFF_CELLS = 250000;
+	public const MAX_DERIVATION_REFERENCES = 250000;
 
 	/** @param list<array{id:int,text:string}> $history Oldest first. */
 	public function analyze( array $history ): array {
 		if ( !$history ) { throw new DomainException( 'History is empty' ); }
 		$current = [];
 		$events = [];
+		$derivationReferences = 0;
 		foreach ( $history as $revisionIndex => $revision ) {
 			$next = SourceTokenizer::tokenize( $revision['text'] );
 			if ( $revisionIndex === 0 ) {
@@ -24,7 +26,7 @@ final class AttributionEngine {
 				}
 				unset( $token );
 				$current = $next;
-				$events[] = self::event( $revision['id'], 0, 0, [], $next, false, null, null );
+				$events[] = self::event( $revision['id'], 0, 0, [], $next, false, null, null, $derivationReferences );
 				continue;
 			}
 
@@ -38,11 +40,11 @@ final class AttributionEngine {
 				if ( $oldIndex > $oldCursor || $newIndex > $newCursor ) {
 					$oldGap = array_slice( $current, $oldCursor, $oldIndex - $oldCursor );
 					$newGap = array_slice( $next, $newCursor, $newIndex - $newCursor );
-					$newGap = self::attributeNewTokens( $newGap, $revision['id'], $newCursor, $ambiguousValues, $oldGap );
+					$newGap = self::attributeNewTokens( $newGap, $revision['id'], $newCursor, $ambiguousValues, $oldGap, $derivationReferences );
 					$left = self::nearestWordAnchor( $rebuilt, count( $rebuilt ) - 1, -1 );
 					$right = self::nearestWordAnchor( $current, $oldIndex, 1 );
 					$ambiguous = $anchorFallback || self::hasAmbiguity( $newGap ) || self::hasAmbiguity( $oldGap ) || ( count( $oldGap ) > 1 && count( $newGap ) > 0 );
-					$events[] = self::event( $revision['id'], $parentId, $current[$oldCursor]['utf16_start'] ?? 0, $oldGap, $newGap, $ambiguous, $left, $right );
+					$events[] = self::event( $revision['id'], $parentId, $current[$oldCursor]['utf16_start'] ?? 0, $oldGap, $newGap, $ambiguous, $left, $right, $derivationReferences );
 					array_push( $rebuilt, ...$newGap );
 				}
 				$matched = $current[$oldIndex];
@@ -58,10 +60,10 @@ final class AttributionEngine {
 			if ( $oldCursor < count( $current ) || $newCursor < count( $next ) ) {
 				$oldGap = array_slice( $current, $oldCursor );
 				$newGap = array_slice( $next, $newCursor );
-				$newGap = self::attributeNewTokens( $newGap, $revision['id'], $newCursor, $ambiguousValues, $oldGap );
+				$newGap = self::attributeNewTokens( $newGap, $revision['id'], $newCursor, $ambiguousValues, $oldGap, $derivationReferences );
 				$left = self::nearestWordAnchor( $rebuilt, count( $rebuilt ) - 1, -1 );
 				$ambiguous = $anchorFallback || self::hasAmbiguity( $newGap ) || self::hasAmbiguity( $oldGap ) || ( count( $oldGap ) > 1 && count( $newGap ) > 0 );
-				$events[] = self::event( $revision['id'], $parentId, $current[$oldCursor]['utf16_start'] ?? ( $current ? end( $current )['utf16_end'] : 0 ), $oldGap, $newGap, $ambiguous, $left, null );
+				$events[] = self::event( $revision['id'], $parentId, $current[$oldCursor]['utf16_start'] ?? ( $current ? end( $current )['utf16_end'] : 0 ), $oldGap, $newGap, $ambiguous, $left, null, $derivationReferences );
 				array_push( $rebuilt, ...$newGap );
 			}
 			$current = $rebuilt;
@@ -72,25 +74,36 @@ final class AttributionEngine {
 			'algorithm' => [
 				'version' => self::VERSION,
 				'semantics' => 'Unchanged LCS-aligned tokens retain their last-change revision. New tokens receive the current revision. Replacements inherit all removed-token lineage in their unmatched gap; non-one-to-one associations and patience-anchor fallback are marked ambiguous. Deletions retain stable removed-token IDs and neighboring anchors. This does not prove unique authorship.',
-				'limits' => [ 'maximum_lcs_cells_per_pair' => self::MAX_DIFF_CELLS, 'fallback' => 'unique-token patience anchors; resulting preserved tokens are ambiguous' ],
+				'limits' => [
+					'maximum_lcs_cells_per_pair' => self::MAX_DIFF_CELLS,
+					'maximum_lineage_derivation_references' => self::MAX_DERIVATION_REFERENCES,
+					'lineage_budget_exhaustion' => 'Fail closed with no partial attribution.',
+					'fallback' => 'unique-token patience anchors; resulting preserved tokens are ambiguous',
+				],
 			],
 		];
 	}
 
-	private static function attributeNewTokens( array $tokens, int $revisionId, int $offset, array $ambiguousValues, array $removed ): array {
-		$ancestors = [];
+	private static function attributeNewTokens( array $tokens, int $revisionId, int $offset, array $ambiguousValues, array $removed, int &$derivationReferences ): array {
+		$ancestorInputReferences = 0;
 		foreach ( $removed as $oldToken ) {
-			$ancestors[] = $oldToken['token_id'];
-			array_push( $ancestors, ...$oldToken['lineage_ids'] );
+			$ancestorInputReferences += 1 + count( $oldToken['lineage_ids'] );
 		}
-		$ancestors = array_values( array_unique( $ancestors ) );
+		self::consumeDerivationReferences( $derivationReferences, $ancestorInputReferences );
+		$ancestorSet = [];
+		foreach ( $removed as $oldToken ) {
+			$ancestorSet[$oldToken['token_id']] = true;
+			foreach ( $oldToken['lineage_ids'] as $ancestor ) { $ancestorSet[$ancestor] = true; }
+		}
+		$ancestors = array_keys( $ancestorSet );
+		self::consumeDerivationReferences( $derivationReferences, count( $ancestors ) * count( $tokens ) + count( $tokens ) );
 		$inheritOne = count( $tokens ) === 1 && count( $removed ) === 1;
 		foreach ( $tokens as $i => &$token ) {
 			$id = $revisionId . ':' . ( $offset + $i );
 			$token += [
 				'revision_id' => $revisionId,
 				'introduced_revision_id' => $revisionId,
-				'lineage_ids' => array_values( array_unique( [ ...$ancestors, $id ] ) ),
+				'lineage_ids' => [ ...$ancestors, $id ],
 				'token_id' => $id,
 				'ambiguous' => isset( $ambiguousValues[$token['text']] ) || ( $removed && !$inheritOne ),
 			];
@@ -111,10 +124,24 @@ final class AttributionEngine {
 		return null;
 	}
 
-	private static function event( int $revisionId, int $parentId, int $oldStart, array $oldTokens, array $newTokens, bool $ambiguous, ?string $left, ?string $right ): array {
+	private static function event( int $revisionId, int $parentId, int $oldStart, array $oldTokens, array $newTokens, bool $ambiguous, ?string $left, ?string $right, int &$derivationReferences ): array {
+		$referenceCount = count( $newTokens );
+		foreach ( $oldTokens as $token ) { $referenceCount += 1 + count( $token['lineage_ids'] ); }
+		self::consumeDerivationReferences( $derivationReferences, $referenceCount );
 		$removedIds = [];
-		foreach ( $oldTokens as $token ) { $removedIds[] = $token['token_id']; array_push( $removedIds, ...$token['lineage_ids'] ); }
-		$ids = array_values( array_unique( [ ...$removedIds, ...array_column( $newTokens, 'token_id' ) ] ) );
+		foreach ( $oldTokens as $token ) { $removedIds[] = $token['token_id']; }
+		$ids = [];
+		$seen = [];
+		$addId = static function ( string $id ) use ( &$ids, &$seen ): void {
+			if ( isset( $seen[$id] ) ) { return; }
+			$seen[$id] = true;
+			$ids[] = $id;
+		};
+		foreach ( $oldTokens as $token ) {
+			$addId( $token['token_id'] );
+			foreach ( $token['lineage_ids'] as $ancestor ) { $addId( $ancestor ); }
+		}
+		foreach ( $newTokens as $token ) { $addId( $token['token_id'] ); }
 		return [
 			'revision_id' => $revisionId,
 			'before' => implode( '', array_column( $oldTokens, 'text' ) ),
@@ -132,6 +159,13 @@ final class AttributionEngine {
 			'new_end' => $newTokens ? end( $newTokens )['utf16_end'] : null,
 			'parent_revision_id' => $parentId,
 		];
+	}
+
+	private static function consumeDerivationReferences( int &$used, int $amount ): void {
+		if ( $amount > self::MAX_DERIVATION_REFERENCES - $used ) {
+			throw new DomainException( 'lineage-derivation-reference-limit-exceeded' );
+		}
+		$used += $amount;
 	}
 
 	/** Trim common edges; use LCS for the bounded middle and unique anchors for large middle regions. */
