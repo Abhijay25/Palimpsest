@@ -18,3 +18,7 @@ Product goal (user, 2026-11-14 14:58): an assistive proofreader that does the fi
 ## Human in the loop (user, 2026-11-14 20:37)
 - The admin makes the final decision; the tool helps them be the last line of defence. Priority: do not miss an edit that deserves review, and give the most plausible reason it needs review, with evidence. Never phrase output as approval/rejection.
 - Hackathon scope: be very good at a limited set of scenarios first, expand later. Guide the model with a fixed checklist rather than letting it reason freely; out-of-scope suspicions go to a lower `review` tier instead of being dropped. Design: docs/guided-judge-design.md.
+
+## Real-data verification with an isolated scout (user, 2026-11-14 20:49)
+- Every feature, once built, is verified on real data (live Wikipedia, or the MariaDB dataset M version history), not only synthetic cases: synthetic data carries confirmation bias.
+- Real test cases are found by an independent scout agent that works only from raw data and a plain-language description of the phenomenon. The scout never sees palimpsest/ code, prompts, eval runs, labels or model outputs, and the judging models never see the scout's notes beyond the case itself. Prefer cases where the error was later corrected in the history (the correction is the ground truth).
