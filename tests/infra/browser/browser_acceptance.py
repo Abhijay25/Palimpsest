@@ -202,6 +202,11 @@ def create_talk_post_and_reply(page: Page, root: str, title: str, token: str) ->
 
     reply_link = page.get_by_role("button", name="Reply", exact=True)
     expect(reply_link.first).to_be_visible(timeout=30_000)
+    # DiscussionTools binds reply-click handlers after its content hook runs.
+    # The pinned extension sets this class only after controller initialization.
+    expect(page.locator("html")).to_have_class(
+        re.compile(r"(?:^|\s)ext-discussiontools-init-ready(?:\s|$)"), timeout=30_000
+    )
     reply_link.first.click()
     reply_input = page.get_by_role("textbox", name=re.compile("^Reply to", re.I)).last
     expect(reply_input).to_be_visible(timeout=30_000)
@@ -211,7 +216,15 @@ def create_talk_post_and_reply(page: Page, root: str, title: str, token: str) ->
     typed_reply = reply_input.evaluate("element => element.value ?? element.innerText ?? element.textContent ?? ''")
     assert marker in typed_reply, f"DiscussionTools composer did not retain the full reply text: {typed_reply!r}"
     submit_reply = page.get_by_role("button", name="Reply", exact=True)
-    expect(submit_reply.last).to_be_enabled(timeout=30_000)
+    try:
+        expect(submit_reply.last).to_be_enabled(timeout=30_000)
+    except AssertionError as error:
+        state = page.evaluate("""() => ({
+            widgets: [...document.querySelectorAll('.ext-discussiontools-ui-replyWidget')].map(node => ({className: node.className, text: node.innerText})),
+            textboxes: [...document.querySelectorAll('[role="textbox"]')].map(node => ({tag: node.tagName, className: node.className, value: node.value, text: node.innerText, label: node.getAttribute('aria-label')})),
+            replyButtons: [...document.querySelectorAll('[role="button"]')].filter(node => node.innerText.trim() === 'Reply').map(node => ({disabled: node.getAttribute('aria-disabled'), className: node.className, title: node.title})),
+        })""")
+        raise AssertionError(f"DiscussionTools Reply stayed disabled after full text input: {json.dumps(state)}") from error
     submit_reply.last.click()
     expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=60_000)
     page.reload(wait_until="domcontentloaded")

@@ -20,7 +20,10 @@ PORTS = "38081,38082,38083"
 def run(args: list[str], *, env: dict[str, str], timeout: int, check: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(args, cwd=ROOT, env=env, text=True, capture_output=True, timeout=timeout, check=False)
     if check and result.returncode:
-        raise RuntimeError(f"command exited {result.returncode}: {' '.join(args)}\n{result.stdout[-2000:]}\n{result.stderr[-2000:]}")
+        stderr = result.stderr
+        if len(stderr) > 10_000:
+            stderr = f"{stderr[:5_000]}\n... stderr middle omitted ...\n{stderr[-5_000:]}"
+        raise RuntimeError(f"command exited {result.returncode}: {' '.join(args)}\n{result.stdout}\n{stderr}")
     return result
 
 
