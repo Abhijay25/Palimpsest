@@ -36,7 +36,27 @@ PALIMPSEST_RUN_DOCKER=1 python3 -m unittest tests.infra.test_docker_runtime -v
 
 The suite is excluded from ordinary CI. The workflow's manual `docker_runtime` input runs it on a clean Linux runner. It checks distinct language/database routing and API access across first setup, repeated setup and restart. A local failure may leave the named project stopped with its volumes preserved for inspection; it will never run global prune commands.
 
-The live-source sample acceptance command will be added after B publishes the concrete C2–C5 artifact handoff path. Until then, no test guesses where producer manifests are stored or how their output is serialized. When enabled, this tier must use an explicitly selected three-language sample, require network access to release assets and public APIs, and stay out of ordinary CI. It must never switch a full request to a sample. A passing sample is not evidence that all 29,460 S pages or their histories are complete.
+## Live-source sample pipeline
+
+This opt-in check uses the committed six-member C2 sample manifest and B's concrete artifact paths. It calls the three public MediaWiki APIs, imports only those six articles and their sampled template/module dependencies, and writes intermediate C3/C4 and final C5 artifacts under the configured data root. It does not download the full Parquet release. Network access is required, and source rate limits may leave supporting-content work pending; rerun the support step with a larger request budget to resume. Never add `--all-pages` for this check, and do not treat a sample pass as evidence that all 29,460 S pages or their histories are complete.
+
+Use a dedicated project and data root. The following commands use the usual worker-C project and ports; ensure they are free first. The anchor probe is a small independent check against each sample anchor and its predecessor.
+
+```sh
+PROJECT=palimpsest-c
+DATA_ROOT="$PWD/.local/infra-test-c"
+PORTS=38081,38082,38083
+SAMPLE=tests/data/fixtures/sample-corpus.json
+
+python3 scripts/wiki --project "$PROJECT" --data-root "$DATA_ROOT" --ports "$PORTS" setup
+python3 scripts/wiki --project "$PROJECT" --data-root "$DATA_ROOT" --ports "$PORTS" history probe-anchors --sample-manifest "$SAMPLE"
+python3 scripts/wiki --project "$PROJECT" --data-root "$DATA_ROOT" --ports "$PORTS" history acquire --sample-manifest "$SAMPLE"
+python3 scripts/wiki --project "$PROJECT" --data-root "$DATA_ROOT" --ports "$PORTS" data support --sample-manifest "$SAMPLE" --anchor-spike "$DATA_ROOT/reports/anchor-spike.json"
+python3 scripts/wiki --project "$PROJECT" --data-root "$DATA_ROOT" --ports "$PORTS" data import --sample-manifest "$SAMPLE"
+python3 scripts/wiki --project "$PROJECT" --data-root "$DATA_ROOT" --ports "$PORTS" verify --scope sample --sample-manifest "$SAMPLE"
+```
+
+The import requires a healthy C1 runtime and completed anchor-validated sample histories and support inventories. C5 reports exact sample membership, acquired history, source-to-local revision mappings, unresolved dependencies and rendering separately. Inspect `coverage.json` under `DATA_ROOT`; an incomplete or rate-limited run must remain incomplete, not be relabeled successful. `dataset fetch` is a separate explicit full-release operation and is not needed for this committed sample manifest.
 
 ## Browser acceptance
 
@@ -44,7 +64,7 @@ Browser acceptance is a separate opt-in integration tier. Its runner starts and 
 
 The image tag pins Playwright 1.65.1 and its bundled browser set: Chromium 158.0.8127.18, Firefox 159.0, and WebKit 27.2. The browser suite uses Chromium. Official Playwright images support Linux amd64 and arm64; Docker Desktop on macOS ARM64 can use the arm64 image. Browser verification requires a running worker-C runtime and is not included in normal CI. Do not reuse a personal wiki or production credentials. See the [Playwright Docker guide](https://playwright.dev/python/docs/docker) and [v1.65.1 release](https://github.com/microsoft/playwright-python/releases/tag/v1.65.1) for the matching package and browser image versions.
 
-The runner command owns its temporary `palimpsest-c-<run-id>` project, port allocation, data root, browser-state file, and uniquely tagged browser image. It creates accounts, edits, discussion, watchlist state and an upload in each wiki; then it shuts down and restarts the same project and checks those records again. It runs `down` and an exact-project `reset` after the checks, then removes only the image it built. On macOS, ensure Docker Desktop's CLI/helper directory is on `PATH` as shown above.
+The runner command owns its temporary `palimpsest-c-<run-id>` project, port allocation, data root, browser-state file, and uniquely tagged browser image. It temporarily sets each disposable wiki's canonical server URL to `host.docker.internal` on that wiki's assigned port so browser navigation, redirects and cookies use the host gateway; this adaptation is confined to the throwaway test config. It creates accounts, edits, discussion, watchlist state and an upload in each wiki; then it shuts down and restarts the same project and checks those records again. It runs `down` and an exact-project `reset` after the checks, then removes only the image it built. On macOS, ensure Docker Desktop's CLI/helper directory is on `PATH` as shown above.
 
 ```sh
 python3 tests/infra/run_browser_acceptance.py
