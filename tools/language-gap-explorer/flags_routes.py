@@ -26,18 +26,83 @@ except ModuleNotFoundError:  # stdlib fallback keeps fixture tests dependency-fr
     class _Requests:
         class RequestException(Exception): pass
         @staticmethod
+        def get(url, timeout):
+            try: return _Response(urlopen(url, timeout=timeout))
+            except (OSError, URLError) as error: raise _Requests.RequestException(str(error)) from error
+        @staticmethod
         def post(url, json, timeout, headers=None):
             try:
                 request_headers = {"Content-Type": "application/json", **(headers or {})}
                 return _Response(urlopen(Request(url, data=__import__('json').dumps(json).encode(), headers=request_headers), timeout=timeout))
             except (OSError, URLError) as error: raise _Requests.RequestException(str(error)) from error
     requests=_Requests()
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, render_template, request, send_file
 
 from flags_tab import RevisionRef, audit_payload, block_revisions, rank_revisions
 from revision_text import cache_root, fetch_history, fetch_revision
 
 bp = Blueprint("flags", __name__)
+
+
+@bp.get("/assets/flags/stacking.js")
+def shared_flag_stacking():
+    # Both the native extension and preview use the same collision-aware layout.
+    path = Path(__file__).resolve().parents[2] / "infra/wiki/extensions/PalimpsestFlags/resources/stacking.js"
+    return send_file(path, mimetype="application/javascript")
+
+
+def detector_failure(error: Exception) -> str:
+    """Keep transport errors, internal addresses and provider details out of the UI."""
+    if isinstance(error, requests.RequestException):
+        response = getattr(error, "response", None)
+        code = getattr(response, "status_code", None)
+        if code in (401, 403):
+            return "The detector could not authenticate. Check its provider credentials."
+        if code == 429:
+            return "The detector is rate limited. Wait before trying again."
+        if code in (502, 503, 504):
+            return "The detector is unavailable or its provider is not configured. Check the detector service and try again."
+        if code == 422:
+            return "The detector rejected this revision. Its request format or text size is unsupported."
+        return "Cannot reach the detector. Start the detector service, then try again."
+    if isinstance(error, DetectorResultError):
+        return str(error)
+    if isinstance(error, RuntimeError):
+        return "The selected revision text is unavailable. Try another revision."
+    return "The scan could not be completed. Please try again; no successful result was saved."
+
+
+class DetectorResultError(ValueError):
+    pass
+
+
+def validate_detector_result(result):
+    if not isinstance(result, dict) or not isinstance(result.get("flags"), list):
+        raise DetectorResultError("The detector returned an invalid response. No result was saved.")
+    if result.get("status", "ok") != "ok":
+        if "timeout" in str(result.get("error", "")).lower():
+            raise DetectorResultError("The detector timed out before finishing. Retry the check or choose another revision; no successful result was saved.")
+        raise DetectorResultError("The detector could not complete the scan. Check its provider configuration and try again; no successful result was saved.")
+    return result
+
+
+@bp.get("/api/flags/health")
+def detector_health():
+    if fixture_enabled():
+        return jsonify(available=True, configured=True, message="Offline fixture; scans stay local.")
+    base = os.environ.get("PALIMPSEST_API_URL", "http://127.0.0.1:8765").rstrip("/")
+    try:
+        response = requests.get(base + "/healthz", timeout=3)
+        response.raise_for_status()
+        data = response.json()
+        configured = isinstance(data, dict) and data.get("judge_configured") is True
+        return jsonify(available=True, configured=configured, message=(
+            "Detector ready. Scans run only when requested." if configured else
+            "Detector is running, but Gemini is not configured. Configure its credentials and enable Gemini to scan."
+        ))
+    except (requests.RequestException, OSError, ValueError):
+        return jsonify(available=False, configured=False,
+                       message="Detector is offline. Start the preview with its detector service, then retry.")
 
 
 def fixture_enabled() -> bool:
@@ -107,11 +172,11 @@ def page_path(ref: RevisionRef) -> Path:
 
 def cached_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str, Any] | None:
     fixture = context.get("audits", {}).get(str(ref.revision_id)) if isinstance(context.get("audits"), Mapping) else None
-    if isinstance(fixture, dict):
+    if isinstance(fixture, dict) and fixture.get("status", "ok") == "ok":
         return dict(fixture)
     try:
         data = json.loads(audit_path(ref).read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or data.get("status", "ok") != "ok":
             return None
         data.setdefault("status", "ok")
         return data
@@ -183,15 +248,13 @@ def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, f
         response = requests.post(api_url, json=body, timeout=90,
                                  headers={"X-Palimpsest-Fresh": "1"} if fresh else {})
         response.raise_for_status()
-        result = response.json()
-        if not isinstance(result, dict):
-            raise ValueError("invalid detector response")
+        result = validate_detector_result(response.json())
         result.update(status="ok", old_wikitext=body["old_wikitext"], new_wikitext=body["new_wikitext"])
         path = audit_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         return dict(result, diff_html=diff_html(body["old_wikitext"], body["new_wikitext"]))
     except (requests.RequestException, OSError, RuntimeError, ValueError, KeyError) as error:
-        return {"status": "error", "flags": [], "error": f"Audit unavailable: {error}"}
+        return {"status": "error", "flags": [], "error": detector_failure(error)}
 
 
 def rendered_page_html(wikitext: str, lang: str, title: str) -> str:
@@ -207,11 +270,11 @@ def rendered_page_html(wikitext: str, lang: str, title: str) -> str:
 
 def cached_page_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str, Any] | None:
     fixture = context.get("page_audits", {}).get(str(ref.revision_id)) if isinstance(context.get("page_audits"), Mapping) else None
-    if isinstance(fixture, dict):
+    if isinstance(fixture, dict) and fixture.get("status", "ok") == "ok":
         return dict(fixture)
     try:
         data = json.loads(page_path(ref).read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
+        return data if isinstance(data, dict) and data.get("status", "ok") == "ok" else None
     except (OSError, ValueError):
         return None
 
@@ -235,9 +298,7 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
             response = requests.post(api_url, json=body, timeout=90,
                                      headers={"X-Palimpsest-Fresh": "1"} if fresh else {})
             response.raise_for_status()
-            result = response.json()
-            if not isinstance(result, dict):
-                raise ValueError("invalid detector response")
+            result = validate_detector_result(response.json())
             result.update(status="ok", wikitext=wikitext)
             path = page_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -248,7 +309,7 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
         output["page_html"] = rendered_page_html(wikitext, ref.lang, ref.title)
         return output
     except (requests.RequestException, OSError, RuntimeError, ValueError, KeyError) as error:
-        return {"status": "error", "flags": [], "error": f"Page consistency is unavailable: {error}"}
+        return {"status": "error", "flags": [], "error": detector_failure(error)}
 
 
 @bp.get("/article/<topic>")

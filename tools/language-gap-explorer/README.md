@@ -4,6 +4,24 @@ Current integrated flow: [divergence skyline → historical article tracker](doc
 
 Local Wikipedia-style reading and comparison app. The full supplied snapshot has 29,460 articles; 7,256 linked topics have multiple language editions. Start Docker Desktop, run `./start.ps1`, and open http://127.0.0.1:8010. The app and database bind to localhost. Review progress is at `/reviews`.
 
+## Article Flags and page consistency
+
+The Flags tab needs the separate detector API as well as the research app and its existing database. Start both processes together from the repository root:
+
+```sh
+python scripts/preview.py --env-file .env --research-root /path/to/existing/research-data
+```
+
+Use Python 3.12 with the root project's locked dependencies for the detector, and the research app's existing environment for Flask and MariaDB. If these are separate environments, pass `--detector-python <python-path>` and `--app-python <python-path>`. This command reuses the database; it does not start or rebuild Docker, acquire datasets or prepare comparisons. Ctrl+C stops both child processes.
+
+Keep `GEMINI_API_KEY` and `PALIMPSEST_USE_GEMINI=1` in the private environment file; `.env.example` documents the fields without credentials. The launcher binds both services to localhost, checks detector readiness and connects the app to it. Default ports are preview 8025 and detector 8765. Change them with `--port` and `--detector-port`.
+
+Whole-page consistency uses a 45-second deadline, configurable with `PALIMPSEST_PAGE_TIMEOUT_SECONDS` up to 75 seconds. On Windows the optional cited-page renderer can use installed Edge or Chrome; `CHROMIUM_PATH` remains an explicit override.
+
+The page distinguishes an offline detector from one missing its provider configuration, and offers Retry detector connection. Cached audits remain readable. New scans require explicit clicks, with controls locked while work runs. Failed detector responses are never saved as successful audits; old failed cache entries are ignored. Changing revisions clears the previous revision's diff and page-consistency results. An empty successful audit means no suggestions were returned, not that the page is proven correct.
+
+Revision comments reuse the native extension's collision-aware stacking helper. Desktop cards sit beside their source highlights, and selecting a crowded card prioritizes its source alignment. Narrow layouts use numbered inline markers and an anchored, keyboard-dismissable comment popover. Comments without reliable anchors remain explicitly unanchored.
+
 ## Fast Decisions-only pipeline
 
 The current engine is `paragraph-v2-k3-decisions-only-v1`. It makes **only Decisions API calls**. The provider rejects any generation endpoint. The earlier extraction/explanation pipeline is retired; its stored results remain historical.

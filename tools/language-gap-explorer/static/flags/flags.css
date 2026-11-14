@@ -5,3 +5,16 @@
 @media(prefers-color-scheme:dark){.flags-severity-chip{background:#1e293b;color:#93c5fd}.flags-severity-chip--admin{background:#3b1818;color:#fca5a5}}
 .page-consistency{margin:0 0 12px;padding:10px 12px;border:1px solid #c8ccd1;border-radius:2px}.page-consistency summary{cursor:pointer;font-weight:600}.page-consistency p{font-size:13px;line-height:1.45}.page-consistency-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-top:10px}.page-flag-card__body{display:block}.page-text-view{margin-top:12px;padding:12px;border:1px solid #eaecf0;line-height:1.6;max-height:360px;overflow:auto}.page-anchor{background:#fde68a;outline:2px solid #d97706;border-radius:2px}
 @media(prefers-color-scheme:dark){.page-consistency{border-color:#3a3f47}.page-text-view{border-color:#3a3f47}.page-anchor{background:#78350f;outline-color:#fbbf24}}
+
+/* Anchor comments to their source text, using the native extension's stacking model. */
+.flags-workspace[data-layout="rail"] .flags-rail__list{position:relative;list-style:none;margin:0;padding:0;width:100%}
+.flags-workspace[data-layout="rail"] .flags-rail__item{position:absolute;top:0;left:0;width:100%}
+.flags-workspace[data-layout="compact"]{grid-template-columns:minmax(0,1fr)}
+.flags-workspace[data-layout="compact"] .flags-rail{display:none}
+.flag-card--near-bottom.is-open{margin-top:0}
+.flag-card__body{max-height:300px;overflow:auto}
+.flag-inline-pin{display:inline-flex;align-items:center;justify-content:center;min-width:24px;min-height:24px;margin-inline:4px;padding:1px 5px;border:1px solid #36c;border-radius:3px;background:#eaf3ff;color:#2450a4;font-size:12px;font-weight:600;vertical-align:baseline;cursor:pointer}
+.flag-anchored-popover{position:fixed;z-index:100;width:min(360px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:8px;background:#fff;border:1px solid #a2a9b1;box-shadow:0 4px 18px #0003}
+.flag-popover-close{display:block;margin:0 0 8px auto;min-height:32px;padding:4px 10px;cursor:pointer}
+.diff-anchor:focus-visible,.flag-inline-pin:focus-visible,.flag-popover-close:focus-visible{outline:2px solid #36c;outline-offset:2px}
+@media(prefers-color-scheme:dark){.flag-anchored-popover{background:#202122;border-color:#54595d}}
