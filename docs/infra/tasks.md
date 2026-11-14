@@ -1,6 +1,6 @@
 # Implementation and verification task plan
 
-Status: D1–D6 approved by owner on 2026-11-14. T00 COMPLETE; T01 preparing the approved baseline and contracts. T02–T11 NOT STARTED. Worker launch awaits the target folder’s Codex project registration.
+Status: D1–D6 approved by owner on 2026-11-14. T00,T01 COMPLETE at approved baseline e6d6e65. T02/T03 assigned to A, T04–T07 to B, T08 to C and RUNNING. T09 integration preparation RUNNING; T10/T11 NOT STARTED. See orchestration.md for actual worker chats and worktrees.
 Requirement definitions: [spec.md](spec.md); architecture/contracts: [design.md](design.md).
 Registry and repair protocol: [orchestration.md](orchestration.md).
 

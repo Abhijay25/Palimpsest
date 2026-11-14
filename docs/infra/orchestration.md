@@ -1,6 +1,6 @@
 # Conversation and worktree orchestration
 
-Status: PHASE 2 AUTHORIZED — D1–D6 approved on 2026-11-14; no workers launched. Baseline preparation is in progress.
+Status: PHASE 2 RUNNING — D1–D6 approved; T01 baseline committed at e6d6e657ffe2a10bc7a598bc85f2ab1223741b7f. Three visible Luna workers launched and verified.
 Owner: the orchestrator conversation in which the user invoked the pasted SDD prompt.
 
 ## Verified current state and model gate
@@ -11,7 +11,7 @@ Inspected branch/base: `infra-set-up` / `17b73fc0c285f38a036160679d469cc49ace9b5
 Requested orchestrator: GPT-6.1 Sol, High reasoning or stronger. Requested workers: GPT-6 Luna.
 **Verified actual orchestrator: gpt-6.1-sol, high reasoning.** Evidence: latest turn_context in the current conversation’s session metadata, turn 01a1d768-0dc8-7fd3-8e9d-0c6d54a8c7b1, inspected 2026-11-14. Reconfirm if the session settings change; this is not a claim about future worker settings.
 
-Available tool schemas expose separate Codex chat creation with model/thinking controls, status waits, messages and worktree environments. Discovery is not proof of successful model selection or ready worker worktrees. No worker conversation creation or execution has been attempted. list_projects currently omits Palimpsest; app tools require a registered project for repository worker chats. Computer use of the Codex app is prohibited by the tool, so no UI workaround was attempted. The owner has been asked to add the existing folder as a Codex project. Do not attach workers to an unrelated project.
+Available tool schemas expose separate Codex chat creation with model/thinking controls, status waits, messages and worktree environments. Discovery is not proof of successful model selection or ready worker worktrees. The user confirmed Palimpsest is the primary source folder in the existing HackJunction project (c9b42133-91da-485c-b63a-237f9b57be47). list_projects exposes only one representative path; it does not enumerate all source folders. Workers were created in that project, then created managed worktrees using explicit Palimpsest sourceRoot before any implementation. Each worktree/remote/base was independently verified. Actual worker session metadata confirms gpt-6-luna, high reasoning. Worker B’s coordination message was rejected by automatic approval review for missing trusted authorization; the orchestrator reads B’s conversation through wait_threads instead, without bypassing that rejection.
 
 ## Human authorization and boundaries
 
@@ -19,14 +19,14 @@ The user explicitly authorizes, after specification approval, up to three visibl
 
 One agent equals one separate visible Codex conversation. This chat remains the sole orchestrator. No role-play agents, hidden internal subagents, worker-spawned agents or additional reviewer agent. At most three Luna workers plus this Sol orchestrator. Reuse each worker conversation for its coherent workstream and repairs. An idle/completed worker's preserved conversation is not a newly spawned worker.
 
-## Proposed registry — not actual launches
+## Actual worker registry
 
 | Slot/title | Model request | Planned work | Planned branch | Chat ID / path / baseline / commits | Status |
 |---|---|---|---|---|---|
-| A — Palimpsest infra: runtime | gpt-6-luna | T02,T03 | infra/runtime | Not assigned | NOT LAUNCHED |
-| B — Palimpsest infra: data | gpt-6-luna | T04–T07,T10 | infra/data | Not assigned | NOT LAUNCHED |
-| C — Palimpsest infra: verification | gpt-6-luna | T08 | infra/verification | Not assigned | NOT LAUNCHED |
-| Orchestrator — this chat | gpt-6.1-sol, high or stronger | T00,T01,T09,T11 | infra-set-up (verify before use) | Current chat/base above; no implementation commits | BASELINE PREPARATION |
+| A — Palimpsest infra: runtime | gpt-6-luna, high (verified) | T02,T03 | infra/runtime | Chat 01a1d76f-1381-7c72-822a-e29d4d5a2e9a; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-a/Palimpsest; base e6d6e65; no delivered commits yet | RUNNING |
+| B — Palimpsest infra: data | gpt-6-luna, high (verified) | T04–T07,T10 | infra/data | Chat 01a1d76f-2107-7253-9e88-bd25c5cfbf03; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-b/Palimpsest; base e6d6e65; no delivered commits yet | RUNNING |
+| C — Palimpsest infra: verification | gpt-6-luna, high (verified) | T08 | infra/verification | Chat 01a1d76f-2c1e-7071-b5d4-d409f46a9f7e; local host; /Users/zhenghaofang/.codex/worktrees/palimpsest-c/Palimpsest; base e6d6e65; no delivered commits yet | RUNNING |
+| Orchestrator — this chat | gpt-6.1-sol, high or stronger | T00,T01,T09,T11 | infra-set-up (verify before use) | Current chat above; approved baseline e6d6e65 | INTEGRATION PREPARATION |
 
 Orchestrator alone updates this registry with actual chat/host IDs, confirmed model/reasoning, worktree paths, base SHA, owned tasks/files, dependencies, status, test-environment allocation, delivered commits and review findings. Missing identifiers stay unassigned, never invented.
 
