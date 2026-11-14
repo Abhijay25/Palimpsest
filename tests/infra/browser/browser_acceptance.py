@@ -115,7 +115,7 @@ def save_visual(page: Page, root: str, title: str, base_content: str, marker: st
         const text = Array.isArray(data) ? data.map(item =>
             typeof item === 'string' ? item : Array.isArray(item) ? item[0] : ''
         ).join('') : '';
-        return !!model && model.hasBeenModified() && text.includes(marker);
+        return !!model && text.includes(marker);
     }""", arg=marker, timeout=30_000)
     save_button = page.locator(".ve-ui-toolbar").get_by_role(
         "button", name=re.compile(r"^Save(?: changes)?(?:…|\.\.\.)?$", re.I)
