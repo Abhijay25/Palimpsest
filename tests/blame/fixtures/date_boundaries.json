@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "date_boundaries",
+  "kind": "synthetic_history",
+  "description": "Explicit UTC boundaries and same-second ordering; answers are precomputed from the listed ordered timestamps.",
+  "revisions": [
+    {"alias": "r1", "author": "FixtureAlice", "timestamp": "2026-03-15T23:59:59Z", "text": "boundary alpha"},
+    {"alias": "r2", "author": "FixtureBoris", "timestamp": "2026-03-15T23:59:59Z", "text": "boundary beta"},
+    {"alias": "r3", "author": "FixtureChandra", "timestamp": "2026-03-16T00:00:00Z", "text": "boundary gamma"}
+  ],
+  "expected": {
+    "snapshot": "r3",
+    "same_second_order": ["r2", "r1"],
+    "queries": [
+      {"mode": "asof", "bound": "2026-03-15T23:59:59Z", "selected": "r2", "inclusive": true},
+      {"mode": "before", "bound": "2026-03-15T23:59:59Z", "selected": null, "inclusive": false},
+      {"mode": "range", "from": "2026-03-15T23:59:59Z", "to": "2026-03-15T23:59:59Z", "versions": ["r2", "r1"], "both_inclusive": true},
+      {"mode": "asof", "bound": "2026-03-15T23:59:58Z", "selected": null, "before_earliest": true}
+    ],
+    "local_latest": "r3",
+    "source_anchor": null
+  }
+}

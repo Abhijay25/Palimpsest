@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "id": "repeated_move_revert",
+  "kind": "synthetic_history",
+  "description": "Identical text occurs twice, is moved, then reverted; the final wording is not enough to prove a unique lineage.",
+  "revisions": [
+    {"alias": "r1", "author": "FixtureAlice", "timestamp": "2026-02-01T00:00:00Z", "text": "red marker rests; red marker waits."},
+    {"alias": "r2", "author": "FixtureBoris", "timestamp": "2026-02-02T00:00:00Z", "text": "red marker waits; red marker rests."},
+    {"alias": "r3", "author": "FixtureAlice", "timestamp": "2026-02-03T00:00:00Z", "text": "red marker rests; red marker waits."}
+  ],
+  "expected": {
+    "snapshot": "r3",
+    "selection": {"start": 0, "end": 10, "text": "red marker", "occurrence": 1, "complete": true},
+    "ambiguity": {"required": true, "scope": "repeated or moved marker lineage", "must_not_claim_unique_original_author": true},
+    "events": [
+      {"revision": "r2", "before": "red marker rests; red marker waits.", "after": "red marker waits; red marker rests.", "kind": "move_or_reorder", "ambiguous": true},
+      {"revision": "r3", "before": "red marker waits; red marker rests.", "after": "red marker rests; red marker waits.", "kind": "revert_or_reorder", "ambiguous": true}
+    ]
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "unicode_utf16_selection",
+  "kind": "synthetic_history",
+  "description": "Combining acute accent, supplementary emoji, and Japanese text exercise Unicode normalization and UTF-16 source offsets.",
+  "offset_unit": "utf16",
+  "revisions": [
+    {"alias": "r1", "author": "FixtureAlice", "timestamp": "2026-03-01T00:00:00Z", "text": "Café 😀 — 東京!"},
+    {"alias": "r2", "author": "FixtureBoris", "timestamp": "2026-03-02T00:00:00Z", "text": "Café 😃 — 東京!"},
+    {"alias": "r3", "author": "FixtureChandra", "timestamp": "2026-03-03T00:00:00Z", "text": "Café 😃 — 大阪!"}
+  ],
+  "expected": {
+    "snapshot": "r3",
+    "selection": {"start": 3, "end": 8, "text": "é 😃", "contributors": ["r1", "r2"], "complete": true},
+    "last_change_segments": [
+      {"text": "Café", "revision": "r1", "start": 0, "end": 5},
+      {"text": "😃", "revision": "r2", "start": 6, "end": 8},
+      {"text": "大阪", "revision": "r3", "start": 11, "end": 13}
+    ],
+    "events": [{"revision": "r3", "before": "東京", "after": "大阪", "kind": "replacement", "ambiguous": false}],
+    "must_preserve_codepoints": ["é", "😃", "大阪"],
+    "must_not_normalize_to": ["Café", "東京"]
+  }
+}

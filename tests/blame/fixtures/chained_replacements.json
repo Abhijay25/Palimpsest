@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "chained_replacements",
+  "kind": "synthetic_history",
+  "description": "A selected survivor records quick-to-slow-to-fast replacements, an interior deleted word, and an unrelated later edit.",
+  "revisions": [
+    {"alias": "r1", "author": "FixtureAlice", "timestamp": "2026-04-01T00:00:00Z", "text": "We keep the old quick mark and quiet end."},
+    {"alias": "r2", "author": "FixtureBoris", "timestamp": "2026-04-02T00:00:00Z", "text": "We keep the old slow mark and quiet end."},
+    {"alias": "r3", "author": "FixtureChandra", "timestamp": "2026-04-03T00:00:00Z", "text": "We keep the old fast mark and quiet end."},
+    {"alias": "r4", "author": "FixtureDara", "timestamp": "2026-04-04T00:00:00Z", "text": "We keep the fast mark and quiet end."},
+    {"alias": "r5", "author": "FixtureAlice", "timestamp": "2026-04-05T00:00:00Z", "text": "We keep the fast mark and calm end."}
+  ],
+  "expected": {
+    "snapshot": "r5",
+    "selection": {"start": 8, "end": 21, "text": "the fast mark", "contributors": ["r1", "r3"], "complete": true},
+    "last_change_segments": [
+      {"text": "the", "revision": "r1", "start": 8, "end": 11},
+      {"text": "fast", "revision": "r3", "start": 12, "end": 16},
+      {"text": "mark", "revision": "r1", "start": 17, "end": 21}
+    ],
+    "events": [
+      {"revision": "r2", "before": "quick", "after": "slow", "kind": "replacement", "ambiguous": false},
+      {"revision": "r3", "before": "slow", "after": "fast", "kind": "replacement", "ambiguous": false},
+      {"revision": "r4", "before": "old", "after": "", "kind": "deletion", "ambiguous": false}
+    ],
+    "excluded_from_selection_timeline": ["r5"],
+    "lineage_id_shape": "local_revision_id:zero_based_token_index"
+  }
+}

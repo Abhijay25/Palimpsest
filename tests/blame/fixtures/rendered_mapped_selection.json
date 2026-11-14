@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "rendered_mapped_selection",
+  "kind": "browser_case",
+  "description": "A fully mapped visible selection crosses formatting nodes and contains a relative existing-page link plus a citation anchor.",
+  "wikitext": "The '''bright''' red ''ball'' [[LINK_TARGET|existing article]] stays.<ref name=\"source\">Independent synthetic citation.</ref>",
+  "visible_text": "The bright red ball existing article stays.",
+  "link_target_text": "T4 ordinary internal link target.",
+  "link_label": "existing article",
+  "citation_text": "Independent synthetic citation.",
+  "selection_text": "bright red ball",
+  "expected_coverage": "complete",
+  "must_not_report_unmapped_visible_text": true
+}

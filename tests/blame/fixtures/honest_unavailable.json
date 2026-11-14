@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "honest_unavailable",
+  "kind": "outcome_controls",
+  "description": "Cases where the correct behavior is an explicit unavailable or permission-safe response, not guessed attribution.",
+  "controls": [
+    {"id": "generated_template_text", "input": "visible text emitted by a template with no verified source-range map", "expected_status": "unavailable", "must_not_return_authoritative_spans": true},
+    {"id": "missing_import_mapping", "input": "imported local revision has no source/local mapping record", "expected_status": "unavailable", "must_not_infer_from_numeric_ids": true},
+    {"id": "stale_import_mapping", "input": "mapping text hash or parent differs from the local revision", "expected_status": "unavailable", "must_report_affected_scope": true},
+    {"id": "suppressed_revision", "input": "reader lacks permission to see revision content or identity", "expected_status": "permission_denied_or_unavailable", "must_not_leak_content_identity_or_cached_fields": true},
+    {"id": "hidden_comment", "input": "edit comment is hidden from the requesting account", "expected_status": "ready_without_hidden_comment", "must_not_return_comment_from_cache": true},
+    {"id": "unmapped_selection", "input": "selection crosses a rendered leaf without a verified source range", "expected_status": "partial_or_unavailable", "must_not_claim_full_selection_coverage": true}
+  ]
+}
