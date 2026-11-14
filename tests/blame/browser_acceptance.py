@@ -261,10 +261,18 @@ def exercise_selection(page: Page, fixture_id: str, mobile: bool, screenshot: Pa
         page.screenshot(path=str(screenshot), full_page=True)
 
 
-def open_selected_timeline(page: Page, quote: str) -> None:
+def open_selected_timeline(page: Page, quote: str, expected_article_text: str) -> None:
+    article = page.locator("#mw-content-text")
+    panel = page.locator("#palimpsest-blame")
+    expect(article).to_be_visible()
+    expect(article).to_contain_text(expected_article_text)
+    expect(panel).to_be_visible()
+    # The shell can appear while it still shows "Loading verified revision
+    # history…"; wait for its ready state before mapping the selected quote.
+    expect(panel).to_have_attribute("data-state", "ready")
+    expect(article.locator("[data-pb-start]").first).to_be_visible()
     select_text(page, quote)
     inspect_selected_text(page, mobile=False)
-    panel = page.locator("#palimpsest-blame")
     expect(panel.locator(".pb-breakdown")).to_be_visible()
     expect(panel).to_contain_text(quote)
 
@@ -272,7 +280,8 @@ def open_selected_timeline(page: Page, quote: str) -> None:
 def verify_replacement_timeline(page: Page) -> None:
     doc = load_fixture("chained_replacements")
     quote = doc["expected"]["selection"]["text"]
-    open_selected_timeline(page, quote)
+    article_text = doc["revisions"][-1]["text"]
+    open_selected_timeline(page, quote, article_text)
     panel = page.locator("#palimpsest-blame")
     expect(panel).to_contain_text("quick")
     expect(panel).to_contain_text("slow")
@@ -287,7 +296,7 @@ def verify_replacement_timeline(page: Page) -> None:
     if "action=blame" in page.url or not re.search(r"(?:[?&](?:diff|oldid)=|Special:Diff)", page.url):
         raise AssertionError(f"revision comparison link did not open the core MediaWiki diff: {page.url}")
     page.go_back(wait_until="domcontentloaded")
-    open_selected_timeline(page, quote)
+    open_selected_timeline(page, quote, article_text)
 
     changes = panel.get_by_role("link", name=re.compile("view editor.?s changes", re.I))
     expect(changes.first).to_be_visible()
@@ -297,7 +306,7 @@ def verify_replacement_timeline(page: Page) -> None:
     if "action=blame" in page.url or special_page != "Contributions":
         raise AssertionError(f"editor history link did not open the core Contributions page: {page.url} ({special_page!r})")
     page.go_back(wait_until="domcontentloaded")
-    open_selected_timeline(page, quote)
+    open_selected_timeline(page, quote, article_text)
 
     open_revision = panel.get_by_role("link", name="Open this revision")
     expect(open_revision.first).to_be_visible()
