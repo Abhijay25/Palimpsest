@@ -70,6 +70,62 @@ def test_cache_hit_skips_network(tmp_path: Path) -> None:
     assert second.status == "ok"
 
 
+def test_highlights_request_is_cached_and_labeled(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(
+            200,
+            json={
+                "results": [{"highlights": ["The census records 54,200 residents."]}],
+                "statuses": [{"status": "success"}],
+                "costDollars": {"total": 0.002},
+            },
+        )
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    first, _ = asyncio.run(
+        fetcher.window_scored(URL, "54,200 residents", source_mode="highlights")
+    )
+    second, _ = asyncio.run(
+        fetcher.window_scored(URL, "54,200 residents", source_mode="highlights")
+    )
+    assert json.loads(calls[0].content) == {
+        "urls": [URL],
+        "highlights": {"query": "54,200 residents", "maxCharacters": 4_000},
+    }
+    assert len(calls) == 1
+    assert first.method == second.method == "highlights"
+    assert first.text == "[Highlight 1]\nThe census records 54,200 residents."
+    assert fetcher.cost_dollars == pytest.approx(0.002)
+
+
+def test_failed_highlight_status_falls_back_to_lexical(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        body = json.loads(request.content)
+        if "highlights" in body:
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"highlights": ["wrong result"]}],
+                    "statuses": [{"status": "error", "error": "unavailable"}],
+                },
+            )
+        return httpx.Response(200, json={"results": [{"text": LONG_TEXT}]})
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    result, _ = asyncio.run(
+        fetcher.window_scored(URL, "topic6 detail", source_mode="highlights")
+    )
+    assert result.status == "ok"
+    assert result.method == "lexical"
+    assert len(calls) == 2
+
+
 def test_http_404_is_unavailable(tmp_path: Path) -> None:
     transport = httpx.MockTransport(lambda r: httpx.Response(404, json={}))
     result = asyncio.run(

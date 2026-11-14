@@ -27,6 +27,17 @@ def main() -> None:
     prep.add_argument("--prompt", default=PROMPT_VERSION, help="prompts/<name>.txt")
     prep.add_argument("--batch-size", type=int, default=10)
     prep.add_argument(
+        "--source-mode",
+        choices=["highlights", "lexical"],
+        default="highlights",
+        help="citation context selection for eval comparisons",
+    )
+    prep.add_argument(
+        "--followup",
+        action="store_true",
+        help="record follow-up context as enabled for this eval run",
+    )
+    prep.add_argument(
         "--backend",
         choices=["file", "gemini"],
         default="file",
@@ -47,6 +58,8 @@ def main() -> None:
                 args.prompt,
                 args.batch_size,
                 args.backend,
+                source_mode=args.source_mode,
+                followup=args.followup,
             )
         )
     elif args.command == "ingest":

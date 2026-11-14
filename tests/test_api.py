@@ -13,8 +13,10 @@ from fastapi.testclient import TestClient
 from palimpsest import api
 from palimpsest.citation_dates import CitationDateScan, scan_changed_citation_dates
 from palimpsest.judge import PreparedCase
-from palimpsest.schema import AuditOutput, SourceWindow
+from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
+from palimpsest.segment import EditUnit
 from palimpsest.sources import DailyCallCap, SourceFetcher
+from palimpsest.stage0 import prefilter
 from palimpsest.stealth.models import ScanResult
 from palimpsest.stealth.render import HiddenTextNode, RenderAudit, RenderBlockedError
 from palimpsest.stealth.scanner import scan
@@ -52,7 +54,13 @@ class FakeFetcher:
         return None
 
     async def window_scored(
-        self, url: str, claim: str, radius: int = 3, on_text: object = None
+        self,
+        url: str,
+        claim: str,
+        radius: int = 3,
+        on_text: object = None,
+        old_claim: str | None = None,
+        source_mode: str = "highlights",
     ) -> tuple[SourceWindow, int]:
         return SourceWindow(url=url, status="ok", text="src", latency_ms=1.0), 5
 
@@ -68,6 +76,28 @@ class FakeBackend:
     async def judge(self, cases: list[PreparedCase]) -> dict[str, AuditOutput | str]:
         self.latencies_ms = {pc.case.case_id: 7.0 for pc in cases}
         return {pc.case.case_id: self.output for pc in cases}
+
+
+class _FollowupFetcher(FakeFetcher):
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    async def highlights(self, url: str, query: str) -> list[str] | None:
+        self.queries.append(query)
+        return ["The source gives the requested number and name."]
+
+
+class _FollowupBackend(FakeBackend):
+    def __init__(self, outputs: list[AuditOutput]) -> None:
+        super().__init__(outputs[0])
+        self.outputs = outputs
+        self.calls = 0
+
+    async def judge(self, cases: list[PreparedCase]) -> dict[str, AuditOutput | str]:
+        output = self.outputs[min(self.calls, len(self.outputs) - 1)]
+        self.calls += 1
+        self.latencies_ms = {pc.case.case_id: 7.0 for pc in cases}
+        return {pc.case.case_id: output for pc in cases}
 
 
 def _flag_g2() -> AuditOutput:
@@ -90,6 +120,19 @@ def _flag_g2() -> AuditOutput:
                 },
             ],
             "neutral_rewrite": "The mayor signed the bill.",
+        }
+    )
+
+
+def _expand_context() -> AuditOutput:
+    return AuditOutput.model_validate(
+        {
+            "verdict": "EXPAND_CONTEXT",
+            "confidence": 0.5,
+            "expand_direction": "BOTH",
+            "atomic_propositions": [],
+            "flagged_spans": [],
+            "neutral_rewrite": None,
         }
     )
 
@@ -176,6 +219,58 @@ def test_stealth_scan_detects_tag_payload(client: TestClient) -> None:
     assert body["stealth_status"] == "CRITICAL_AI_POISONING"
     assert body["hidden_findings"][0]["vector_type"] == "UNICODE_TAG_SMUGGLING"
     assert "scan_id" in body
+
+
+def test_followup_highlights_rejudges_once_for_expand_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PALIMPSEST_FOLLOWUP", "1")
+    fetcher = _FollowupFetcher()
+    backend = _FollowupBackend([_expand_context(), _flag_g2()])
+    backend.calls = 1  # The initial EXPAND_CONTEXT verdict has already been judged.
+    case = Case(
+        case_id="followup",
+        lang="en",
+        bucket="api",
+        provenance="api",
+        page_title="Example",
+        old_text=FRAMING_BODY["old_text"],
+        new_text=FRAMING_BODY["new_text"],
+        ref_urls=FRAMING_BODY["ref_urls"],
+        expected="UNLABELLED",
+    )
+    unit = EditUnit(
+        index=0,
+        old_text=FRAMING_BODY["old_text"],
+        new_text=FRAMING_BODY["new_text"],
+        old_wikitext=None,
+        new_wikitext=None,
+        kind="changed",
+    )
+    pc = PreparedCase(
+        case=case,
+        stage0=prefilter(case.old_text, case.new_text, case.lang),
+        window=SourceWindow(
+            url=case.ref_urls[0],
+            status="ok",
+            text="[Highlight 1]\nInitial excerpt.",
+            latency_ms=1.0,
+            method="highlights",
+        ),
+    )
+    outcome, followup_ms = asyncio.run(
+        api._maybe_followup_judge(
+            fetcher,  # type: ignore[arg-type]
+            backend,
+            pc,
+            unit,
+            _expand_context(),
+        )
+    )
+    assert backend.calls == 2
+    assert len(fetcher.queries) == 1
+    assert followup_ms == 7.0
+    assert outcome.verdict == Verdict.FLAG_G2_FRAMING
 
 
 def test_audit_diff_stage0_clean(client: TestClient) -> None:
@@ -745,10 +840,10 @@ def test_request_budget_is_sized_to_units_and_capped(client: TestClient) -> None
     )
     FakeFetcher.requested_budgets.clear()
     client.post("/api/v1/audit-diff", json=_article_body(8, [1, 4, 6]))
-    assert FakeFetcher.requested_budgets == [9]
+    assert FakeFetcher.requested_budgets == [api.EXA_CALLS_PER_UNIT * 3]
     FakeFetcher.requested_budgets.clear()
     client.post("/api/v1/audit-diff", json=_article_body(30, list(range(0, 30, 2))))
-    assert FakeFetcher.requested_budgets == [12]
+    assert FakeFetcher.requested_budgets == [api.MAX_REQUEST_EXA_CALLS]
 
 
 def test_screen_findings_are_not_counted_or_listed_as_vectors(
@@ -793,12 +888,20 @@ def test_render_findings_are_scored_against_the_cached_judged_text(
             return self.cache.get(url)
 
         async def window_scored(
-            self, url: str, claim: str, radius: int = 3, on_text: object = None
+            self,
+            url: str,
+            claim: str,
+            radius: int = 3,
+            on_text: object = None,
+            old_claim: str | None = None,
+            source_mode: str = "highlights",
         ) -> tuple[SourceWindow, int]:
             # The Exa text lands in the cache only after the render has finished.
             await asyncio.sleep(0.1)
             self.cache[url] = hidden
-            return await super().window_scored(url, claim, radius, on_text)
+            return await super().window_scored(
+                url, claim, radius, on_text, old_claim, source_mode
+            )
 
     fetcher = CachingFetcher()
     api.app.dependency_overrides[api.get_fetcher] = lambda: fetcher

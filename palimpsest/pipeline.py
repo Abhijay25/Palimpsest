@@ -4,11 +4,12 @@ import asyncio
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import BaseModel
 
 from palimpsest.backends.gemini import GeminiJudgeBackend
+from palimpsest.guided import apply_value_swap_rule
 from palimpsest.judge import (
     PROMPT_VERSION,
     PROMPTS_DIR,
@@ -42,6 +43,8 @@ class Manifest(BaseModel):
     prompt_version: str
     models: list[str]
     case_files: list[str]
+    source_mode: Literal["highlights", "lexical"] = "highlights"
+    followup: bool = False
 
 
 def _ref_scanner(
@@ -74,7 +77,10 @@ def _sanitized(text: str) -> tuple[str, float]:
 
 
 async def _window_for(
-    case: Case, fetcher: SourceFetcher, ref_scans: list[ScanResult] | None = None
+    case: Case,
+    fetcher: SourceFetcher,
+    ref_scans: list[ScanResult] | None = None,
+    source_mode: Literal["highlights", "lexical"] = "highlights",
 ) -> SourceWindow:
     if case.source_window is not None:
         return SourceWindow(
@@ -91,9 +97,16 @@ async def _window_for(
         if not has_changed_citation:
             return SourceWindow(url=None, status="uncited", text="", latency_ms=0.0)
     claim = strip_wikitext(case.new_text)
+    old_claim = strip_wikitext(case.old_text)
     scored_all = await asyncio.gather(
         *(
-            fetcher.window_scored(url, claim, on_text=_ref_scanner(ref_scans))
+            fetcher.window_scored(
+                url,
+                claim,
+                on_text=_ref_scanner(ref_scans),
+                old_claim=old_claim,
+                source_mode=source_mode,
+            )
             for url in urls[:MAX_SOURCE_URLS]
         )
     )
@@ -114,6 +127,8 @@ async def prepare(
     batch_size: int = 10,
     backend: str = "file",
     gemini_backend: GeminiJudgeBackend | None = None,
+    source_mode: Literal["highlights", "lexical"] = "highlights",
+    followup: bool = False,
 ) -> None:
     if not (PROMPTS_DIR / f"{prompt_version}.txt").is_file():
         raise SystemExit(f"unknown prompt version: {prompt_version}")
@@ -149,7 +164,7 @@ async def prepare(
             )
         ref_scans: list[ScanResult] = []
         async with semaphore:
-            window = await _window_for(case, fetcher, ref_scans)
+            window = await _window_for(case, fetcher, ref_scans, source_mode)
         return PreparedCase(
             case=case,
             stage0=stage0,
@@ -168,6 +183,8 @@ async def prepare(
         prompt_version=prompt_version,
         models=models,
         case_files=[str(p) for p in cases_paths],
+        source_mode=source_mode,
+        followup=followup,
     )
     (run_dir / "manifest.json").write_text(manifest.model_dump_json(indent=2))
     if gemini_backend is not None:
@@ -269,7 +286,12 @@ def _case_result(
     outcome = judged.get(pc.case.case_id, "no result line for this case")
     if isinstance(outcome, str):
         return CaseResult(**base, stage_reached=1, output=None, parse_error=outcome)
-    return CaseResult(**base, stage_reached=2, output=outcome, parse_error=None)
+    return CaseResult(
+        **base,
+        stage_reached=2,
+        output=apply_value_swap_rule(outcome, pc.case.old_text, pc.case.new_text),
+        parse_error=None,
+    )
 
 
 def ingest(run_dir: Path, compare_to: Path | None = None) -> None:
@@ -282,9 +304,10 @@ def ingest(run_dir: Path, compare_to: Path | None = None) -> None:
     ]
     manifest = Manifest.model_validate_json((run_dir / "manifest.json").read_text())
     backend = FileExchangeBackend()
+    prepared_by_id = {pc.case.case_id: pc for pc in prepared}
     results: dict[str, list[CaseResult]] = {}
     for model in manifest.models:
-        judged = backend.read_results(run_dir, model)
+        judged = backend.read_results(run_dir, model, prepared_by_id)
         stage2_ms = backend.read_stage2_ms(run_dir, model)
         results[model] = [
             _case_result(

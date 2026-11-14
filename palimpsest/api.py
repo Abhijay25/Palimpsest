@@ -19,7 +19,12 @@ from palimpsest.cascade import CascadeJudgeBackend
 from palimpsest.citation_dates import CitationDateScan, scan_changed_citation_dates
 from palimpsest.crosslingual import CrossLingualReport, cross_lingual_fanout
 from palimpsest.flags import JudgeFlagInput, StealthFlagInput, build_flags
-from palimpsest.judge import AsyncJudge, PreparedCase, judge_with_latencies
+from palimpsest.judge import (
+    PROMPT_VERSION,
+    AsyncJudge,
+    PreparedCase,
+    judge_with_latencies,
+)
 from palimpsest.pipeline import (
     CACHE_DIR,
     _case_result,
@@ -44,10 +49,12 @@ from palimpsest.schema import (
     Case,
     CaseResult,
     DisplayFlaggedSpan,
+    Entailment,
     Flag,
     FlagEvidence,
     FlagTier,
     LangCode,
+    SourceWindow,
     Verdict,
 )
 from palimpsest.scoring import ADMIN_FLAG_STATUSES, FLAGS, Route, route
@@ -66,9 +73,9 @@ MAX_TEXT_CHARS: Final = 200_000
 MAX_REF_URLS: Final = 50
 UNIT_CONCURRENCY: Final = 4
 MAX_UNITS: Final = 12
-# Per-request Exa budget: up to 3 source URLs per judged unit, capped overall.
-EXA_CALLS_PER_UNIT: Final = 3
-MAX_REQUEST_EXA_CALLS: Final = 12
+# New and replaced text can each need a highlights view, plus one bounded follow-up.
+EXA_CALLS_PER_UNIT: Final = 7
+MAX_REQUEST_EXA_CALLS: Final = 28
 ROUTE_RANK: Final[dict[Route, int]] = {"none": 0, "review": 1, "admin": 2}
 # Placeholder rule only: the real trust model lives with the editor-profile service.
 TRUST_DELTA_BY_VERDICT: Final = {
@@ -79,6 +86,9 @@ TRUST_DELTA_BY_VERDICT: Final = {
 TRUST_DELTA_STEALTH_ADMIN: Final = -0.20
 CITATION_DATES_TIMEOUT_S: Final = 5.0
 _CITATION_WIKITEXT_RE: Final = re.compile(r"{{|<ref\b", re.IGNORECASE)
+_CHANGED_VALUE_RE: Final = re.compile(
+    r"\b(?:\d[\d,.%]*|[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*)\b"
+)
 
 
 @contextlib.asynccontextmanager
@@ -114,10 +124,13 @@ def get_judge_backend() -> AsyncJudge | None:
     """
     if not gemini_enabled():
         return None
-    main = GeminiJudgeBackend()
+    prompt_version = os.environ.get("PALIMPSEST_PROMPT", PROMPT_VERSION)
+    main = GeminiJudgeBackend(prompt_version=prompt_version)
     first_model = os.environ.get("GEMINI_FIRST_PASS_MODEL")
     if first_model:
-        return CascadeJudgeBackend(GeminiJudgeBackend(model=first_model), main)
+        return CascadeJudgeBackend(
+            GeminiJudgeBackend(model=first_model, prompt_version=prompt_version), main
+        )
     return main
 
 
@@ -495,6 +508,73 @@ def _verdict_rank(output: AuditOutput) -> int:
     return 1 if output.verdict == Verdict.EXPAND_CONTEXT else 0
 
 
+def _followup_enabled() -> bool:
+    return os.environ.get("PALIMPSEST_FOLLOWUP", "1") not in {"0", "false", "False"}
+
+
+def _followup_query(unit: EditUnit) -> str | None:
+    """Use values and named entities from the changed span, not page boilerplate."""
+    values = list(dict.fromkeys(_CHANGED_VALUE_RE.findall(unit.new_text)))
+    return " ".join(values) if values else None
+
+
+def _needs_followup(output: AuditOutput) -> bool:
+    return output.verdict == Verdict.EXPAND_CONTEXT or (
+        output.verdict == Verdict.CLEAN_PASS
+        and any(
+            proposition.source_entailment == Entailment.UNSUPPORTED_EXTRAPOLATION
+            for proposition in output.atomic_propositions
+        )
+    )
+
+
+def _append_highlights(window: SourceWindow, highlights: list[str]) -> SourceWindow:
+    existing = window.text.rstrip()
+    first_index = existing.count("[Highlight ") + 1
+    extra = "\n\n".join(
+        f"[Highlight {index}]\n{highlight.strip()}"
+        for index, highlight in enumerate(highlights, start=first_index)
+        if highlight.strip() and highlight.strip() not in existing
+    )
+    if not extra:
+        return window
+    return window.model_copy(update={"text": f"{existing}\n\n{extra}"})
+
+
+async def _maybe_followup_judge(
+    fetcher: SourceFetcher,
+    backend: AsyncJudge,
+    pc: PreparedCase,
+    unit: EditUnit,
+    outcome: AuditOutput,
+) -> tuple[AuditOutput, float]:
+    """Append one targeted highlights view and re-judge at most once."""
+    if (
+        not _followup_enabled()
+        or not _needs_followup(outcome)
+        or pc.window is None
+        or pc.window.url is None
+        or (query := _followup_query(unit)) is None
+    ):
+        return outcome, 0.0
+    followup_started = time.perf_counter()
+    highlights = await fetcher.highlights(pc.window.url, query)
+    pc.window = _append_highlights(pc.window, highlights or [])
+    pc.window = pc.window.model_copy(
+        update={
+            "latency_ms": pc.window.latency_ms
+            + (time.perf_counter() - followup_started) * 1000
+        }
+    )
+    if not highlights:
+        return outcome, 0.0
+    judged, latencies = await judge_with_latencies(backend, [pc])
+    result = judged.get(pc.case.case_id, "no result for this case")
+    if isinstance(result, str):
+        raise HTTPException(status_code=502, detail=f"Judge backend failed: {result}")
+    return result, latencies.get(pc.case.case_id, 0.0)
+
+
 async def _judge_unit(
     req: AuditDiffRequest,
     unit: EditUnit,
@@ -541,6 +621,11 @@ async def _judge_unit(
                 raise HTTPException(
                     status_code=502, detail=f"Judge backend failed: {outcome}"
                 )
+            outcome, followup_ms = await _maybe_followup_judge(
+                fetcher, backend, pc, unit, outcome
+            )
+            stage2_ms += followup_ms
+            judged[case.case_id] = outcome
         result = _case_result(
             pc, backend.model if backend else "none", judged, "api", stage2_ms
         )
@@ -714,6 +799,7 @@ async def audit_diff_logic(
                     if o.pc.window is not None
                     else []
                 ),
+                window=o.pc.window,
             )
             for o, unit_route, reason in zip(
                 outcomes, unit_routes, reasons, strict=True
@@ -749,7 +835,7 @@ async def audit_diff_logic(
             citation_dates.findings,
             render.findings,
             new_wikitext,
-            req.ref_urls,
+            union_refs or req.ref_urls,
         )
         return AuditDiffResponse(
             verdict=output.verdict,

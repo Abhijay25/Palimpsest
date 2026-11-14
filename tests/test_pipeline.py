@@ -55,6 +55,13 @@ def test_prepare_statuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert rows["badref"].window.status == "unavailable"
     assert (run / "batches" / "haiku" / "batch_001.md").exists()
     assert (run / "manifest.json").exists()
+    assert json.loads((run / "manifest.json").read_text()) == {
+        "prompt_version": "stage2_v7",
+        "models": ["haiku"],
+        "case_files": [str(cases)],
+        "source_mode": "highlights",
+        "followup": False,
+    }
     assert len(load_cases(cases)) == 3
 
 
@@ -273,7 +280,13 @@ class _SleepyFetcher:
         self.calls: list[str] = []
 
     async def window_scored(
-        self, url: str, claim: str, radius: int = 3, on_text: object = None
+        self,
+        url: str,
+        claim: str,
+        radius: int = 3,
+        on_text: object = None,
+        old_claim: str | None = None,
+        source_mode: str = "highlights",
     ) -> tuple[SourceWindow, int]:
         self.calls.append(url)
         await asyncio.sleep(self.delay)
