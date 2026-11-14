@@ -59,3 +59,8 @@ html.skin-theme-clientpref-night .pf-summary-bar .pf-filter[ aria-pressed="true"
 html.skin-theme-clientpref-night .pf-summary-bar .pf-filter[ aria-pressed="true" ] .pf-dot { background: #101418; }
 @media ( prefers-color-scheme: dark ) { html.skin-theme-clientpref-os .pf-summary-bar .pf-filter[ aria-pressed="true" ] { color: #101418; .pf-dot { background: #101418; } } }
 .pf-nav__btn { min-width: 80px; }
+// Loading: one quiet line with a small spinner instead of a full-width progress block.
+.pf-spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var( --border-color-subtle, #c8ccd1 ); border-top-color: var( --color-progressive, #36c ); animation: pf-spin .8s linear infinite; flex: none; }
+.pf-loading-text { color: var( --color-subtle, #54595d ); font-size: 13px; }
+@keyframes pf-spin { to { transform: rotate( 360deg ); } }
+@media ( prefers-reduced-motion: reduce ) { .pf-spinner { animation-duration: 2.4s; } }
