@@ -76,6 +76,9 @@ class Case(BaseModel):
     old_text: str
     new_text: str
     ref_urls: list[str]
+    old_wikitext: str | None = None
+    new_wikitext: str | None = None
+    changed_ref_urls: list[str] | None = None
     source_window: str | None = None
     expected: ExpectedLabel
     en_gloss: str | None = None
@@ -84,7 +87,7 @@ class Case(BaseModel):
 
 class SourceWindow(BaseModel):
     url: str | None
-    status: Literal["ok", "unavailable", "fixed"]
+    status: Literal["ok", "unavailable", "fixed", "uncited"]
     text: str
     latency_ms: float
 

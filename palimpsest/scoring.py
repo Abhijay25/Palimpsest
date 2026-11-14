@@ -27,6 +27,7 @@ class Metrics(BaseModel):
     stage0_exit_rate: float
     stage0_false_pass: int
     source_unavailable_rate: float
+    uncited_rate: float
     stage0_ms_p50: float
     stage1_ms_p50: float
     confusion: dict[str, dict[str, int]]
@@ -86,6 +87,7 @@ def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Met
     parse_errors = sum(1 for _, r in paired if r.output is None)
     stage1 = [r for _, r in paired if r.stage_reached >= 1]
     unavailable = sum(1 for r in stage1 if r.source_status == "unavailable")
+    uncited = sum(1 for r in stage1 if r.source_status == "uncited")
     confusion: dict[str, dict[str, int]] = {}
     for pc, r in paired:
         if pc.case.expected == "UNLABELLED":
@@ -108,6 +110,7 @@ def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Met
             1 for pc, _ in paired if pc.case.expected in FLAGS and pc.stage0.clean
         ),
         source_unavailable_rate=_ratio(unavailable, len(stage1)),
+        uncited_rate=_ratio(uncited, len(stage1)),
         stage0_ms_p50=_p50([r.stage0_ms for _, r in paired]),
         stage1_ms_p50=_p50([r.stage1_ms for r in stage1]),
         confusion=confusion,

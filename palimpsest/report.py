@@ -193,6 +193,7 @@ def _metrics_table(metrics: dict[str, Metrics]) -> str:
         ("Stage 0 exit rate", ""),
         ("Stage 0 false pass", ""),
         ("Source unavailable", ""),
+        ("Uncited", ""),
         ("Stage 0 / 1 p50 ms", ""),
     ]
     head = "".join(f"<th>{_e(m)}</th>" for m in metrics)
@@ -220,6 +221,7 @@ def _metrics_table(metrics: dict[str, Metrics]) -> str:
         cells(lambda m: pct(m.stage0_exit_rate)),
         cells(lambda m: str(m.stage0_false_pass)),
         cells(lambda m: pct(m.source_unavailable_rate)),
+        cells(lambda m: pct(m.uncited_rate)),
         cells(lambda m: f"{m.stage0_ms_p50:.1f} / {m.stage1_ms_p50:.0f}"),
     ]
     body = "".join(

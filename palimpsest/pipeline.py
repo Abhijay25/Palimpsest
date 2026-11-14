@@ -28,6 +28,7 @@ from palimpsest.sources import SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import prefilter, strip_wikitext
 
 STAGE1_CONCURRENCY: Final = 8
+MAX_SOURCE_URLS: Final = 3
 CACHE_DIR: Final = Path("cache/exa")
 
 
@@ -42,11 +43,17 @@ async def _window_for(case: Case, fetcher: SourceFetcher) -> SourceWindow:
         return SourceWindow(
             url=None, status="fixed", text=case.source_window, latency_ms=0.0
         )
+    if case.changed_ref_urls is not None and not case.changed_ref_urls:
+        return SourceWindow(url=None, status="uncited", text="", latency_ms=0.0)
+    urls = case.ref_urls if case.changed_ref_urls is None else case.changed_ref_urls
     claim = strip_wikitext(case.new_text)
-    for url in case.ref_urls:
-        window = await fetcher.window(url, claim)
-        if window.status == "ok":
-            return window
+    best: tuple[SourceWindow, int] | None = None
+    for url in urls[:MAX_SOURCE_URLS]:
+        scored = await fetcher.window_scored(url, claim)
+        if scored[0].status == "ok" and (best is None or scored[1] > best[1]):
+            best = scored
+    if best is not None:
+        return best[0]
     return SourceWindow(url=None, status="unavailable", text="", latency_ms=0.0)
 
 

@@ -169,3 +169,15 @@ def test_span_highlighted_when_present(tmp_path: Path) -> None:
     )
     html = _report(tmp_path, "He admitted it.", [span])
     assert "<mark" in html
+
+
+def test_uncited_rate() -> None:
+    prepared = [_prepared("a", Verdict.CLEAN_PASS), _prepared("b", Verdict.CLEAN_PASS)]
+    results = [
+        _result("a", _output(Verdict.CLEAN_PASS)),
+        _result("b", _output(Verdict.CLEAN_PASS)),
+    ]
+    results[0].source_status = "uncited"
+    metrics = score(prepared, {"m": results})["m"]
+    assert metrics.uncited_rate == 0.5
+    assert metrics.source_unavailable_rate == 0.0

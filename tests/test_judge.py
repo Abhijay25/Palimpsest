@@ -110,3 +110,12 @@ def test_read_results_valid_line_parses(tmp_path: Path) -> None:
 
 def test_read_results_missing_dir_is_empty(tmp_path: Path) -> None:
     assert FileExchangeBackend().read_results(tmp_path, "haiku") == {}
+
+
+def test_uncited_payload_line() -> None:
+    pc = _prepared("a", False)
+    pc.window = SourceWindow(url=None, status="uncited", text="", latency_ms=0.0)
+    payload = render_case_payload(pc)
+    assert "CHANGED SENTENCE CARRIES NO INLINE CITATION" in payload
+    assert "SOURCE UNAVAILABLE" not in payload
+    assert "do not flag G1/G3 for lack of a source" in payload

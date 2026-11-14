@@ -43,8 +43,8 @@ def _tokens(text: str) -> set[str]:
     return {t.lower() for t in _TOKEN.findall(text)}
 
 
-def discourse_window(text: str, claim: str, radius: int = 3) -> str:
-    """Best-overlap sentence +/- radius sentences, prefixed by nearest preceding heading."""
+def discourse_window_scored(text: str, claim: str, radius: int = 3) -> tuple[str, int]:
+    """Best-overlap sentence +/- radius sentences with heading, plus the best overlap score."""
     sentences: list[str] = []
     heading_for: list[str | None] = []
     heading: str | None = None
@@ -57,7 +57,7 @@ def discourse_window(text: str, claim: str, radius: int = 3) -> str:
                 sentences.append(sentence)
                 heading_for.append(heading)
     if not sentences:
-        return ""
+        return "", 0
     claim_tokens = _tokens(claim)
     best = max(
         range(len(sentences)), key=lambda i: len(claim_tokens & _tokens(sentences[i]))
@@ -65,7 +65,13 @@ def discourse_window(text: str, claim: str, radius: int = 3) -> str:
     start = max(0, best - radius)
     window = " ".join(sentences[start : best + radius + 1])
     heading_line = heading_for[start]
-    return f"{heading_line}\n{window}" if heading_line else window
+    score = len(claim_tokens & _tokens(sentences[best]))
+    return (f"{heading_line}\n{window}" if heading_line else window), score
+
+
+def discourse_window(text: str, claim: str, radius: int = 3) -> str:
+    """Best-overlap sentence +/- radius sentences, prefixed by nearest preceding heading."""
+    return discourse_window_scored(text, claim, radius)[0]
 
 
 class SourceFetcher:
@@ -119,6 +125,12 @@ class SourceFetcher:
         return parsed.results[0].text
 
     async def window(self, url: str, claim: str, radius: int = 3) -> SourceWindow:
+        return (await self.window_scored(url, claim, radius))[0]
+
+    async def window_scored(
+        self, url: str, claim: str, radius: int = 3
+    ) -> tuple[SourceWindow, int]:
+        """Window for url plus its claim-overlap score (0 when unavailable)."""
         started = time.perf_counter()
         text = self._read_cache(url)
         if text is None:
@@ -127,12 +139,14 @@ class SourceFetcher:
                 self._write_cache(url, text)
         latency_ms = (time.perf_counter() - started) * 1000
         if text is None or len(text) < MIN_TEXT_CHARS:
-            return SourceWindow(
-                url=url, status="unavailable", text="", latency_ms=latency_ms
+            return (
+                SourceWindow(
+                    url=url, status="unavailable", text="", latency_ms=latency_ms
+                ),
+                0,
             )
-        return SourceWindow(
-            url=url,
-            status="ok",
-            text=discourse_window(text, claim, radius),
-            latency_ms=latency_ms,
+        window, overlap = discourse_window_scored(text, claim, radius)
+        return (
+            SourceWindow(url=url, status="ok", text=window, latency_ms=latency_ms),
+            overlap,
         )

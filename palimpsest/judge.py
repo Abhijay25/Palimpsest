@@ -16,6 +16,11 @@ SOURCE_UNAVAILABLE_LINE: Final = (
     "do not flag G1/G3 for lack of a source"
 )
 
+UNCITED_LINE: Final = (
+    "CHANGED SENTENCE CARRIES NO INLINE CITATION — judge framing from the diff only; "
+    "do not flag G1/G3 for lack of a source"
+)
+
 
 class PreparedCase(BaseModel):
     case: Case
@@ -33,7 +38,9 @@ class JudgeBackend(Protocol):
 
 def render_case_payload(pc: PreparedCase) -> str:
     window = pc.window
-    if window is None or window.status == "unavailable" or not window.text:
+    if window is not None and window.status == "uncited":
+        discourse = UNCITED_LINE
+    elif window is None or window.status == "unavailable" or not window.text:
         discourse = SOURCE_UNAVAILABLE_LINE
     else:
         discourse = window.text
