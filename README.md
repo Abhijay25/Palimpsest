@@ -32,9 +32,20 @@ nix develop -c uv run uvicorn palimpsest.api:app --port 8000
 ```
 
 `GET /healthz` returns booleans only: `{"judge_configured": bool, "exa_configured": bool}`.
-`lang_code` is `en` or `fi` (the Stage 0 watch-lists). `audit-diff` returns 503 when
-no `GEMINI_API_KEY` is set and Stage 0 is not clean (no verdict is faked), 502 if the
-judge call fails. `editor_trust_delta` is a placeholder rule (FLAG_G1 -0.10, G2 -0.05,
+`lang_code` is any Wikipedia language code (`en`, `fi`, `de`, `zh-yue`, ...); en/fi
+also get Stage 0 watch-list reasons, other languages only the language-neutral rules.
+`audit-diff` returns 503 when no judge is enabled (`GEMINI_API_KEY` and
+`PALIMPSEST_USE_GEMINI=1`) and Stage 0 is not clean (no verdict is faked), 502 if a
+judge call fails.
+
+The edit is split into changed paragraphs (`units`), judged 4 at a time; more than 12
+changed paragraphs are capped (`partial: true`, route at least `review`). The top-level
+verdict is the most severe unit. `reason` / `reason_text` describe a flag
+(`CONTRADICTS_SOURCE`, `UNSUPPORTED_CLAIM`, `LOADED_WORDING`, `REMOVED_CONTEXT`)
+without inferring intent. `render` reports the concurrent headless-browser scan of
+cited pages the edit touched (Pillar 3); it can only escalate to `admin`, never block
+or delay the verdict, and is skipped for Stage-0-clean edits. Set `PALIMPSEST_RENDER=0`
+to disable it; it needs a system `chromium` (or `CHROMIUM_PATH`). `editor_trust_delta` is a placeholder rule (FLAG_G1 -0.10, G2 -0.05,
 G3 -0.08, stealth admin flag -0.20, else 0). Flagged-span offsets index into the
 request `new_text` (null if the substring is not found).
 
