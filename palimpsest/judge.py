@@ -7,6 +7,7 @@ from typing import Final, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ValidationError
 
+from palimpsest.guided import GuidedAnswers, guided_to_audit
 from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
 from palimpsest.stage0 import Stage0Result
 from palimpsest.stealth.models import ScanResult, VectorType
@@ -119,6 +120,7 @@ def render_case_payload(pc: PreparedCase) -> str:
         )
     else:
         window_block = (
+            "SOURCE_STATUS: SOURCE WINDOW AVAILABLE\n"
             f"CITATION_DISCOURSE_WINDOW:\n{note}"
             f"{_untrusted_field('CITATION_DISCOURSE_WINDOW', window.text)}\n"
         )
@@ -199,7 +201,12 @@ class FileExchangeBackend:
                     continue
         return latencies
 
-    def read_results(self, run_dir: Path, model: str) -> dict[str, AuditOutput | str]:
+    def read_results(
+        self,
+        run_dir: Path,
+        model: str,
+        prepared: dict[str, PreparedCase] | None = None,
+    ) -> dict[str, AuditOutput | str]:
         results: dict[str, AuditOutput | str] = {}
         for path in sorted((run_dir / "results" / model).glob("*.jsonl")):
             for line in path.read_text(encoding="utf-8").splitlines():
@@ -214,9 +221,24 @@ class FileExchangeBackend:
                     if isinstance(raw, dict) and "error" in raw:
                         results[case_id] = str(raw["error"])
                         continue
-                    results[case_id] = AuditOutput.model_validate(
-                        normalize_non_flag_output(raw["output"])
-                    )
+                    raw_output = raw["output"]
+                    if (
+                        isinstance(raw_output, dict)
+                        and "s1_value_swap" in raw_output
+                        and prepared is not None
+                        and (pc := prepared.get(case_id)) is not None
+                    ):
+                        answers = GuidedAnswers.model_validate(raw_output)
+                        results[case_id] = guided_to_audit(
+                            answers,
+                            pc.case.old_text,
+                            pc.case.new_text,
+                            pc.window.text if pc.window is not None else "",
+                        )
+                    else:
+                        results[case_id] = AuditOutput.model_validate(
+                            normalize_non_flag_output(raw_output)
+                        )
                 except (ValueError, KeyError, ValidationError) as exc:
                     results[case_id] = f"{type(exc).__name__}: {str(exc)[:200]}"
         return results

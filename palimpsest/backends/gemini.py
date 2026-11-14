@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from google.genai import Client, errors, types
 from pydantic import BaseModel, ValidationError
 
+from palimpsest.guided import GuidedAnswers, guided_to_audit
 from palimpsest.judge import (
     PROMPT_VERSION,
     PROMPTS_DIR,
@@ -216,6 +217,7 @@ class GeminiJudgeBackend:
                 thinking_level=types.ThinkingLevel(DEFAULT_JUDGE_THINKING)
             )
         self._system = (PROMPTS_DIR / f"{prompt_version}.txt").read_text()
+        self.prompt_version = prompt_version
         self.latencies_ms: dict[str, float] = {}
 
     @property
@@ -232,9 +234,24 @@ class GeminiJudgeBackend:
             # revision.  Keep it off the loop so concurrent best-effort checks
             # (such as rendered citation dates) can start their I/O promptly.
             contents = await asyncio.to_thread(render_case_payload, pc)
-            result, ms = await self._caller.generate(
-                self._system, contents, AuditOutput
-            )
+            result: AuditOutput | str
+            if self.prompt_version == "stage2_v9":
+                guided_result, ms = await self._caller.generate(
+                    self._system, contents, GuidedAnswers
+                )
+                if isinstance(guided_result, GuidedAnswers):
+                    result = guided_to_audit(
+                        guided_result,
+                        pc.case.old_text,
+                        pc.case.new_text,
+                        pc.window.text if pc.window is not None else "",
+                    )
+                else:
+                    result = guided_result
+            else:
+                result, ms = await self._caller.generate(
+                    self._system, contents, AuditOutput
+                )
             return pc.case.case_id, result, ms
 
         rows = await asyncio.gather(*(one(pc) for pc in cases))

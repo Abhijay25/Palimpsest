@@ -16,6 +16,7 @@ ReasonCode = Literal[
     "LOADED_WORDING",
     "REMOVED_CONTEXT",
     "CITATION_DATE",
+    "VALUE_CHANGED",
 ]
 
 REASON_TEXT: Final[dict[ReasonCode, str]] = {
@@ -27,6 +28,7 @@ REASON_TEXT: Final[dict[ReasonCode, str]] = {
     "the source does not use.",
     "REMOVED_CONTEXT": "The edit removes sourced context, attribution or a qualifier.",
     "CITATION_DATE": "A rendered citation date needs review against the edited source link.",
+    "VALUE_CHANGED": "The edit changes a value the cited source does not state. Is this a correction?",
 }
 
 # The judge prompt asks it to mark quoted deleted text, e.g. "... (removed)".
@@ -40,6 +42,11 @@ def _norm(text: str) -> str:
 def reason_code(output: AuditOutput, old_text: str, new_text: str) -> ReasonCode | None:
     """None for non-flag verdicts."""
     if output.verdict == "FLAG_G1_FACT":
+        if any(
+            span.explanation.startswith("VALUE_CHANGED:")
+            for span in output.flagged_spans
+        ):
+            return "VALUE_CHANGED"
         return "CONTRADICTS_SOURCE"
     if output.verdict == "FLAG_G3_MOTIVE":
         return "UNSUPPORTED_CLAIM"
