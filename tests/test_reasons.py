@@ -24,7 +24,9 @@ NEW = "She advanced to the runoff."
 
 def test_guideline_verdicts_map_directly() -> None:
     assert reason_code(_out(Verdict.FLAG_G1_FACT, []), OLD, NEW) == "CONTRADICTS_SOURCE"
-    assert reason_code(_out(Verdict.FLAG_G3_MOTIVE, []), OLD, NEW) == "UNSUPPORTED_CLAIM"
+    assert (
+        reason_code(_out(Verdict.FLAG_G3_MOTIVE, []), OLD, NEW) == "UNSUPPORTED_CLAIM"
+    )
     assert reason_code(_out(Verdict.CLEAN_PASS, []), OLD, NEW) is None
     assert reason_code(_out(Verdict.EXPAND_CONTEXT, []), OLD, NEW) is None
 

@@ -374,3 +374,190 @@ def test_render_task_cancelled_when_judge_fails(client: TestClient) -> None:
     _use_auditor(FakeAuditor(_render_audit(None), events, wait_for=never))
     assert client.post("/api/v1/audit-diff", json=FRAMING_BODY).status_code == 502
     assert events == []
+
+
+def _output(verdict: str, confidence: float, span: str = "") -> AuditOutput:
+    return AuditOutput.model_validate(
+        {
+            "verdict": verdict,
+            "confidence": confidence,
+            "expand_direction": "NONE",
+            "atomic_propositions": [],
+            "flagged_spans": (
+                [
+                    {
+                        "exact_substring": span,
+                        "guideline_violated": "G2_FRAMING",
+                        "explanation": "x",
+                    }
+                ]
+                if span
+                else []
+            ),
+            "neutral_rewrite": None,
+        }
+    )
+
+
+def _old_para(n: int) -> str:
+    return f"The mayor signed bill number {n} into law during the spring session."
+
+
+def _new_para(n: int) -> str:
+    return f"The mayor shamelessly pushed through the disastrous bill number {n} today."
+
+
+class UnitBackend:
+    """Judges each unit by a callback on its new text; optionally sleeps."""
+
+    name = "fake"
+    model = "fake-model"
+
+    def __init__(
+        self,
+        decide: "dict[str, AuditOutput] | None" = None,
+        delay: float = 0.0,
+        default: AuditOutput | None = None,
+    ) -> None:
+        self.decide = decide or {}
+        self.delay = delay
+        self.default = default or _output("CLEAN_PASS", 0.9)
+        self.latencies_ms: dict[str, float] = {}
+        self.calls: list[str] = []
+        self.active = 0
+        self.peak = 0
+
+    async def judge(self, cases: list[PreparedCase]) -> dict[str, AuditOutput | str]:
+        results: dict[str, AuditOutput | str] = {}
+        for pc in cases:
+            self.calls.append(pc.case.case_id)
+            self.active += 1
+            self.peak = max(self.peak, self.active)
+            await asyncio.sleep(self.delay)
+            self.active -= 1
+            self.latencies_ms[pc.case.case_id] = 5.0
+            results[pc.case.case_id] = self.decide.get(pc.case.new_text, self.default)
+        return results
+
+
+def _article_body(
+    paragraph_count: int, changed: list[int], deleted: list[int] | None = None
+) -> dict[str, object]:
+    deleted = deleted or []
+    old = [_old_para(i) for i in range(paragraph_count)]
+    new = [
+        _new_para(i) if i in changed else _old_para(i)
+        for i in range(paragraph_count)
+        if i not in deleted
+    ]
+    return {
+        **CLEAN_BODY,
+        "old_text": "\n\n".join(old),
+        "new_text": "\n\n".join(new),
+        "ref_urls": ["https://example.org/a"],
+    }
+
+
+def test_multi_paragraph_single_change_is_one_unit(client: TestClient) -> None:
+    backend = UnitBackend(default=_flag_g2())
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: backend
+    body = _article_body(6, [3])
+    resp = client.post("/api/v1/audit-diff", json=body)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["units"]) == 1 and data["partial"] is False
+    assert len(backend.calls) == 1 and backend.calls[0].endswith("#u0")
+    assert data["verdict"] == "FLAG_G2_FRAMING"
+    assert data["route"] == "admin"
+    new_text = str(body["new_text"])
+    start = new_text.index("shamelessly")
+    assert data["flagged_spans"][0]["start"] == start
+
+
+def test_single_paragraph_has_one_unit_and_same_fields(client: TestClient) -> None:
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: FakeBackend(
+        _flag_g2()
+    )
+    data = client.post("/api/v1/audit-diff", json=FRAMING_BODY).json()
+    assert len(data["units"]) == 1
+    unit = data["units"][0]
+    assert unit["index"] == 0 and unit["kind"] == "changed"
+    assert unit["verdict"] == data["verdict"] == "FLAG_G2_FRAMING"
+    assert unit["route"] == data["route"] == "admin"
+    assert unit["stage_reached"] == data["pipeline_stage_reached"] == 2
+    assert data["partial"] is False
+
+
+def test_three_changed_paragraphs_are_judged_concurrently(client: TestClient) -> None:
+    import time
+
+    backend = UnitBackend(delay=0.4)
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: backend
+    start = time.perf_counter()
+    resp = client.post("/api/v1/audit-diff", json=_article_body(8, [1, 4, 6]))
+    elapsed = time.perf_counter() - start
+    assert resp.status_code == 200
+    assert len(resp.json()["units"]) == 3
+    assert len(backend.calls) == 3
+    assert backend.peak == 3
+    assert elapsed < 1.0
+    latency = resp.json()["latency_ms"]
+    assert latency["stage2"] == 5.0
+
+
+def test_flagged_unit_determines_verdict_and_route(client: TestClient) -> None:
+    flagged = _output("FLAG_G2_FRAMING", 0.6, "shamelessly")
+    backend = UnitBackend(
+        decide={_new_para(4): flagged},
+        default=_output("CLEAN_PASS", 0.99),
+    )
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: backend
+    data = client.post("/api/v1/audit-diff", json=_article_body(8, [1, 4, 6])).json()
+    assert data["verdict"] == "FLAG_G2_FRAMING"
+    assert data["confidence"] == 0.6
+    assert data["route"] == "review"
+    by_index = {u["index"]: u for u in data["units"]}
+    assert by_index[0]["verdict"] == "CLEAN_PASS" and by_index[0]["route"] == "none"
+    assert by_index[1]["verdict"] == "FLAG_G2_FRAMING"
+    assert len(data["flagged_spans"]) == 1
+    assert data["pipeline_stage_reached"] == 2
+
+
+def test_more_than_twelve_units_is_partial(client: TestClient) -> None:
+    backend = UnitBackend()
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: backend
+    data = client.post(
+        "/api/v1/audit-diff", json=_article_body(30, list(range(0, 30, 2)))
+    ).json()
+    assert data["partial"] is True
+    assert len(backend.calls) == api.MAX_UNITS == 12
+    assert len(data["units"]) == 12
+    assert data["route"] in {"review", "admin"}
+    assert backend.peak <= api.UNIT_CONCURRENCY
+
+
+def test_deleted_only_paragraph_is_judged(client: TestClient) -> None:
+    backend = UnitBackend(default=_output("FLAG_G1_FACT", 0.8))
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: backend
+    data = client.post(
+        "/api/v1/audit-diff", json=_article_body(5, [], deleted=[2])
+    ).json()
+    assert [u["kind"] for u in data["units"]] == ["deleted"]
+    assert len(backend.calls) == 1
+    assert data["verdict"] == "FLAG_G1_FACT"
+
+
+def test_unit_judge_failure_is_502_and_cancels_others(client: TestClient) -> None:
+    class FailingBackend(UnitBackend):
+        async def judge(
+            self, cases: list[PreparedCase]
+        ) -> dict[str, AuditOutput | str]:
+            if cases[0].case.case_id.endswith("#u1"):
+                return {cases[0].case.case_id: "boom"}
+            return await super().judge(cases)
+
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: FailingBackend(
+        delay=2.0
+    )
+    resp = client.post("/api/v1/audit-diff", json=_article_body(8, [1, 4]))
+    assert resp.status_code == 502

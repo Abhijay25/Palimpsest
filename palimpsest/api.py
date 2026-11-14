@@ -33,17 +33,22 @@ from palimpsest.schema import (
     AtomicProposition,
     AuditOutput,
     Case,
+    CaseResult,
     LangCode,
     Verdict,
 )
-from palimpsest.scoring import ADMIN_FLAG_STATUSES, Route, route
+from palimpsest.scoring import ADMIN_FLAG_STATUSES, FLAGS, Route, route
+from palimpsest.segment import EditUnit, changed_chars, split_edit
 from palimpsest.sources import DailyCallCap, SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import prefilter, refs_for_changed_sentences
-from palimpsest.stealth.models import ScanResult
-from palimpsest.stealth.scanner import TargetType, scan
+from palimpsest.stealth.models import ScanResult, StealthStatus
+from palimpsest.stealth.scanner import TargetType, scan, worst_status
 
 MAX_TEXT_CHARS: Final = 200_000
 MAX_REF_URLS: Final = 50
+UNIT_CONCURRENCY: Final = 4
+MAX_UNITS: Final = 12
+ROUTE_RANK: Final[dict[Route, int]] = {"none": 0, "review": 1, "admin": 2}
 # Placeholder rule only: the real trust model lives with the editor-profile service.
 TRUST_DELTA_BY_VERDICT: Final = {
     Verdict.FLAG_G1_FACT: -0.10,
@@ -140,6 +145,16 @@ class LatencyMs(BaseModel):
     total: float
 
 
+class UnitSummary(BaseModel):
+    index: int
+    kind: Literal["changed", "inserted", "deleted"]
+    verdict: Verdict
+    confidence: float
+    route: Route
+    stage_reached: Literal[0, 1, 2]
+    latency_ms: float
+
+
 class AuditDiffResponse(BaseModel):
     verdict: Verdict
     confidence: float
@@ -153,6 +168,8 @@ class AuditDiffResponse(BaseModel):
     render: RenderSummary
     latency_ms: LatencyMs
     exa_budget_exhausted: bool
+    units: list[UnitSummary]
+    partial: bool
 
 
 class HealthResponse(BaseModel):
@@ -219,7 +236,7 @@ def stealth_scan(req: StealthScanRequest) -> ScanResult:
 
 def _scan_request(
     req: AuditDiffRequest,
-) -> tuple[ScanResult, ScanResult, ScanResult, list[str] | None]:
+) -> tuple[ScanResult, ScanResult, ScanResult, list[EditUnit]]:
     """CPU-bound scans for one request; run off the event loop."""
     diff_scan = scan(
         req.new_wikitext or req.new_text,
@@ -228,12 +245,43 @@ def _scan_request(
     )
     old_scan = scan(req.old_text, "WIKIPEDIA_DIFF")
     new_scan = scan(req.new_text, "WIKIPEDIA_DIFF")
-    changed_refs = (
-        refs_for_changed_sentences(req.old_wikitext, req.new_wikitext)
-        if req.old_wikitext and req.new_wikitext
-        else None
-    )
-    return diff_scan, old_scan, new_scan, changed_refs
+    units = _units_for(req, old_scan, new_scan)
+    return diff_scan, old_scan, new_scan, units
+
+
+def _units_for(
+    req: AuditDiffRequest, old_scan: ScanResult, new_scan: ScanResult
+) -> list[EditUnit]:
+    """Changed units of the sanitised texts; one whole-edit unit if nothing aligns."""
+    old_text = old_scan.sanitized_human_text
+    new_text = new_scan.sanitized_human_text
+    units = split_edit(old_text, new_text, req.old_wikitext, req.new_wikitext)
+    if not units:
+        return [
+            EditUnit(
+                index=0,
+                old_text=old_text,
+                new_text=new_text,
+                old_wikitext=req.old_wikitext,
+                new_wikitext=req.new_wikitext,
+                kind="changed",
+            )
+        ]
+    if len(units) == 1 and (units[0].old_text, units[0].new_text) == (
+        old_text,
+        new_text,
+    ):
+        return units
+    # Unit text derived from raw wikitext must pass the same sanitiser the judge relies on.
+    return [
+        u.model_copy(
+            update={
+                "old_text": scan(u.old_text, "WIKIPEDIA_DIFF").sanitized_human_text,
+                "new_text": scan(u.new_text, "WIKIPEDIA_DIFF").sanitized_human_text,
+            }
+        )
+        for u in units
+    ]
 
 
 async def _await_render(task: "asyncio.Task[RenderSummary]") -> RenderSummary:
@@ -244,49 +292,59 @@ async def _await_render(task: "asyncio.Task[RenderSummary]") -> RenderSummary:
         return RenderSummary(status="unavailable")
 
 
-@app.post("/api/v1/audit-diff", response_model=AuditDiffResponse)
-async def audit_diff(
+class _UnitOutcome(BaseModel):
+    model_config = {"arbitrary_types_allowed": True}
+
+    unit: EditUnit
+    pc: PreparedCase
+    result: CaseResult
+    output: AuditOutput
+    stage2_ms: float
+    unit_ms: float
+
+
+def _unit_changed_refs(unit: EditUnit) -> list[str] | None:
+    if unit.old_wikitext and unit.new_wikitext:
+        return refs_for_changed_sentences(unit.old_wikitext, unit.new_wikitext)
+    return None
+
+
+def _verdict_rank(output: AuditOutput) -> int:
+    if output.verdict in FLAGS:
+        return 2
+    return 1 if output.verdict == Verdict.EXPAND_CONTEXT else 0
+
+
+async def _judge_unit(
     req: AuditDiffRequest,
-    fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
-    backend: Annotated[GeminiJudgeBackend | None, Depends(get_judge_backend)],
-    auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
-) -> AuditDiffResponse:
-    started = time.perf_counter()
-    diff_scan, old_scan, new_scan, changed_refs = await run_in_threadpool(
-        _scan_request, req
-    )
-    stealth_ms = (
-        diff_scan.scan_latency_ms + old_scan.scan_latency_ms + new_scan.scan_latency_ms
-    )
-    case = Case(
-        case_id=f"{req.lang_code}:{req.page_title}:{req.new_revision_id}",
-        lang=req.lang_code,
-        bucket="api",
-        provenance="api",
-        page_title=req.page_title,
-        old_text=old_scan.sanitized_human_text,
-        new_text=new_scan.sanitized_human_text,
-        ref_urls=req.ref_urls,
-        old_wikitext=req.old_wikitext,
-        new_wikitext=req.new_wikitext,
-        changed_ref_urls=changed_refs,
-        expected="UNLABELLED",
-    )
-    render_urls = changed_refs or req.ref_urls
-    render_task = asyncio.create_task(
-        scan_ref_pages_in_temp_dir(render_urls, auditor_provider, fetcher.cached_text)
-    )
-    try:
+    unit: EditUnit,
+    changed_refs: list[str] | None,
+    diff_scan: ScanResult,
+    fetcher: SourceFetcher,
+    backend: GeminiJudgeBackend | None,
+    semaphore: asyncio.Semaphore,
+) -> _UnitOutcome:
+    async with semaphore:
+        started = time.perf_counter()
+        case = Case(
+            case_id=f"{req.lang_code}:{req.page_title}:{req.new_revision_id}"
+            f"#u{unit.index}",
+            lang=req.lang_code,
+            bucket="api",
+            provenance="api",
+            page_title=req.page_title,
+            old_text=unit.old_text,
+            new_text=unit.new_text,
+            ref_urls=req.ref_urls,
+            old_wikitext=unit.old_wikitext,
+            new_wikitext=unit.new_wikitext,
+            changed_ref_urls=changed_refs,
+            expected="UNLABELLED",
+        )
         stage0 = await run_in_threadpool(
             prefilter, case.old_text, case.new_text, case.lang
         )
-        pc = PreparedCase(
-            case=case,
-            stage0=stage0,
-            window=None,
-            diff_scan=diff_scan,
-            stealth_ms=stealth_ms,
-        )
+        pc = PreparedCase(case=case, stage0=stage0, window=None, diff_scan=diff_scan)
         judged: dict[str, AuditOutput | str] = {}
         stage2_ms = 0.0
         if not stage0.clean:
@@ -299,7 +357,7 @@ async def audit_diff(
             ref_scans: list[ScanResult] = []
             pc.window = await _window_for(case, fetcher, ref_scans)
             pc.ref_scan = _worst_scan(ref_scans)
-            pc.stealth_ms += sum(s.scan_latency_ms for s in ref_scans)
+            pc.stealth_ms = sum(s.scan_latency_ms for s in ref_scans)
             judged = await backend.judge([pc])
             stage2_ms = backend.latencies_ms.get(case.case_id, 0.0)
             outcome = judged.get(case.case_id, "no result for this case")
@@ -310,39 +368,155 @@ async def audit_diff(
         result = _case_result(
             pc, backend.model if backend else "none", judged, "api", stage2_ms
         )
-        output = result.output
-        if output is None:
+        if result.output is None:
             raise HTTPException(status_code=500, detail="No audit output produced.")
-        stealth_flagged = pc.diff_scan is not None and (
-            pc.diff_scan.stealth_status in ADMIN_FLAG_STATUSES
+        return _UnitOutcome(
+            unit=unit,
+            pc=pc,
+            result=result,
+            output=result.output,
+            stage2_ms=stage2_ms,
+            unit_ms=(time.perf_counter() - started) * 1000,
         )
+
+
+async def _cancel_all(tasks: "list[asyncio.Task[_UnitOutcome]]") -> None:
+    for task in tasks:
+        task.cancel()
+    for task in tasks:
+        with contextlib.suppress(BaseException):
+            await task
+
+
+@app.post("/api/v1/audit-diff", response_model=AuditDiffResponse)
+async def audit_diff(
+    req: AuditDiffRequest,
+    fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
+    backend: Annotated[GeminiJudgeBackend | None, Depends(get_judge_backend)],
+    auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
+) -> AuditDiffResponse:
+    started = time.perf_counter()
+    diff_scan, old_scan, new_scan, all_units = await run_in_threadpool(
+        _scan_request, req
+    )
+    stealth_ms = (
+        diff_scan.scan_latency_ms + old_scan.scan_latency_ms + new_scan.scan_latency_ms
+    )
+    partial = len(all_units) > MAX_UNITS
+    units = all_units
+    if partial:
+        top = sorted(all_units, key=lambda u: (-changed_chars(u), u.index))[:MAX_UNITS]
+        units = sorted(top, key=lambda u: u.index)
+    refs_by_unit = {u.index: _unit_changed_refs(u) for u in units}
+    union_refs: list[str] = []
+    for unit in units:
+        for url in (
+            req.ref_urls
+            if refs_by_unit[unit.index] is None
+            else refs_by_unit[unit.index]
+        ) or []:
+            if url not in union_refs:
+                union_refs.append(url)
+    render_task = asyncio.create_task(
+        scan_ref_pages_in_temp_dir(
+            union_refs or req.ref_urls, auditor_provider, fetcher.cached_text
+        )
+    )
+    semaphore = asyncio.Semaphore(UNIT_CONCURRENCY)
+    unit_tasks = [
+        asyncio.create_task(
+            _judge_unit(
+                req,
+                unit,
+                refs_by_unit[unit.index],
+                diff_scan,
+                fetcher,
+                backend,
+                semaphore,
+            )
+        )
+        for unit in units
+    ]
+    try:
+        try:
+            outcomes = list(await asyncio.gather(*unit_tasks))
+        except BaseException:
+            await _cancel_all(unit_tasks)
+            raise
+        top_outcome = max(
+            outcomes,
+            key=lambda o: (
+                _verdict_rank(o.output),
+                o.output.confidence if _verdict_rank(o.output) == 2 else 0.0,
+                -o.unit.index,
+            ),
+        )
+        output = top_outcome.output
+        stealth_flagged = diff_scan.stealth_status in ADMIN_FLAG_STATUSES
         render = await _await_render(render_task)
+        unit_routes: list[Route] = [route(o.result) for o in outcomes]
+        top_route = max(unit_routes, key=ROUTE_RANK.__getitem__)
+        if render.escalate:
+            top_route = "admin"
+        elif partial and top_route == "none":
+            top_route = "review"
+        contributing = [o for o in outcomes if o.output.verdict in FLAGS] or [
+            top_outcome
+        ]
+        stealth_statuses = [
+            s for o in outcomes if (s := _stealth_status(o.pc)) is not None
+        ]
+        ref_findings = sum(
+            len(o.pc.ref_scan.hidden_findings) for o in outcomes if o.pc.ref_scan
+        )
+        ref_scan_ms = sum(o.pc.stealth_ms for o in outcomes)
         return AuditDiffResponse(
             verdict=output.verdict,
             confidence=output.confidence,
-            flagged_spans=_spans_with_offsets(output, new_scan, req.new_text),
+            flagged_spans=[
+                span
+                for o in contributing
+                for span in _spans_with_offsets(o.output, new_scan, req.new_text)
+            ],
             atomic_propositions=output.atomic_propositions,
             neutral_rewrite=output.neutral_rewrite,
             editor_trust_delta=_trust_delta(output, stealth_flagged),
-            route="admin" if render.escalate else route(result),
-            pipeline_stage_reached=result.stage_reached,
+            route=top_route,
+            pipeline_stage_reached=max(o.result.stage_reached for o in outcomes),
             stealth=StealthSummary(
-                status=_stealth_status(pc) or "CLEAN",
-                vectors=_stealth_vectors(pc),
-                finding_count=sum(
-                    len(s.hidden_findings) for s in (pc.diff_scan, pc.ref_scan) if s
+                status=(
+                    worst_status(StealthStatus(s) for s in stealth_statuses).value
+                    if stealth_statuses
+                    else "CLEAN"
                 ),
+                vectors=sorted({v for o in outcomes for v in _stealth_vectors(o.pc)}),
+                finding_count=len(diff_scan.hidden_findings) + ref_findings,
             ),
             render=render,
             latency_ms=LatencyMs(
-                stealth=pc.stealth_ms,
-                stage0=stage0.latency_ms,
-                stage1=pc.window.latency_ms if pc.window else 0.0,
-                stage2=stage2_ms,
+                stealth=stealth_ms + ref_scan_ms,
+                stage0=max(o.pc.stage0.latency_ms for o in outcomes),
+                stage1=max(
+                    o.pc.window.latency_ms if o.pc.window else 0.0 for o in outcomes
+                ),
+                stage2=max(o.stage2_ms for o in outcomes),
                 render=render.latency_ms,
                 total=(time.perf_counter() - started) * 1000,
             ),
             exa_budget_exhausted=fetcher.budget_exhausted,
+            units=[
+                UnitSummary(
+                    index=o.unit.index,
+                    kind=o.unit.kind,
+                    verdict=o.output.verdict,
+                    confidence=o.output.confidence,
+                    route=r,
+                    stage_reached=o.result.stage_reached,
+                    latency_ms=o.unit_ms,
+                )
+                for o, r in zip(outcomes, unit_routes, strict=True)
+            ],
+            partial=partial,
         )
     except BaseException:
         render_task.cancel()
