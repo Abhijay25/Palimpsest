@@ -62,7 +62,12 @@ def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
         """({quote, occurrence}) => {
           const root = document.querySelector('#mw-content-text');
           if (!root) return null;
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+              return node.parentElement?.closest('#palimpsest-blame')
+                ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            }
+          });
           const nodes = []; let full = '';
           while (walker.nextNode()) { nodes.push({node: walker.currentNode, start: full.length}); full += walker.currentNode.nodeValue || ''; }
           let begin = -1, cursor = 0;
@@ -85,6 +90,18 @@ def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
           if (!a || !b) return null;
           const range = document.createRange(); range.setStart(a.node, a.offset); range.setEnd(b.node, b.offset);
           const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+          const rangeSnapshot = selection.getRangeAt(0).cloneRange();
+          const nearestBlock = (node) => {
+            const element = node?.nodeType === Node.ELEMENT_NODE ? node : node?.parentElement;
+            return element?.closest('p,li,td,blockquote,pre,h1,h2,h3,h4,h5,h6,dt,dd') || null;
+          };
+          const startBlock = nearestBlock(rangeSnapshot.startContainer);
+          const endBlock = nearestBlock(rangeSnapshot.endContainer);
+          window.__pbAcceptanceSelection = {
+            text: selection.toString(),
+            startBlock,
+            endBlock
+          };
           return {text: selection.toString(), start: begin, end: finish};
         }""",
         {"quote": quote, "occurrence": occurrence},
@@ -135,41 +152,39 @@ def assert_no_partial_selection_analysis(page: Page, quote: str, warning: re.Pat
         raise AssertionError("selection with incomplete source mapping opened a partial timeline")
 
 
-def verify_inline_panel(page: Page, quote: str) -> None:
+def verify_inline_panel(page: Page, quote: str, expected_end_block_text: str | None = None) -> None:
     panel = page.locator("#palimpsest-blame")
     expect(panel).to_be_visible()
     expect(panel).to_contain_text(quote)
     geometry = page.evaluate(
-        """(quote) => {
+        """({quote, expectedEndBlockText}) => {
           const panel = document.querySelector('#palimpsest-blame');
           const root = document.querySelector('#mw-content-text');
-          if (!panel || !root) return null;
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-          const nodes = []; let full = '';
-          while (walker.nextNode()) { nodes.push({node: walker.currentNode, start: full.length}); full += walker.currentNode.nodeValue || ''; }
-          const begin = full.indexOf(quote);
-          if (begin < 0 || full.indexOf(quote, begin + 1) >= 0) return null;
-          const locate = (offset, isEnd) => {
-            for (const item of nodes) {
-              const length = item.node.nodeValue.length;
-              if (offset >= item.start && (offset < item.start + length || (isEnd && offset === item.start + length))) return {node: item.node, offset: offset - item.start};
-            }
-            return null;
+          const selected = window.__pbAcceptanceSelection;
+          const startBlock = selected?.startBlock;
+          const endBlock = selected?.endBlock;
+          if (!panel || !root || !selected || !startBlock || !endBlock) return null;
+          if (!startBlock.isConnected || !endBlock.isConnected || !root.contains(startBlock) || !root.contains(endBlock) || !root.contains(panel)) return null;
+          if (selected.text !== quote) return null;
+          const endText = endBlock.innerText || endBlock.textContent || '';
+          const sr = endBlock.getBoundingClientRect(), pr = panel.getBoundingClientRect();
+          return {
+            endText,
+            matchesExpectedEndBlock: !expectedEndBlockText || endText.includes(expectedEndBlockText),
+            spansBlocks: startBlock !== endBlock,
+            panelTop: pr.top,
+            endBlockBottom: sr.bottom,
+            belowEndBlock: pr.top >= sr.bottom - 2
           };
-          const start = locate(begin, false), end = locate(begin + quote.length, true);
-          if (!start || !end) return null;
-          const range = document.createRange(); range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset);
-          const statement = range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
-            ? range.commonAncestorContainer.closest('p,li,td,blockquote')
-            : range.commonAncestorContainer.parentElement?.closest('p,li,td,blockquote');
-          if (!statement || !root.contains(panel)) return null;
-          const sr = statement.getBoundingClientRect(), pr = panel.getBoundingClientRect();
-          return {statementBottom: sr.bottom, panelTop: pr.top, below: pr.top >= sr.bottom - 2};
         }""",
-        quote,
+        {"quote": quote, "expectedEndBlockText": expected_end_block_text},
     )
-    if not geometry or not geometry["below"]:
-        raise AssertionError("inline breakdown is not rendered below the selected statement")
+    if not geometry:
+        raise AssertionError("selected range's end block was not retained as a connected article node")
+    if expected_end_block_text and (not geometry["spansBlocks"] or not geometry["matchesExpectedEndBlock"]):
+        raise AssertionError(f"cross-paragraph range did not retain the expected selected end block {expected_end_block_text!r}: {geometry}")
+    if not geometry["belowEndBlock"]:
+        raise AssertionError(f"inline breakdown is not rendered after the selected end block; producer may be anchoring to the first paragraph: {geometry}")
 
 
 def verify_article_snapshot(page: Page, expected_visible_text: str, revision_id: int) -> None:
@@ -352,7 +367,12 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
     annotated = page.evaluate(
         """(sentinel) => {
           const root = document.querySelector('#mw-content-text');
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+              return node.parentElement?.closest('#palimpsest-blame')
+                ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            }
+          });
           while (walker.nextNode()) {
             if (!walker.currentNode.nodeValue.includes(sentinel)) continue;
             let element = walker.currentNode.parentElement;
@@ -387,6 +407,7 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
     select_text(page, paragraph_fixture["selection_text"])
     inspect_selected_text(page, mobile=False)
     expect(page.locator("#palimpsest-blame")).to_contain_text(paragraph_fixture["selection_text"])
+    verify_inline_panel(page, paragraph_fixture["selection_text"], expected_end_block_text="Second begins.")
 
 
 def verify_mouse_partial_selection(page: Page, origin: str, cross: dict) -> None:
@@ -395,7 +416,12 @@ def verify_mouse_partial_selection(page: Page, origin: str, cross: dict) -> None
     coordinates = page.evaluate(
         """() => {
           const root = document.querySelector('#mw-content-text');
-          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+              return node.parentElement?.closest('#palimpsest-blame')
+                ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            }
+          });
           while (walker.nextNode()) {
             const text = walker.currentNode.nodeValue || '', word = 'green', at = text.indexOf(word);
             if (at < 0) continue;
