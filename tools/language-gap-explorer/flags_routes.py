@@ -10,6 +10,7 @@ import html
 import json
 import os
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -38,6 +39,7 @@ from flags_tab import RevisionRef, audit_payload, block_revisions, rank_revision
 from revision_text import cache_root, fetch_history, fetch_revision
 
 bp = Blueprint("flags", __name__)
+PAGE_CREATION_TEXT_LIMIT = 60_000
 
 
 def fixture_enabled() -> bool:
@@ -110,10 +112,15 @@ def cached_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str, Any]
     if isinstance(fixture, dict):
         return dict(fixture)
     try:
-        data = json.loads(audit_path(ref).read_text(encoding="utf-8"))
+        path = audit_path(ref)
+        data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return None
         data.setdefault("status", "ok")
+        data.setdefault(
+            "stored_at",
+            datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
+        )
         return data
     except (OSError, ValueError):
         return None
@@ -168,17 +175,28 @@ def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, f
         old = str(audit.get("old_wikitext", "")); new = str(audit.get("new_wikitext", ""))
         if not old and not new:
             return {"status": "unavailable", "error": "Cached audit has no revision text; no empty diff was rendered.", "flags": []}
-        return dict(audit, diff_html=diff_html(old, new))
+        return dict(audit, stored=True, diff_html=diff_html(old, new))
     if not scan:
         return {"status": "unavailable", "flags": [], "error": "Not scanned yet. Select Scan to make an explicit detector request."}
     try:
         new_record = fetch_revision(ref.lang, ref.revision_id)
-        parent = int(new_record.get("parent_id") or ref.parent_id or 0)
-        if not parent:
-            raise RuntimeError("The revision has no parent text; no empty diff was rendered.")
-        old_record = fetch_revision(ref.lang, parent)
+        parent_value = new_record.get("parent_id")
+        parent = int(parent_value if parent_value is not None else ref.parent_id or 0)
+        page_created = not parent
+        truncated = page_created and len(str(new_record["wikitext"])) > PAGE_CREATION_TEXT_LIMIT
+        new_wikitext = str(new_record["wikitext"])[:PAGE_CREATION_TEXT_LIMIT] if truncated else str(new_record["wikitext"])
+        if page_created:
+            old_wikitext = ""
+        else:
+            try:
+                old_record = fetch_revision(ref.lang, parent)
+            except (OSError, RuntimeError, ValueError, KeyError):
+                return {"status": "unavailable", "flags": [], "error": "The previous revision is hidden or deleted, so this edit cannot be compared."}
+            if "texthidden" in old_record or "missing" in old_record:
+                return {"status": "unavailable", "flags": [], "error": "The previous revision is hidden or deleted, so this edit cannot be compared."}
+            old_wikitext = str(old_record["wikitext"])
         scoped = RevisionRef(ref.lang, ref.revision_id, str(new_record.get("title") or ref.title), ref.timestamp, ref.url, parent)
-        body = audit_payload(scoped, str(old_record["wikitext"]), str(new_record["wikitext"]))
+        body = audit_payload(scoped, old_wikitext, new_wikitext)
         api_url = os.environ.get("PALIMPSEST_API_URL", "http://127.0.0.1:8765").rstrip("/") + "/api/v1/audit-diff"
         response = requests.post(api_url, json=body, timeout=90,
                                  headers={"X-Palimpsest-Fresh": "1"} if fresh else {})
@@ -186,7 +204,14 @@ def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, f
         result = response.json()
         if not isinstance(result, dict):
             raise ValueError("invalid detector response")
-        result.update(status="ok", old_wikitext=body["old_wikitext"], new_wikitext=body["new_wikitext"])
+        result.update(
+            status="ok",
+            old_wikitext=body["old_wikitext"],
+            new_wikitext=body["new_wikitext"],
+            stored_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+        )
+        if page_created:
+            result.update(page_created=True, truncated=truncated)
         path = audit_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         return dict(result, diff_html=diff_html(body["old_wikitext"], body["new_wikitext"]))
@@ -210,8 +235,15 @@ def cached_page_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str,
     if isinstance(fixture, dict):
         return dict(fixture)
     try:
-        data = json.loads(page_path(ref).read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
+        path = page_path(ref)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return None
+        data.setdefault(
+            "stored_at",
+            datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
+        )
+        return data
     except (OSError, ValueError):
         return None
 
@@ -220,6 +252,7 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
                           fresh: bool = False) -> dict[str, Any]:
     # Fixture re-checks are deterministic and must not contact a detector.
     result = cached_page_audit(ref, context) if (not fresh or isinstance(context.get("page_audits"), Mapping)) else None
+    stored = result is not None
     if result is None and not scan:
         return {"status": "unavailable", "flags": [], "error": "Not checked yet. Select Check this page to make an explicit detector request."}
     try:
@@ -238,12 +271,16 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
             result = response.json()
             if not isinstance(result, dict):
                 raise ValueError("invalid detector response")
-            result.update(status="ok", wikitext=wikitext)
-            path = page_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+            result.update(wikitext=wikitext)
+            if result.get("status", "ok") == "ok":
+                result["stored_at"] = datetime.now(UTC).replace(microsecond=0).isoformat()
+                path = page_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         output = dict(result)
         output.setdefault("status", "ok")
         output.setdefault("flags", [])
+        if stored:
+            output["stored"] = True
         wikitext = str(output.get("wikitext") or context.get("articles", {}).get(ref.lang, {}).get("text", ""))
         output["page_html"] = rendered_page_html(wikitext, ref.lang, ref.title)
         return output
@@ -292,7 +329,14 @@ def audit_api():
     ref = next((item for item in block_revisions(context) if item.lang == lang and item.revision_id == revision), None)
     if ref is None:
         return jsonify(status="error", error="That revision is not in this block's current edition.", flags=[]), 404
-    return jsonify(response_payload(ref, context, bool(data.get("scan")), bool(data.get("fresh"))))
+    return jsonify(
+        response_payload(
+            ref,
+            context,
+            bool(data.get("scan")),
+            request.args.get("fresh") == "1",
+        )
+    )
 
 
 @bp.post("/api/flags/page")
@@ -308,4 +352,11 @@ def page_api():
     ref = next((item for item in refs if item.lang == lang and (revision is None or item.revision_id == revision)), None)
     if ref is None:
         return jsonify(status="error", error="That revision is not available for this article.", flags=[]), 404
-    return jsonify(page_response_payload(ref, context, bool(data.get("scan")), bool(data.get("fresh"))))
+    return jsonify(
+        page_response_payload(
+            ref,
+            context,
+            bool(data.get("scan")),
+            request.args.get("fresh") == "1",
+        )
+    )

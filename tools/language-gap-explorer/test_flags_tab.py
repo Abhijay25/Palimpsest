@@ -27,7 +27,24 @@ class FlagsTabTests(unittest.TestCase):
             def json(self): return {'flags':[{'id':'one','tier':'review'}]}
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False), patch('flags_routes.fetch_revision',side_effect=[{'parent_id':21,'title':'Example','wikitext':'new'}, {'wikitext':'old'}]), patch('flags_routes.requests.post',return_value=Response()) as post:
             first=response_payload(ref,{},True);second=response_payload(ref,{},False)
-        self.assertEqual(first['status'],'ok');self.assertEqual(second['status'],'ok');post.assert_called_once();self.assertIn('mw-diff-inline-added',first['diff_html'])
+        self.assertEqual(first['status'],'ok');self.assertEqual(second['status'],'ok');self.assertTrue(second['stored']);self.assertIn('stored_at',second);self.assertNotIn('page_created',first);self.assertNotIn('truncated',first);post.assert_called_once();self.assertEqual(post.call_args.kwargs['json']['old_wikitext'],'old');self.assertEqual(post.call_args.kwargs['json']['new_wikitext'],'new');self.assertIn('mw-diff-inline-added',first['diff_html'])
+    def test_page_creation_audits_empty_old_text_and_bounds_first_version(self):
+        from flags_routes import PAGE_CREATION_TEXT_LIMIT,response_payload
+        ref=RevisionRef('en',22,'Example',parent_id=0);new='a'*PAGE_CREATION_TEXT_LIMIT+'after limit'
+        class Response:
+            def raise_for_status(self): pass
+            def json(self): return {'flags':[]}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False), patch('flags_routes.fetch_revision',return_value={'parent_id':0,'title':'Example','wikitext':new}) as fetch, patch('flags_routes.requests.post',return_value=Response()) as post:
+            result=response_payload(ref,{},True)
+            cached=json.loads(open(os.path.join(directory,'audits','en-22.json'),encoding='utf-8').read())
+        self.assertEqual(result['status'],'ok');self.assertTrue(result['page_created']);self.assertTrue(result['truncated']);fetch.assert_called_once();self.assertEqual(post.call_args.kwargs['json']['old_wikitext'],'');self.assertEqual(post.call_args.kwargs['json']['new_wikitext'],'a'*PAGE_CREATION_TEXT_LIMIT);self.assertNotIn('after limit',result['diff_html']);self.assertTrue(cached['page_created'])
+    def test_hidden_or_deleted_parent_is_unavailable(self):
+        from flags_routes import response_payload
+        ref=RevisionRef('en',22,'Example',parent_id=21)
+        for parent in (RuntimeError('revision content missing'),{'texthidden':''},{'missing':''}):
+            with self.subTest(parent=parent), patch('flags_routes.fetch_revision',side_effect=[{'parent_id':21,'title':'Example','wikitext':'new'},parent]), patch('flags_routes.requests.post') as post:
+                result=response_payload(ref,{},True)
+            self.assertEqual(result,{'status':'unavailable','flags':[],'error':'The previous revision is hidden or deleted, so this edit cannot be compared.'});post.assert_not_called()
     def test_fresh_audit_bypasses_cache_and_forwards_detector_header(self):
         from flags_routes import response_payload
         ref=RevisionRef('en',22,'Example',parent_id=21)
@@ -37,6 +54,14 @@ class FlagsTabTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False), patch('flags_routes.fetch_revision',side_effect=[{'parent_id':21,'title':'Example','wikitext':'new'}, {'wikitext':'old'}]), patch('flags_routes.requests.post',return_value=Response()) as post:
             response_payload(ref,{},True,True)
         self.assertEqual(post.call_args.kwargs['headers'],{'X-Palimpsest-Fresh':'1'})
+    def test_fresh_audit_is_enabled_only_by_the_page_query_parameter(self):
+        from app import app
+        with patch.dict(os.environ,{'LANGGAP_FIXTURES':'1'},clear=False), patch('flags_routes.response_payload',return_value={'status':'ok','flags':[]}) as response:
+            with app.test_client() as client:
+                client.post('/api/flags/audit',json={'topic':'Q-demo','lang':'en','revision':101,'scan':True,'fresh':True})
+                self.assertFalse(response.call_args.args[3])
+                client.post('/api/flags/audit?fresh=1',json={'topic':'Q-demo','lang':'en','revision':101,'scan':True})
+        self.assertTrue(response.call_args.args[3])
     def test_history_cache_has_ten_minute_ttl_and_live_history_has_required_fields(self):
         from revision_text import HISTORY_TTL_SECONDS,cached_history,fetch_history,history_cache_path
         class Reply:
