@@ -22,3 +22,29 @@ nix develop -c uv run python -m palimpsest ingest --run runs/g1
 429/5xx), records `stage2_ms` per case, and writes results so `ingest` and the
 report work unchanged. `--models` is ignored; the model name comes from
 `GEMINI_JUDGE_MODEL`. A missing key exits non-zero before any network call.
+
+## API
+
+```
+nix develop -c uv run uvicorn palimpsest.api:app --port 8000
+```
+
+`GET /healthz` returns booleans only: `{"judge_configured": bool, "exa_configured": bool}`.
+`lang_code` is `en` or `fi` (the Stage 0 watch-lists). `audit-diff` returns 503 when
+no `GEMINI_API_KEY` is set and Stage 0 is not clean (no verdict is faked), 502 if the
+judge call fails. `editor_trust_delta` is a placeholder rule (FLAG_G1 -0.10, G2 -0.05,
+G3 -0.08, stealth admin flag -0.20, else 0). Flagged-span offsets index into the
+request `new_text` (null if the substring is not found).
+
+```
+curl -s localhost:8000/api/v1/stealth-scan -H 'content-type: application/json' \
+  -d '{"text": "Some wikitext", "target_type": "WIKIPEDIA_DIFF", "old_text": "Old wikitext"}'
+
+curl -s localhost:8000/api/v1/audit-diff -H 'content-type: application/json' -d '{
+  "lang_code": "en", "page_title": "Example", "section_title": "History",
+  "old_revision_id": 1, "new_revision_id": 2, "editor_username": "Alice",
+  "old_text": "The mayor signed the bill.",
+  "new_text": "The mayor shamelessly pushed through the disastrous bill.",
+  "ref_urls": ["https://example.org/article"]
+}'
+```

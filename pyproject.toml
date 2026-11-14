@@ -10,6 +10,8 @@ dependencies = [
     "pyarrow",
     "python-dotenv",
     "google-genai==3.3.0",
+    "fastapi==0.162.7",
+    "uvicorn==0.54.0",
 ]
 
 [dependency-groups]
