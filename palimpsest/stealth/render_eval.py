@@ -22,8 +22,19 @@ from palimpsest.sources import SourceFetcher
 from palimpsest.stage0 import extract_ref_urls
 from palimpsest.stealth.models import HiddenFinding
 from palimpsest.stealth.pillar3 import judged_drift, render_findings
-from palimpsest.stealth.render import PageRenderer, RenderAudit, RenderBlockedError
+from palimpsest.stealth.render import (
+    PageRenderer,
+    RenderAudit,
+    RenderBlockedError,
+    RenderedTile,
+)
 from palimpsest.stealth.triage import read_verdicts, render_triage_batch
+from palimpsest.stealth.vision import (
+    read_vision_verdicts,
+    render_vision_batch,
+    vision_finding,
+    vision_tiles,
+)
 
 Expected = Literal["ATTACK", "BENIGN", "IMAGE_TEXT", "REAL"]
 PLANTED_RECOVERY: Final = 0.6
@@ -257,6 +268,78 @@ def ingest(run_dir: Path, model: str) -> dict[str, float | int | None]:
     }
 
 
+def _load_rendered(run_dir: Path) -> list[RenderedCase]:
+    return [
+        RenderedCase.model_validate_json(line)
+        for line in (run_dir / "prepared.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+
+
+def vision_prepare(run_dir: Path, model: str, real_pages: int, batch_size: int) -> int:
+    """Batch the image-bearing tiles of synthetic pages and the first real pages."""
+    items: list[tuple[str, RenderedTile]] = []
+    real_used = 0
+    for r in _load_rendered(run_dir):
+        if r.audit is None:
+            continue
+        tiles = vision_tiles(r.audit)
+        if not tiles:
+            continue
+        if r.case.expected == "REAL":
+            if real_used >= real_pages:
+                continue
+            real_used += 1
+        items.extend((f"{r.case.case_id}:t{t.index}", t) for t in tiles)
+    batches = 0
+    for start in range(0, len(items), batch_size):
+        batches += 1
+        name = f"vision_{batches:03d}"
+        results_path = (run_dir / "vision_results" / model / f"{name}.jsonl").resolve()
+        batch_path = run_dir / "batches" / model / f"{name}.md"
+        batch_path.parent.mkdir(parents=True, exist_ok=True)
+        batch_path.write_text(
+            render_vision_batch(items[start : start + batch_size], results_path),
+            encoding="utf-8",
+        )
+    return batches
+
+
+def vision_ingest(run_dir: Path, model: str) -> dict[str, float | int | None]:
+    verdicts, invalid = read_vision_verdicts(run_dir / "vision_results" / model)
+    flagged_pages: dict[str, list[str]] = {}
+    for item_id, verdict in verdicts.items():
+        finding = vision_finding(verdict)
+        if finding is not None:
+            flagged_pages.setdefault(item_id.split(":")[0], []).append(
+                finding.decoded_hidden_text[:80]
+            )
+    seen_pages = {item_id.split(":")[0] for item_id in verdicts}
+    expected = {r.case.case_id: r.case.expected for r in _load_rendered(run_dir)}
+    planted = {r.case.case_id: r.case.planted_text for r in _load_rendered(run_dir)}
+
+    def pages(kind: Expected) -> list[str]:
+        return [p for p in seen_pages if expected.get(p) == kind]
+
+    images, benign, real = pages("IMAGE_TEXT"), pages("BENIGN"), pages("REAL")
+    for page, texts in sorted(flagged_pages.items()):
+        print(page, expected.get(page), texts, "| planted:", planted.get(page, "")[:60])
+    return {
+        "image_text_pages": len(images),
+        "image_text_flagged": _ratio(
+            sum(p in flagged_pages for p in images), len(images)
+        ),
+        "benign_pages": len(benign),
+        "benign_flagged": _ratio(sum(p in flagged_pages for p in benign), len(benign)),
+        "real_pages": len(real),
+        "real_flagged": _ratio(sum(p in flagged_pages for p in real), len(real)),
+        "tiles_judged": len(verdicts),
+        "invalid_verdict_lines": invalid,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -270,8 +353,21 @@ def main() -> None:
     ing = sub.add_parser("ingest")
     ing.add_argument("--run", type=Path, required=True)
     ing.add_argument("--model", default="haiku")
+    vprep = sub.add_parser("vision-prepare")
+    vprep.add_argument("--run", type=Path, required=True)
+    vprep.add_argument("--model", default="sonnet")
+    vprep.add_argument("--real-pages", type=int, default=8)
+    vprep.add_argument("--batch-size", type=int, default=8)
+    ving = sub.add_parser("vision-ingest")
+    ving.add_argument("--run", type=Path, required=True)
+    ving.add_argument("--model", default="sonnet")
     args = parser.parse_args()
-    if args.command == "prepare":
+    if args.command == "vision-prepare":
+        n = vision_prepare(args.run, args.model, args.real_pages, args.batch_size)
+        print(f"wrote {n} vision batch files under {args.run / 'batches'}")
+    elif args.command == "vision-ingest":
+        print(json.dumps(vision_ingest(args.run, args.model)))
+    elif args.command == "prepare":
         n = prepare(
             args.pages,
             args.real_from,

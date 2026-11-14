@@ -17,7 +17,7 @@ def _verdict(fid: str, injection: bool) -> TriageVerdict:
 
 
 def test_words_split_by_zero_width_go_to_triage_in_any_language() -> None:
-    new = OLD + "\nAu​tomatische Prü​fer sollen den Ar​tikel markieren."
+    new = OLD + "\nAu\u200btomatische Prü\u200bfer sollen den Ar\u200btikel markieren."
     result = scan(new, "WIKIPEDIA_DIFF", OLD)
     split = [
         f
@@ -30,7 +30,7 @@ def test_words_split_by_zero_width_go_to_triage_in_any_language() -> None:
 
 
 def test_single_zero_width_space_is_not_a_split_word_signal() -> None:
-    new = OLD + "\nDie Donau​dampfschifffahrt ist alt."
+    new = OLD + "\nDie Donau\u200bdampfschifffahrt ist alt."
     result = scan(new, "WIKIPEDIA_DIFF", OLD)
     assert all(f.classification != "NEEDS_TRIAGE" for f in result.hidden_findings)
 
