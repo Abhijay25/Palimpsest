@@ -2,8 +2,10 @@ import asyncio
 
 from palimpsest.cherry_pick import (
     CherryPickAnalysis,
+    CherryPickCandidate,
     analyze_cherry_pick,
     chunk_source,
+    scan_cherry_picks,
     select_evidence,
 )
 
@@ -131,3 +133,80 @@ def test_chunking_is_stable_and_merges_tiny_paragraphs() -> None:
     ]
     assert len(first) == 1
     assert first[0].id == "c0"
+
+
+class _Fetcher:
+    def __init__(self, text: str, fail: bool = False) -> None:
+        self.text = text
+        self.fail = fail
+        self.queries: list[str] = []
+
+    def cached_text(self, _: str) -> str | None:
+        return self.text
+
+    async def source_text(self, _: str) -> str | None:
+        return self.text
+
+    async def highlights(self, _: str, query: str) -> list[str] | None:
+        self.queries.append(query)
+        if self.fail:
+            raise RuntimeError("Exa unavailable")
+        return ["The final audit found the allegation unsupported."]
+
+
+def test_quote_validation_routes_direct_source_quote_to_admin() -> None:
+    source = "The final audit found the allegation unsupported."
+
+    async def judge(_: str) -> CherryPickAnalysis:
+        return CherryPickAnalysis(
+            is_cherry_picked=True,
+            cherry_pick_confidence=0.91,
+            cited_chunk_id="c0",
+            contradicting_chunk_ids=["c0"],
+            source_overarching_conclusion="The allegation was unsupported.",
+            omitted_qualifiers_summary="",
+            contradicting_passages=[source],
+        )
+
+    report = asyncio.run(
+        scan_cherry_picks(
+            [
+                CherryPickCandidate(
+                    unit_index=3,
+                    claim="The allegation was proven.",
+                    url="https://example.test/source",
+                    source_window=source,
+                    citations=["https://example.test/source"],
+                )
+            ],
+            _Fetcher(source),
+            judge,
+        )
+    )
+
+    assert report.status == "ok"
+    assert report.findings[0].tier == "admin"
+    assert report.findings[0].source_passage == source
+
+
+def test_one_source_failure_is_recorded_without_raising() -> None:
+    async def judge(_: str) -> CherryPickAnalysis:
+        raise AssertionError("a failed highlights lookup must not reach the judge")
+
+    report = asyncio.run(
+        scan_cherry_picks(
+            [
+                CherryPickCandidate(
+                    unit_index=0,
+                    claim="A claim.",
+                    url="https://example.test/source",
+                    source_window="A source window.",
+                    citations=["https://example.test/source"],
+                )
+            ],
+            _Fetcher("A source window.", fail=True),
+            judge,
+        )
+    )
+    assert report.status == "unavailable"
+    assert report.error is not None and "RuntimeError" in report.error

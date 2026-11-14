@@ -1,11 +1,12 @@
 """Selective-citation checks for sources whose later conclusion changes the picture."""
 
+import asyncio
 import json
 import math
 import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol
 
 from google.genai import types
 from pydantic import BaseModel, Field
@@ -15,8 +16,10 @@ from palimpsest.backends.gemini import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_THINKING,
     GeminiClient,
+    GeminiJudgeBackend,
     _GeminiCaller,
 )
+from palimpsest.cascade import CascadeJudgeBackend
 from palimpsest.crosslingual import anchor_terms
 from palimpsest.judge import _neutralise
 
@@ -47,6 +50,37 @@ class CherryPickAnalysis(BaseModel):
     source_overarching_conclusion: str
     omitted_qualifiers_summary: str
     balanced_npov_rewrite: str | None = None
+    contradicting_passages: list[str] = Field(default_factory=list)
+
+
+class CherryPickFinding(BaseModel):
+    """One selective-citation finding safe to expose in an audit response."""
+
+    unit_index: int
+    claim: str
+    source_passage: str
+    citations: list[str]
+    confidence: float
+    tier: Literal["admin", "review"]
+    balanced_rewrite: str | None = None
+
+
+class CherryPickScan(BaseModel):
+    """Best-effort B2 result; errors never affect the primary audit verdict."""
+
+    status: Literal["ok", "skipped", "unavailable"]
+    findings: list[CherryPickFinding] = Field(default_factory=list)
+    error: str | None = None
+
+
+class CherryPickCandidate(BaseModel):
+    """A changed, cited edit unit whose source window was available to the judge."""
+
+    unit_index: int
+    claim: str
+    url: str
+    source_window: str
+    citations: list[str]
 
 
 class EvidenceSelection(BaseModel):
@@ -64,6 +98,16 @@ class Embedder(Protocol):
 
 
 JudgeCall = Callable[[str], Awaitable[CherryPickAnalysis]]
+
+
+class CherryPickFetcher(Protocol):
+    """The small SourceFetcher surface B2 needs after Stage 1 has succeeded."""
+
+    def cached_text(self, url: str) -> str | None: ...
+
+    async def source_text(self, url: str) -> str | None: ...
+
+    async def highlights(self, url: str, query: str) -> list[str] | None: ...
 
 
 def _split_to_cap(text: str) -> list[str]:
@@ -158,8 +202,14 @@ async def select_evidence(
     chunks: list[SourceChunk],
     k: int = 3,
     embedder: Embedder | None = None,
+    highlight_chunks: list[SourceChunk] | None = None,
 ) -> EvidenceSelection:
-    """Choose cited, closing, and related excerpts using language-neutral similarity."""
+    """Choose cited and conclusion excerpts using language-neutral similarity.
+
+    Exa highlights are query-selected source passages, so use them for the
+    conclusion/qualifier context when available rather than guessing that a
+    document's final paragraphs are its conclusion.
+    """
     if not chunks:
         raise ValueError("Cannot select evidence from an empty source")
     scores = [_overlap_score(claim, chunk.text) for chunk in chunks]
@@ -176,9 +226,10 @@ async def select_evidence(
     ranked = sorted(range(len(chunks)), key=lambda index: (-scores[index], index))
     cited_index = ranked[0]
     related = [chunks[index] for index in ranked if index != cited_index][: max(k, 0)]
+    conclusions = highlight_chunks or chunks[-2:]
     return EvidenceSelection(
         cited_chunk=chunks[cited_index],
-        conclusion_chunks=chunks[-2:],
+        conclusion_chunks=conclusions[: max(k, 0)],
         related_chunks=related,
     )
 
@@ -216,12 +267,23 @@ async def analyze_cherry_pick(
     source_text: str,
     judge_call: JudgeCall,
     embedder: Embedder | None = None,
+    highlights: list[str] | None = None,
+    require_context: bool = True,
 ) -> CherryPickAnalysis:
     """Ask one structured judge only when a full source has enough context to compare."""
     chunks = chunk_source(source_text)
-    if len(chunks) < 3:
+    if len(chunks) < 3 and require_context:
         return _not_cherry_picked()
-    evidence = await select_evidence(claim, chunks, embedder=embedder)
+    if not chunks:
+        return _not_cherry_picked()
+    highlight_chunks = [
+        SourceChunk(id=f"h{index}", index=index, text=highlight)
+        for index, highlight in enumerate(highlights or [])
+        if highlight.strip()
+    ]
+    evidence = await select_evidence(
+        claim, chunks, embedder=embedder, highlight_chunks=highlight_chunks or None
+    )
     return await judge_call(render_cherry_pick_payload(claim, evidence))
 
 
@@ -235,9 +297,10 @@ class GeminiCherryPickBackend:
         client: GeminiClient | None = None,
         backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
         model: str = DEFAULT_JUDGE_MODEL,
+        caller: _GeminiCaller | None = None,
     ) -> None:
         self.model = model
-        self._caller = _GeminiCaller(model, client, backoff_seconds)
+        self._caller = caller or _GeminiCaller(model, client, backoff_seconds)
         if self._caller.thinking is None:
             self._caller.thinking = types.ThinkingConfig(
                 thinking_level=types.ThinkingLevel(DEFAULT_JUDGE_THINKING)
@@ -255,3 +318,86 @@ class GeminiCherryPickBackend:
         if isinstance(result, str):
             raise TypeError(result)
         return result
+
+
+def gemini_cherry_pick_judge(
+    backend: object,
+) -> GeminiCherryPickBackend | None:
+    """Reuse the audit judge's caller, including its concurrency and timeout limits."""
+    if isinstance(backend, GeminiJudgeBackend):
+        return GeminiCherryPickBackend(model=backend.model, caller=backend._caller)
+    if isinstance(backend, CascadeJudgeBackend):
+        return gemini_cherry_pick_judge(backend.second)
+    return None
+
+
+async def scan_cherry_picks(
+    candidates: list[CherryPickCandidate],
+    fetcher: CherryPickFetcher,
+    judge_call: JudgeCall | None,
+) -> CherryPickScan:
+    """Run one B2 call for each already-gated candidate without failing the audit."""
+    if not candidates or judge_call is None:
+        return CherryPickScan(status="skipped")
+
+    async def one(
+        candidate: CherryPickCandidate,
+    ) -> CherryPickFinding | Exception | None:
+        try:
+            cached_text = fetcher.cached_text(candidate.url)
+            fetched_text = (
+                None
+                if cached_text is not None
+                else await fetcher.source_text(candidate.url)
+            )
+            source_text = cached_text or fetched_text or candidate.source_window
+            highlights = await fetcher.highlights(candidate.url, candidate.claim)
+            analysis = await analyze_cherry_pick(
+                candidate.claim,
+                source_text,
+                judge_call,
+                highlights=highlights,
+                require_context=False,
+            )
+            if not analysis.is_cherry_picked:
+                return None
+            passage = next(iter(analysis.contradicting_passages), "")
+            if not passage:
+                chunks = {chunk.id: chunk.text for chunk in chunk_source(source_text)}
+                passage = next(
+                    (
+                        chunks[chunk_id]
+                        for chunk_id in analysis.contradicting_chunk_ids
+                        if chunk_id in chunks
+                    ),
+                    analysis.source_overarching_conclusion,
+                )
+            direct_quote = bool(
+                (cached_text or fetched_text)
+                and passage
+                and passage in (cached_text or fetched_text or "")
+            )
+            return CherryPickFinding(
+                unit_index=candidate.unit_index,
+                claim=candidate.claim,
+                source_passage=passage,
+                citations=candidate.citations,
+                confidence=analysis.cherry_pick_confidence,
+                tier="admin" if direct_quote else "review",
+                balanced_rewrite=analysis.balanced_npov_rewrite,
+            )
+        except Exception as exc:  # noqa: BLE001 - individual source failures are isolated
+            return exc
+
+    results = await asyncio.gather(*(one(candidate) for candidate in candidates))
+    errors = [
+        f"{type(result).__name__}: {result}"
+        for result in results
+        if isinstance(result, Exception)
+    ]
+    findings = [result for result in results if isinstance(result, CherryPickFinding)]
+    return CherryPickScan(
+        status="unavailable" if len(errors) == len(candidates) else "ok",
+        findings=findings,
+        error="; ".join(errors) or None,
+    )
