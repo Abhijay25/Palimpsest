@@ -74,13 +74,16 @@ class GeminiConsistencyJudge:
         client: GeminiClient | None = None,
         caller: _GeminiCaller | None = None,
     ) -> None:
+        # A shared caller belongs to the main judge: never change its timeout or
+        # thinking level (that capped every later judge call at DEADLINE_S).
         self._caller = caller or _GeminiCaller(
             DEFAULT_JUDGE_MODEL, client, DEFAULT_BACKOFF_SECONDS
         )
-        self._caller.timeout = DEADLINE_S
-        self._caller.thinking = types.ThinkingConfig(
-            thinking_level=types.ThinkingLevel.LOW
-        )
+        if caller is None:
+            self._caller.timeout = DEADLINE_S
+            self._caller.thinking = types.ThinkingConfig(
+                thinking_level=types.ThinkingLevel.LOW
+            )
 
     async def __call__(
         self, changed_sentence: str, candidates: list[str]
@@ -89,8 +92,9 @@ class GeminiConsistencyJudge:
             {"changed_sentence": changed_sentence, "candidate_sentences": candidates},
             ensure_ascii=False,
         )
-        answer, _ = await self._caller.generate(
-            self._SYSTEM, payload, ConsistencyAnswer
+        answer, _ = await asyncio.wait_for(
+            self._caller.generate(self._SYSTEM, payload, ConsistencyAnswer),
+            DEADLINE_S,
         )
         if isinstance(answer, str):
             return None

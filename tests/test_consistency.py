@@ -151,3 +151,13 @@ def test_flag_mapping_has_page_jump_anchor() -> None:
     assert flags[0].title == "Out of sync with the page: 2009 vs 1997"
     assert flags[0].evidence[0].url == article_url("fi", "A title", "A section & more")
     assert flags[0].evidence[0].url.endswith("#A_section_%26_more")
+
+
+def test_shared_judge_caller_is_not_reconfigured() -> None:
+    from palimpsest.backends.gemini import GeminiJudgeBackend
+    from palimpsest.consistency import gemini_consistency_judge
+
+    backend = GeminiJudgeBackend(client=object())  # type: ignore[arg-type]  # never called
+    before = (backend._caller.timeout, backend._caller.thinking)
+    assert gemini_consistency_judge(backend) is not None
+    assert (backend._caller.timeout, backend._caller.thinking) == before
