@@ -1,4 +1,9 @@
-from palimpsest.stage0 import extract_ref_urls, prefilter, strip_wikitext
+from palimpsest.stage0 import (
+    extract_ref_urls,
+    prefilter,
+    refs_for_changed_sentences,
+    strip_wikitext,
+)
 
 
 def test_typo_fix_is_clean() -> None:
@@ -132,3 +137,33 @@ def test_longer_typo_fix_is_clean() -> None:
 def test_different_word_same_length_not_clean() -> None:
     result = prefilter("the vote was won", "the vote was lost", "en")
     assert not result.clean
+
+
+def test_refs_for_changed_sentences_uncited_addition() -> None:
+    old = "Zvada signed in April.<ref>https://a.example/signed</ref>"
+    new = old + " In November the fee was waived."
+    assert refs_for_changed_sentences(old, new) == []
+
+
+def test_refs_for_changed_sentences_added_with_own_ref() -> None:
+    old = "Zvada signed in April.<ref>https://a.example/signed</ref>"
+    new = old + " The fee was waived.<ref>https://b.example/waived</ref>"
+    assert refs_for_changed_sentences(old, new) == ["https://b.example/waived"]
+
+
+def test_refs_for_changed_sentences_modified_keeps_ref() -> None:
+    old = "Zvada signed in April.<ref>https://a.example/signed</ref> Other."
+    new = "Zvada reluctantly signed in April.<ref>https://a.example/signed</ref> Other."
+    assert refs_for_changed_sentences(old, new) == ["https://a.example/signed"]
+
+
+def test_refs_for_changed_sentences_inner_ref_and_dedup() -> None:
+    old = "Alpha beta."
+    new = "Alpha beta. He said<ref>https://a.example/x</ref> it twice.<ref>https://a.example/x</ref>"
+    assert refs_for_changed_sentences(old, new) == ["https://a.example/x"]
+
+
+def test_refs_for_changed_sentences_named_reuse() -> None:
+    old = 'Old claim.<ref name="x">https://a.example/x</ref>'
+    new = old + ' New claim.<ref name="x" /> Third.<ref name=y />'
+    assert refs_for_changed_sentences(old, new) == ["https://a.example/x"]

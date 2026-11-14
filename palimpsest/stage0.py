@@ -12,6 +12,11 @@ from palimpsest.wordlists import WATCH_LISTS, WordList
 
 _URL_RE = re.compile(r"https?://[^\s|\]<>}\"']+")
 _TOKEN_RE = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*", re.UNICODE)
+_REF_RE = re.compile(r"<ref\b[^>]*?/>|<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE)
+_REF_NAME_RE = re.compile(r"""\bname\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s/>"']+))""")
+_REF_PLACEHOLDER = "\ue000{}\ue001"
+_SENTENCE_END_RE = re.compile(r"[.!?](?:\ue000\d+\ue001)*\s+")
+_PLACEHOLDER_RE = re.compile(r"\ue000(\d+)\ue001")
 _MAX_TYPO_DISTANCE = 2
 _TYPO_RELATIVE_DISTANCE = 0.25
 _MAX_TYPO_LENGTH_DIFF = 2
@@ -60,6 +65,59 @@ def strip_wikitext(wikitext: str) -> str:
         except ValueError:
             continue
     return str(code.strip_code(normalize=True, collapse=True))
+
+
+def _ref_name(ref: str) -> str | None:
+    match = _REF_NAME_RE.search(ref[: ref.index(">") + 1])
+    return next((g for g in match.groups() if g), None) if match else None
+
+
+def _sentences_with_refs(wikitext: str) -> list[tuple[str, list[str]]]:
+    """Sentences as (stripped text, raw ref tags); a ref belongs to the sentence it sits in or follows."""
+    refs: list[str] = []
+
+    def stash(match: re.Match[str]) -> str:
+        refs.append(match.group(0))
+        return _REF_PLACEHOLDER.format(len(refs) - 1)
+
+    masked = _REF_RE.sub(stash, wikitext)
+    pieces: list[str] = []
+    start = 0
+    for end in _SENTENCE_END_RE.finditer(masked):
+        pieces.append(masked[start : end.end()])
+        start = end.end()
+    pieces.append(masked[start:])
+    result: list[tuple[str, list[str]]] = []
+    for piece in pieces:
+        own = [refs[int(i)] for i in _PLACEHOLDER_RE.findall(piece)]
+        plain = " ".join(strip_wikitext(_PLACEHOLDER_RE.sub("", piece)).split())
+        if plain:
+            result.append((plain, own))
+    return result
+
+
+def refs_for_changed_sentences(old_wikitext: str, new_wikitext: str) -> list[str]:
+    """URLs of refs attached to sentences of new_wikitext whose text is absent from old_wikitext."""
+    old_plain = {plain for plain, _ in _sentences_with_refs(old_wikitext)}
+    named: dict[str, list[str]] = {}
+    for ref in _REF_RE.findall(new_wikitext):
+        name = _ref_name(ref)
+        if name is not None and not ref.rstrip().endswith("/>"):
+            named[name] = [u.rstrip(".,;)") for u in _URL_RE.findall(ref)]
+    urls: list[str] = []
+    for plain, refs in _sentences_with_refs(new_wikitext):
+        if plain in old_plain:
+            continue
+        for ref in refs:
+            if ref.rstrip().endswith("/>"):
+                name = _ref_name(ref)
+                found = named.get(name, []) if name is not None else []
+            else:
+                found = [u.rstrip(".,;)") for u in _URL_RE.findall(ref)]
+            for url in found:
+                if url not in urls:
+                    urls.append(url)
+    return urls
 
 
 def _tokens(text: str) -> list[str]:
