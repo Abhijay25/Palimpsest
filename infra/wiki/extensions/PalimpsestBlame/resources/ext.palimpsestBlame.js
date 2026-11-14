@@ -906,7 +906,7 @@
 		} );
 	}
 
-	function versionIdentityLabel( revision, coverage ) {
+	function versionIdentityLabel( revision ) {
 		var sourceUser = revision.source_user || revision.source && revision.source.user;
 		var snapshot = revision.source_snapshot;
 		var snapshotId = snapshot && typeof snapshot === 'object' ? snapshot.revision_id || snapshot.id : revision.source_snapshot_revision_id;
@@ -914,7 +914,7 @@
 			return 'Source editor: ' + sourceUser + ( snapshotId ? ' · source snapshot ' + snapshotId : snapshot ? ' · source snapshot' : '' );
 		}
 		var localUser = revision.user || 'Identity unavailable';
-		if ( typeof localUser === 'string' && ( /^Imported>/i.test( localUser ) || coverage && ( coverage.source_wiki || coverage.source_anchor_timestamp ) ) ) {
+		if ( typeof localUser === 'string' && /^Imported>/i.test( localUser ) ) {
 			return 'Local import account: ' + localUser + ' · source editor unavailable in this version result';
 		}
 		return 'Local editor: ' + localUser;
@@ -949,7 +949,7 @@
 		}
 		response.versions.forEach( function ( revision ) {
 			var item = element( 'li', '' );
-			var button = element( 'button', 'pb-version', formatUtc( revision.timestamp ) + ' · ' + versionIdentityLabel( revision, response.coverage ) + ' · revision ' + revision.revision_id );
+			var button = element( 'button', 'pb-version', formatUtc( revision.timestamp ) + ' · ' + versionIdentityLabel( revision ) + ' · revision ' + revision.revision_id );
 			button.type = 'button';
 			button.addEventListener( 'click', function () {
 				var url = mw.util.getUrl( title, { oldid: revision.revision_id, action: 'blame' } );

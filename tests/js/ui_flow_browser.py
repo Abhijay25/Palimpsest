@@ -115,7 +115,7 @@ def main():
         page.get_by_role("button", name="Apply these bounds").click()
         page.wait_for_selector(".pb-version")
         labels = page.locator(".pb-version").all_inner_texts()
-        assert any("Local import account: Editor" in label and "source editor unavailable" in label for label in labels), labels
+        assert any("Local editor: Editor" in label for label in labels), labels
         assert any("Local import account: Imported>SourceWiki" in label and "source editor unavailable" in label for label in labels), labels
         assert any("Source editor: Source Editor" in label and "source snapshot 789" in label for label in labels), labels
         versions_request = page.evaluate("window.__requests.filter(r => r.params.op === 'versions').at(-1)")
