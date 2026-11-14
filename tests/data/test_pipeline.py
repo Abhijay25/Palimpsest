@@ -18,7 +18,7 @@ from scripts.palimpsest_data.io import DataError, atomic_json, canonical_json, i
 from scripts.palimpsest_data.manifests import validate_corpus
 from scripts.palimpsest_data.support import discover_support
 from scripts.palimpsest_data.xml_export import export_article, export_article_stream, mediawiki_xml
-from scripts.palimpsest_data.importer import fetch_local_page, import_corpus, map_revisions
+from scripts.palimpsest_data.importer import _import_support, fetch_local_page, import_corpus, map_revisions
 import xml.etree.ElementTree as ET
 
 
@@ -638,6 +638,48 @@ class DataPipelineTests(unittest.TestCase):
                                   lambda title, cutoff: {"title": title, "source_revision_id": 1, "timestamp": cutoff, "content": graph[title]})
         self.assertEqual(len(report["supporting"]), 2)
         self.assertTrue(report["cycles"])
+
+    def test_support_record_content_tamper_fails_before_mapping_or_import(self):
+        article = {"source_wiki": "fiwiki", "language": "fi", "source_page_id": 101,
+                   "anchor_revision_id": 3000, "title": "Article"}
+        text = "correct supporting text"
+        sha1 = hashlib.sha1(text.encode()).hexdigest()
+        good = {"source_page_id": 501, "source_revision_id": 9001, "source_parent_id": 0,
+                "title": "Template:Existing", "timestamp": "2025-08-01T00:00:00Z",
+                "author": {"kind": "named", "value": "Editor", "hidden": False},
+                "comment": "edit", "comment_hidden": False, "minor": False,
+                "content_model": "wikitext", "content_format": "text/x-wiki", "content": text,
+                "content_hidden": False, "source_sha1": sha1, "computed_sha1": sha1,
+                "sha256": sha256_bytes(text.encode()), "namespace_id": 10}
+        c1 = {"project": "fixture", "data_root": "/tmp/fixture",
+              "languages": {"fi": {"api_url": "http://fi/api.php"}}}
+        api_calls = []
+        runner_calls = []
+
+        def api(url):
+            api_calls.append(url)
+            return {"query": {"pages": [{"title": good["title"], "pageid": 7001, "revisions": [{
+                "revid": 8001, "parentid": 0, "timestamp": good["timestamp"], "user": "Imported>Editor",
+                "comment": "edit", "slots": {"main": {"content": text, "contentmodel": "wikitext",
+                                                            "contentformat": "text/x-wiki"}}}]}]}}
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            positive = _import_support([(article, good)], root / "positive", c1, root / "runtime.py", "18081,18082,18083",
+                                       "/data", api=api, runner=lambda *a, **kw: runner_calls.append(a), dry_run=False)
+            self.assertEqual(positive[0]["status"], "already-reconciled")
+            self.assertEqual(len(api_calls), 1)
+            self.assertFalse(runner_calls)
+
+            api_calls.clear()
+            tampered = {**good, "content": "different supporting text"}
+            with self.assertRaisesRegex(DataError, "hash mismatch"):
+                _import_support([(article, tampered)], root / "negative", c1, root / "runtime.py", "18081,18082,18083",
+                                "/data", api=api, runner=lambda *a, **kw: runner_calls.append(a), dry_run=False)
+            mapping = root / "negative" / "support" / "fiwiki" / "501-9001.jsonl"
+            self.assertFalse(mapping.exists())
+            self.assertFalse(api_calls)
+            self.assertFalse(runner_calls)
 
     def test_support_budget_checkpoints_and_resumes_without_refetching(self):
         with tempfile.TemporaryDirectory() as temp:

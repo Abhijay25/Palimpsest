@@ -228,11 +228,13 @@ def _import_support(records: list[tuple[dict[str, Any], dict[str, Any]]], import
             "content_model": item.get("content_model") or ("Scribunto" if item.get("namespace_id") == 828 else "wikitext"),
             "content_format": item.get("content_format") or ("text/plain" if item.get("namespace_id") == 828 else "text/x-wiki"),
             "content": item.get("content"), "content_hidden": item.get("content_hidden", False),
-            "source_sha1": item.get("source_sha1"), "computed_sha256": item.get("sha256"),
+            "source_sha1": item.get("source_sha1"), "computed_sha1": item.get("computed_sha1"),
+            "computed_sha256": item.get("sha256"),
             "source_url": item.get("source_url"), "acquisition_method": item.get("acquisition_method"),
             "acquired_at": item.get("acquired_at"), "anchor_revision_id": item.get("source_revision_id"),
             "batch_checksum": sha256_bytes(canonical_json(item)),
         }
+        validate_source_record_content(source, context=f"supporting revision {source['source_wiki']}:{source['source_page_id']}:{source['source_revision_id']}")
         title = item["title"]
         if source["content"] is None:
             results.append({"source_wiki": source["source_wiki"], "source_page_id": source["source_page_id"], "source_revision_id": source["source_revision_id"], "title": title, "status": "blocked-hidden-content"})
