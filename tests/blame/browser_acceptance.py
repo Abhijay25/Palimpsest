@@ -369,7 +369,8 @@ def verify_date_navigation(page: Page, expected_latest_text: str, latest_revisio
     expect(preview).to_contain_text(expected_before_bound)
     panel.get_by_role("button", name="Apply these bounds").click()
     expect(panel).to_contain_text("UTC")
-    before_result = panel.get_by_role("button", name=re.compile(r"revision " + str(latest_revision_id) + r"\b"))
+    version_results = panel.locator(".pb-version-results")
+    before_result = version_results.get_by_role("button", name=re.compile(r"revision " + str(latest_revision_id) + r"\b"))
     expect(before_result).to_be_visible()
     before_result.click()
     verify_article_snapshot(page, expected_latest_text, latest_revision_id)
@@ -379,14 +380,14 @@ def verify_date_navigation(page: Page, expected_latest_text: str, latest_revisio
     expect(panel.locator(".pb-date-preview")).to_contain_text("2026-03-15T23:59:59Z")
     panel.get_by_role("button", name="Apply these bounds").click()
     expect(panel).to_contain_text(re.compile("No revision matches these bounds", re.I))
-    if panel.get_by_role("button", name=re.compile(r"revision \d+")).count():
+    if version_results.locator(".pb-version").count():
         raise AssertionError("as-of before the earliest date offered a later version")
 
     date_input.fill(f"Between 1 January and {tomorrow}")
     panel.get_by_role("button", name="Interpret date query").click()
     expect(panel.locator(".pb-date-preview")).to_contain_text("inclusive UTC date range")
     panel.get_by_role("button", name="Apply these bounds").click()
-    range_result = panel.get_by_role("button", name=re.compile(str(latest_revision_id)))
+    range_result = version_results.get_by_role("button", name=re.compile(str(latest_revision_id)))
     expect(range_result.first).to_be_visible()
     range_result.first.click()
     verify_article_snapshot(page, expected_latest_text, latest_revision_id)
