@@ -1,21 +1,39 @@
 # Blame orchestration
 
-Sole orchestrator chat01a1d8b2-e433-7930-be51-cc1b430227bb, actual gpt-6.1-sol/high confirmed from latest turn_context in its session JSONL on2026-11-14. Parent infrastructure chat01a1d73c-67b4-7e93-9c0b-481a1ac02503 handles seeding/hosting separately. Direct human fork/implementation authorization was read from side chat01a1d78d-b5dd-7043-ae32-0e0008873cba, user message01a1d8b2-9c43-77d2-a9c9-4cf737f98dd9. Do not redirect infrastructure workers.
+The sole reviewer/orchestrator is visible chat `01a1d8b2-e433-7930-be51-cc1b430227bb`, actual `gpt-6.1-sol/high` verified from session metadata. The human authorized executing the saved implementation prompt in a separate chat, routine decisions, at most three actual Luna worker chats/worktrees, task/repair coordination and feature PR delivery without merge. The direct fork request was verified in chat `01a1d78d-b5dd-7043-ae32-0e0008873cba`, user message `01a1d8b2-9c43-77d2-a9c9-4cf737f98dd9`.
 
-Isolated worktree /Users/zhenghaofang/.codex/worktrees/palimpsest-blame/Palimpsest; branch feature/blame-implementation based on15f713a, because feature/blame-sdd is occupied in parent's checkout. PR1 open/unmerged. Actual source tree/remote independently checked.
+The current human scope is a working local sample prototype. Hostinger and full S scale-up are deferred. The parent infrastructure chat and its workers were not redirected.
 
-At most3 actual Luna/high visible worker chats, one per workstream/worktree, no hidden/nested agents or fourth reviewer. Verify actual session models and ready worktrees before implementation. Registry will record IDs, paths, bases, commits and states. Shared contracts frozen before dispatch. Root owns only integrated runtime project palimpsest-blame, ports48081–48083, data root /private/tmp/palimpsest-blame-data; workers use synthetic fixtures and read-only shared test endpoints unless coordinated. No parallel heavy stacks on this low-space host.
+## Isolation and contracts
 
-Human-authorized feature worker coordination covers task/progress/repair/handoff messages only. Workers do not push/open PR/merge, change shared contracts or edit another owner. Root reviews evidence and reproduces independently, not worker assertions. Retain same chats for repairs, compact wait cursors and durable progress. Changes requested→ready for review→Sol reproduction→verified. Tool blocks stay explicit; no bypass/replacement worker.
+- Source repository: `/Users/zhenghaofang/Coding Playground/junction-2026/Palimpsest`; origin `Abhijay25/Palimpsest`.
+- Root worktree: `/Users/zhenghaofang/.codex/worktrees/palimpsest-blame/Palimpsest`; branch `feature/blame-implementation`, based on prompt commit `15f713a` and infrastructure head `e49be05`. The prepared `feature/blame-sdd` branch was occupied in the parent checkout, so the isolated branch name changed without switching that checkout.
+- Shared spec/contracts froze at `3ac0401`. Additive compact-span and date-precision clarifications were coordinated by the root before dependent integration.
+- Infrastructure PR1 was rechecked open/unmerged. Feature delivery must be a stacked PR against `infra-set-up`, not a rebase that drops its infrastructure.
+- Exactly three visible implementation chats, one per worktree. Actual `gpt-6-luna/high` metadata, Git root, remote, branch and baseline were independently checked before implementation. No hidden/nested worker or fourth reviewer was used.
 
 ## Actual worker registry
 
-All three latest turn_context records independently inspected by Sol: actual gpt-6-luna/high. Baseline3ac0401f804238c7f54aaec9bca264738f94eeca; roots/remotes/branches verified before implementation dispatch.
-
-| Slot | Chat | Worktree / branch | Status |
+| Worker | Visible chat | Worktree / branch | Reviewed work |
 |---|---|---|---|
-| A backend | 01a1d8b8-752c-7a03-bb06-fc30e1e74079 | /Users/zhenghaofang/.codex/worktrees/palimpsest-blame-a/Palimpsest / blame/backend | implementing T1 |
-| B interface | 01a1d8b8-8595-7523-99ef-999357bf8b18 | /Users/zhenghaofang/.codex/worktrees/palimpsest-blame-b/Palimpsest / blame/interface | implementing T2 |
-| C independent acceptance | 01a1d8b8-93f5-75f2-9b10-3fbd0b0d6cab | /Users/zhenghaofang/.codex/worktrees/palimpsest-blame-c/Palimpsest / blame/acceptance | implementing T4 fixtures; live runtime pending |
+| A backend | `01a1d8b8-752c-7a03-bb06-fc30e1e74079` | `palimpsest-blame-a/Palimpsest` / `blame/backend` | Extension/API, attribution/DSR mapping, native job construction/lease, provenance checks, migrations, allocation limits. Initial `17af86a`; reviewed repairs through final `c9089dc`, including whole-second dates and explicit incomplete-import rejection. All 16 owned tracked files match the integrated tree. |
+| B interface | `01a1d8b8-8595-7523-99ef-999357bf8b18` | `palimpsest-blame-b/Palimpsest` / `blame/interface` | Selection/date/inline UI, exact partial/reverse/paragraph ranges, job revision pinning, coalesced token validation, close/focus recovery. Initial `94e7610`; reviewed repairs through final `bfbbb0c`, including exact quote retention for unsupported/generated/over-limit selections and Escape/phrase focus restoration. All six owned tracked files match the integrated tree. |
+| C independent acceptance | `01a1d8b8-93f5-75f2-9b10-3fbd0b0d6cab` | `palimpsest-blame-c/Palimpsest` / `blame/acceptance` | Independent semantic fixtures, source/API/job/browser verifiers, CI, schema-first negatives and repeatable mutation probes. Initial `8977fba`; reviewed repairs through final `b8c3cc4`, including native readiness, real mouse geometry and actual keyboard Tab traversal. All 24 owned tracked files match the integrated tree. |
 
-Root separately booted only palimpsest-blame on48081–48083 and copied/revalidated six completed public history caches (148records). No DB/credentials/C4 mappings copied; native isolated import is running. Parent default8081–83 untouched.
+Root owns shared docs/contracts, loader/config, provenance exporter, integration controls, runtime lifecycle, independent review/reproduction, final CI and PR. Workers own their recorded producer/test paths and do not push, open PRs, merge or reset shared state. Test-lesson additions were reviewed and conflict resolutions preserved both workers' guidance.
+
+## Shared resources
+
+The root-owned feature project is `palimpsest-blame`, ports `48081–48083`, data root `/private/tmp/palimpsest-blame-data`. Only six completed C3 histories were copied and hash-verified (148 records); source DBs, credentials and C4 mappings were not copied. Native imports and new source/local joins were verified separately. Parent checkout, runtime on `8081–8083`, source acquisition caches and standalone UX reference remain untouched.
+
+One cached pinned Playwright image was built and shared. Host Node was unusable; checks used its bundled Node instead of installing or repairing host packages. Ordinary tests mock transports, and native tests use only the isolated real services. Private fixture/auth/runtime state remains outside Git.
+
+For the required second installation, the root stopped the feature project, initialized `palimpsest-blame-check` on `49081–49083` with a distinct data root, verified native local attribution and queued results independently in all three databases, stopped that project with evidence preserved, and restored the feature project. Heavy stacks were serialized. No global Docker cleanup or parent service operation was used.
+
+## Verification loop
+
+Each handoff is committed, diff/semantics reviewed by Sol, integrated in dependency order and independently reproduced. Concrete failures return to the same chat. Structural/fixture tests, native API behavior, rendered browser behavior, provenance coverage and full corpus coverage are separate verdicts. A changed test oracle requires independent input evidence; the attempted move/revert ambiguity relaxation was rejected and repaired before acceptance.
+
+Actual results, failed checkpoints, commands, limits and remaining gates are in `verification.md`. Worker final messages alone are not acceptance. Compact thread status reads were used when a worker could not perform a native probe; the root executed the authorized native checks. No extra worker was created to bypass a tool limitation.
+
+Final combined functional code: `4f7869c5d2051bbd6dd5db74d80cb19e8a15f2bf`. All three workers are idle with committed handoffs; Sol independently compared all owned tracked files (A16/B6/C24) with the integrated tree, reviewed the repairs and reproduced native all-language browser acceptance. Final documentation/CI delivery is owned only by the root.

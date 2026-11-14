@@ -2,6 +2,8 @@
 
 Local MediaWiki infrastructure for the team, with separate Finnish, Swedish and English wikis and one persistent MariaDB server. The approved baseline includes Vector 2022, local accounts, source/visual editing, history/diffs, discussions, watchlists, uploads, references, Lua and online Commons. See the [scope](docs/infra/spec.md) for the feature matrix and boundaries.
 
+This feature branch adds native **Blame**: select article wording to inspect contributing revisions and replaced/deleted wording inline, or find a local version by UTC date. Start with a small local prototype; Hostinger and full-corpus scale-up are deferred. See the [Blame setup and limits](docs/blame/README.md), [specification](docs/blame/spec.md) and [verification evidence](docs/blame/verification.md).
+
 ## Start locally
 
 Install Docker Desktop (or Docker Engine with Compose) and Python 3.11+. Run from a clone of this repository:
@@ -58,4 +60,4 @@ python3 -m unittest discover -s tests/infra -v
 
 The test quickstart documents opt-in Docker/browser checks. Runtime images are pinned by multi-platform digest. No host PHP, database or data-science packages are required. Custom extensions can be mounted through `infra/wiki/extensions/load.php`, followed by `scripts/wiki update`; upstream MediaWiki core stays in its image.
 
-The [specification](docs/infra/spec.md), [design](docs/infra/design.md), [contracts](docs/infra/contracts.md), [task plan](docs/infra/tasks.md) and [worker registry](docs/infra/orchestration.md) record the approved SDD process. This infrastructure does not implement the separate Wikipedia Blame prototype.
+The [infrastructure specification](docs/infra/spec.md), [design](docs/infra/design.md), [contracts](docs/infra/contracts.md), [task plan](docs/infra/tasks.md) and [worker registry](docs/infra/orchestration.md) record the baseline SDD process. The native extension has its own [Blame design](docs/blame/design.md) and [worker registry](docs/blame/orchestration.md); the separate frontend UX reference is unchanged.

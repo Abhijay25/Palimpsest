@@ -9,3 +9,5 @@ T5 Sol: review each handoff, reproduce semantic checks, integrate in dependency 
 T6 Sol: commit/push feature branch; stacked PR against infra-set-up while PR1 unmerged; concise files/reasons table; no merge. Leave verified isolated testable site up with manual checklist.
 
 No full acquisition, parent changes, fictional attribution, invented performance or masked failing gates. All tasks remain running until actual handoff/reproduction, not chat creation.
+
+Execution: T0–T4 complete with committed handoffs. T5 independently reproduced at functional code `4f7869c`, including all 21 native browser groups, source integrity, dates, jobs/privacy, core regression, persistence and second installation. T6 delivery is a stacked PR with actual CI status; it is never merged by this workflow. See verification/orchestration for final handoffs and evidence limits.

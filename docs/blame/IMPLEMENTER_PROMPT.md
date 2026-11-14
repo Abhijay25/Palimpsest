@@ -1,6 +1,6 @@
 # Verified infrastructure handoff
 
-This branch contains the implementation prompt only; the Blame feature has not been implemented. Run the prompt below when starting its implementation chat.
+This is the saved pre-implementation handoff and authorized prompt. The feature branch now implements it; see [current setup](README.md) and [executed verification](verification.md). The historical infrastructure observations below retain their original scope.
 
 - Repository: `/Users/zhenghaofang/Coding Playground/junction-2026/Palimpsest`.
 - Prepared branch: `feature/blame-sdd`, based on infrastructure head `e49be05703dc229c7621ce9048401edcdf524552`.

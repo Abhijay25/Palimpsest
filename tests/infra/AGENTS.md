@@ -27,3 +27,5 @@
 - Scope active-job limits to the current algorithm/schema, and make queued jobs no-op for obsolete cache rows without touching source history.
 - If revision comparisons are second-precision, reject fractional-second date bounds instead of accepting and truncating them.
 - A valid provenance checksum does not make a partial import complete; fail closed on `history_complete=false` before emitting any attribution.
+
+- Keyboard checks must Tab to the actual control, not match BODY text. Wait for asynchronous controls, then verify Enter/Space, Escape close and focus restoration even after the opening node is replaced.
