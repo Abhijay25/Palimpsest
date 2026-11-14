@@ -103,12 +103,19 @@ def save_visual(page: Page, root: str, title: str, base_content: str, marker: st
     surface = page.locator('.ve-ce-rootNode[role="textbox"][contenteditable="true"]')
     expect(surface).to_be_visible(timeout=60_000)
     expect(page.locator(".ve-ui-toolbar")).to_be_visible()
-    surface.click()
-    # Fill through Playwright's contenteditable input path. Typing during
-    # Vector's post-onboarding activation can alter the rendered DOM before
-    # VisualEditor's model is ready to record a transaction.
-    surface.fill(f"{base_content}\n\n{marker}")
+    # Put the caret in the document, then type at a human-like pace. VisualEditor
+    # can update the editable DOM ahead of its document model during rapid input.
+    surface.click(position={"x": 8, "y": 8})
+    page.keyboard.press("Control+End")
+    page.keyboard.press("Enter")
+    page.keyboard.type(marker, delay=50)
     expect(surface).to_contain_text(marker, timeout=30_000)
+    page.wait_for_function("""marker => {
+        const model = window.ve?.init?.target?.getSurface?.()?.getModel?.();
+        const data = model?.getDocument?.().getData?.();
+        const text = Array.isArray(data) ? data.filter(item => typeof item === 'string').join('') : '';
+        return !!model && model.hasBeenModified() && text.includes(marker);
+    }""", arg=marker, timeout=30_000)
     save_button = page.locator(".ve-ui-toolbar").get_by_role(
         "button", name=re.compile(r"^Save(?: changes)?(?:…|\.\.\.)?$", re.I)
     )
@@ -118,12 +125,31 @@ def save_visual(page: Page, root: str, title: str, base_content: str, marker: st
     except AssertionError as error:
         state = page.evaluate("""() => {
             const root = document.querySelector('.ve-ce-rootNode[role="textbox"][contenteditable="true"]');
+            const roots = document.querySelectorAll('.ve-ce-rootNode[role="textbox"][contenteditable="true"]');
             const save = document.querySelector('.ve-ui-toolbar-saveButton');
+            const surface = window.ve?.init?.target?.getSurface?.();
+            const view = surface?.getView?.();
+            const docView = view?.getDocument?.();
+            const model = surface?.getModel?.();
+            const modelSelection = model?.getSelection?.();
+            let modelText = null;
             let modified = null;
-            try { modified = window.ve.init.target.getSurface().getModel().hasBeenModified(); } catch (_) {}
+            let modelData = null;
+            try { modified = model.hasBeenModified(); } catch (_) {}
+            try { modelText = model.getDocument().getData().filter(item => typeof item === 'string').join(''); } catch (_) {}
+            try { modelData = JSON.stringify(model.getDocument().getData()).slice(0, 500); } catch (_) {}
             return {
+                rootCount: roots.length,
+                rootMatchesDocumentView: !!root && docView?.$element?.[0] === root,
+                rootInsideSurfaceView: !!root && !!view?.$element?.[0]?.contains(root),
+                documentViewClass: docView?.$element?.[0]?.className,
+                rootAncestors: root ? [root, root.parentElement, root.parentElement?.parentElement].map(node => ({ className: node?.className, inert: node?.inert })) : [],
                 focusedEditor: !!root && document.activeElement === root,
                 editorText: root?.innerText,
+                modelText,
+                modelData,
+                modelReadOnly: model?.isReadOnly?.(),
+                modelSelection: modelSelection ? { type: modelSelection.constructor?.name, range: modelSelection.getRange?.() } : null,
                 selection: window.getSelection()?.toString(),
                 saveDisabled: save?.getAttribute('aria-disabled'),
                 modelModified: modified,
