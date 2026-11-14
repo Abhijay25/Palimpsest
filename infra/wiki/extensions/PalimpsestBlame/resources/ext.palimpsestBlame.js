@@ -74,7 +74,7 @@
 	}
 
 	function mayPrepare( data ) {
-		return Boolean( data && data.build_available === true && ( data.status === 'pending' || data.job && data.job.retryable === true || data.reason_code === 'budget_exceeded' ) );
+		return Boolean( data && data.buildable === true );
 	}
 
 	function apiRequest( params, method, signal ) {
@@ -108,6 +108,41 @@
 
 	function revisionParam() {
 		return Number.isInteger( initialRevision ) && initialRevision > 0 ? initialRevision : undefined;
+	}
+
+	function declaredJobRevisions( data ) {
+		return [ data && data.snapshot && data.snapshot.revision_id, data && data.revision_id, data && data.job && data.job.revision_id ]
+			.filter( function ( value ) {
+				var revision = Number( value );
+				return Number.isInteger( revision ) && revision > 0;
+			} )
+			.map( Number );
+	}
+
+	function pinJobRevision( data ) {
+		var revisions = declaredJobRevisions( data );
+		if ( !revisions.length ) {
+			return 'The pending job did not identify its target revision.';
+		}
+		var target = revisions[ 0 ];
+		if ( revisions.some( function ( revision ) { return revision !== target; } ) ) {
+			return 'The pending job response contains conflicting target revisions.';
+		}
+		var expected = revisionParam() || currentData && Number( currentData.snapshot.revision_id );
+		if ( expected && target !== expected ) {
+			return 'The pending job targets revision ' + target + ', but this view is pinned to revision ' + expected + '.';
+		}
+		initialRevision = expected || target;
+		return null;
+	}
+
+	function validateJobRevision( data ) {
+		var revisions = declaredJobRevisions( data );
+		var expected = revisionParam();
+		if ( revisions.some( function ( revision ) { return revision !== expected; } ) || new Set( revisions ).size > 1 ) {
+			return 'The job status response refers to a different or conflicting revision.';
+		}
+		return null;
 	}
 
 	function beginRequest() {
@@ -179,6 +214,11 @@
 				return;
 			}
 			if ( data.status === 'pending' && data.job && data.job.id ) {
+				var pendingRevisionError = pinJobRevision( data );
+				if ( pendingRevisionError ) {
+					setState( 'error', pendingRevisionError, false, false );
+					return;
+				}
 				return pollJob( data.job.id, request );
 			}
 			showResponse( data, selection, request );
@@ -201,9 +241,13 @@
 				timeoutError.retryable = true;
 				return Promise.reject( timeoutError );
 			}
-			return apiRequest( { op: 'status', jobid: jobId }, 'GET', request.signal ).then( function ( status ) {
+			return apiRequest( { op: 'status', revision: revisionParam(), jobid: jobId }, 'GET', request.signal ).then( function ( status ) {
 				if ( !isCurrent( request ) ) {
 					return null;
+				}
+				var revisionError = validateJobRevision( status );
+				if ( revisionError ) {
+					throw new Error( revisionError );
 				}
 				var jobState = status.job && status.job.status || status.status;
 				if ( jobState === 'ready' ) {
@@ -336,6 +380,10 @@
 	}
 
 	function queueBuild() {
+		if ( !revisionParam() ) {
+			setState( 'error', 'An exact article revision is required before attribution can be prepared.', false, false );
+			return;
+		}
 		var request = beginRequest();
 		setState( 'pending', 'Starting bounded attribution preparation…' );
 		var revision = revisionParam();
@@ -349,6 +397,10 @@
 			}
 			if ( !data.job || !data.job.id ) {
 				throw new Error( 'The build request did not return a job ID.' );
+			}
+			var revisionError = pinJobRevision( data );
+			if ( revisionError ) {
+				throw new Error( revisionError );
 			}
 			return pollJob( data.job.id, request );
 		} ).catch( function ( error ) {

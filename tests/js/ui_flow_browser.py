@@ -36,6 +36,7 @@ def main():
                 window.__requests = [];
                 window.__forceUnavailable = false;
                 window.__forcePermanent = false;
+                window.__pendingMismatch = false;
                 window.__buildComplete = false;
                 window.fetch = (input, init = {}) => {
                     const method = init.method || 'GET';
@@ -45,13 +46,18 @@ def main():
                     let response;
                     if (params.get('op') === 'build' && method === 'POST') {
                         window.__buildComplete = true;
-                        response = { status: 'pending', job: { id: 'job-1', status: 'pending', processed: 0, total: 2 } };
+                        response = { status: 'pending', revision_id: 91, buildable: true, job: { id: 'job-1', revision_id: 91, status: 'pending', processed: 0, total: 2 } };
                     } else if (params.get('op') === 'status') {
-                        response = { status: 'ready', job: { id: params.get('jobid'), status: 'ready', processed: 2, total: 2 } };
+                        if (params.get('revision') !== '91' || !params.get('jobid')) {
+                            return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: { info: 'status requires the exact pinned revision and job ID' } }) });
+                        }
+                        response = { status: 'ready', revision_id: 91, job: { id: params.get('jobid'), revision_id: 91, status: 'ready', processed: 2, total: 2 } };
+                    } else if (params.get('op') === 'analyze' && params.get('ranges') && window.__pendingMismatch) {
+                        response = { status: 'pending', revision_id: 92, buildable: true, job: { id: 'wrong-revision-job', revision_id: 92, status: 'pending' } };
                     } else if (params.get('op') === 'analyze' && window.__forcePermanent && !window.__buildComplete) {
-                        response = { status: 'unavailable', reason: 'Imported provenance mapping is invalid.', build_available: false };
+                        response = { status: 'unavailable', reason: 'Imported provenance mapping is invalid.', buildable: false };
                     } else if (params.get('op') === 'analyze' && window.__forceUnavailable && !window.__buildComplete) {
-                        response = { status: 'unavailable', reason: 'Fixture exceeds synchronous analysis limits.', reason_code: 'budget_exceeded', build_available: true };
+                        response = { status: 'unavailable', reason: 'Fixture exceeds synchronous analysis limits.', buildable: true };
                     } else if (params.get('op') === 'versions') {
                         response = { status: 'ready', mode: params.get('mode'), bounds: { from: params.get('from'), to: params.get('to') }, versions: [{ revision_id: 91, timestamp: '2025-12-31T23:59:59Z', user: 'Editor' }], selected_revision_id: 91, continuation: null, coverage: base.coverage };
                     } else if (params.get('ranges')) {
@@ -132,7 +138,13 @@ def main():
         assert "no partial analysis was requested" in page.get_by_text("This selection contains more than 64 separate verified source ranges.").inner_text()
         assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analysis_count
 
-        page.evaluate("window.__forcePermanent = true")
+        status_count = page.evaluate("window.__requests.filter(r => r.params.op === 'status').length")
+        page.evaluate("window.__pendingMismatch = true")
+        page.locator('[data-pb-start="0"]').click()
+        assert "targets revision 92" in page.get_by_role("alert").inner_text()
+        assert page.evaluate("window.__requests.filter(r => r.params.op === 'status').length") == status_count, "mismatched pending work must never be polled"
+
+        page.evaluate("window.__pendingMismatch = false; window.__forcePermanent = true")
         page.locator('[data-pb-start="0"]').click()
         page.wait_for_selector("[role=alert]")
         assert page.get_by_role("button", name="Prepare attribution").count() == 0
@@ -146,6 +158,7 @@ def main():
         assert build_request["method"] == "POST"
         assert build_request["params"]["token"] == "+\\", "the valid anonymous CSRF token must reach POST unchanged"
         assert status_request["params"]["jobid"] == "job-1"
+        assert status_request["params"]["revision"] == "91", "every status request must include the pinned target revision"
         assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').at(-1).params.revision") == "91", "selection and retry analysis must stay pinned to the original snapshot"
 
         fixture = page.evaluate("window.__fixtureBase")
@@ -159,10 +172,24 @@ def main():
                     user: { tokens: { get: () => '+\\\\' } }
                 };
                 window.__requests = [];
+                window.__initialPending = true;
                 window.fetch = (input, init = {}) => {
                     const params = new URLSearchParams(new URL(String(input), location.href).search);
                     window.__requests.push(Object.fromEntries(params.entries()));
-                    const response = params.get('ranges') ? Object.assign({}, base, { selection: { ranges: JSON.parse(params.get('ranges')), revision_ids: [91], events: [{ revision_id: 91, before: 'old', after: 'lph', token_ids: ['91:0'], ambiguous: false }], ambiguous: false, reasons: [] } }) : base;
+                    let response;
+                    if (params.get('op') === 'status') {
+                        if (params.get('revision') !== '91') {
+                            return Promise.resolve({ ok: false, status: 400, json: () => Promise.resolve({ error: { info: 'status requires revision 91' } }) });
+                        }
+                        response = { status: 'ready', revision_id: 91, job: { id: params.get('jobid'), revision_id: 91, status: 'ready' } };
+                    } else if (params.get('op') === 'analyze' && window.__initialPending) {
+                        window.__initialPending = false;
+                        response = { status: 'pending', revision_id: 91, job: { id: 'initial-job', revision_id: 91, status: 'pending' } };
+                    } else if (params.get('ranges')) {
+                        response = Object.assign({}, base, { selection: { ranges: JSON.parse(params.get('ranges')), revision_ids: [91], events: [{ revision_id: 91, before: 'old', after: 'lph', token_ids: ['91:0'], ambiguous: false }], ambiguous: false, reasons: [] } });
+                    } else {
+                        response = base;
+                    }
                     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ palimpsestblame: response }) });
                 };
             }""",
@@ -171,6 +198,8 @@ def main():
         touch_page.add_script_tag(path=str(RESOURCE / "helpers.js"))
         touch_page.add_script_tag(path=str(RESOURCE / "ext.palimpsestBlame.js"))
         touch_page.wait_for_selector(".pb-date-query")
+        initial_status = touch_page.evaluate("window.__requests.filter(r => r.op === 'status').at(-1)")
+        assert initial_status["revision"] == "91", "a pending initial response must pin the job revision before polling"
         touch_page.evaluate(
             """() => {
                 const text = document.querySelector('[data-pb-start="0"]').firstChild;
