@@ -262,3 +262,64 @@ def test_poisoned_ref_page_is_unavailable_and_recorded(
     result = _case_result(pc, "haiku", {}, "stage2_v1")
     assert result.stealth_status == "CRITICAL_AI_POISONING"
     assert "UNICODE_TAG_SMUGGLING" in result.stealth_vectors
+
+
+class _SleepyFetcher:
+    """Each call sleeps; scores/status are keyed by URL."""
+
+    def __init__(self, scores: dict[str, tuple[str, int]], delay: float) -> None:
+        self.scores = scores
+        self.delay = delay
+        self.calls: list[str] = []
+
+    async def window_scored(
+        self, url: str, claim: str, radius: int = 3, on_text: object = None
+    ) -> tuple[SourceWindow, int]:
+        self.calls.append(url)
+        await asyncio.sleep(self.delay)
+        status, score = self.scores[url]
+        return SourceWindow(url=url, status=status, text=url, latency_ms=1.0), score
+
+
+def _window_case(urls: list[str]) -> Case:
+    return _case("w", None, urls)
+
+
+def test_window_for_fetches_concurrently_and_keeps_selection() -> None:
+    import time
+
+    from palimpsest.pipeline import _window_for
+
+    urls = ["https://a", "https://b", "https://c", "https://d"]
+    fetcher = _SleepyFetcher(
+        {
+            "https://a": ("ok", 3),
+            "https://b": ("ok", 7),
+            "https://c": ("ok", 7),
+            "https://d": ("ok", 99),
+        },
+        delay=0.3,
+    )
+    start = time.perf_counter()
+    window = asyncio.run(_window_for(_window_case(urls), fetcher, None))  # type: ignore[arg-type]
+    elapsed = time.perf_counter() - start
+    assert elapsed < 0.6
+    assert fetcher.calls == urls[:3]
+    assert window.url == "https://b"
+
+
+def test_window_for_ignores_non_ok_and_unavailable_when_none_ok() -> None:
+    from palimpsest.pipeline import _window_for
+
+    fetcher = _SleepyFetcher(
+        {"https://a": ("unavailable", 50), "https://b": ("ok", 1)}, delay=0.0
+    )
+    window = asyncio.run(
+        _window_for(_window_case(["https://a", "https://b"]), fetcher, None)  # type: ignore[arg-type]
+    )
+    assert window.url == "https://b"
+    none_ok = _SleepyFetcher({"https://a": ("unavailable", 50)}, delay=0.0)
+    assert (
+        asyncio.run(_window_for(_window_case(["https://a"]), none_ok, None)).status  # type: ignore[arg-type]
+        == "unavailable"
+    )

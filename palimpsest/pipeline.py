@@ -90,11 +90,14 @@ async def _window_for(
         if not has_changed_citation:
             return SourceWindow(url=None, status="uncited", text="", latency_ms=0.0)
     claim = strip_wikitext(case.new_text)
-    best: tuple[SourceWindow, int] | None = None
-    for url in urls[:MAX_SOURCE_URLS]:
-        scored = await fetcher.window_scored(
-            url, claim, on_text=_ref_scanner(ref_scans)
+    scored_all = await asyncio.gather(
+        *(
+            fetcher.window_scored(url, claim, on_text=_ref_scanner(ref_scans))
+            for url in urls[:MAX_SOURCE_URLS]
         )
+    )
+    best: tuple[SourceWindow, int] | None = None
+    for scored in scored_all:
         if scored[0].status == "ok" and (best is None or scored[1] > best[1]):
             best = scored
     if best is not None:
