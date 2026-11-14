@@ -64,7 +64,14 @@ def catalog(data,languages):
 
 def public_catalog(data,languages):
     result=catalog(data,languages)
-    return dict(run=result['run'],rows=[{k:v for k,v in row.items() if not k.startswith('_')} for row in result['rows']])
+    from question_titles import labels
+    titles=labels(data['topic']['id'],[r['id'] for r in result['rows']])
+    rows=[]
+    for row in result['rows']:
+        item={k:v for k,v in row.items() if not k.startswith('_')};title=titles.get(row['id'],{})
+        if title.get('status')=='accepted':item['title']=title['title']
+        item['title_status']=title.get('status','provisional');rows.append(item)
+    return dict(run=result['run'],rows=rows)
 
 
 def tokens(text):
@@ -147,6 +154,8 @@ def cell_detail(data,languages,group,stamp,current,back,pair='all',kind='all'):
         e['quote_html']=str(highlight_source(e['quote'],e.get('highlights',[])))
     query=[('lang',left),('run',data['run']),('group',group),('stamp',stamp),('occurrence',occurrence['id']),('skyline',back)]
     query.extend(('languages',l) for l in languages)
-    return dict(id=group,stamp=stamp,title=question_label(occurrence),kind=occurrence['kind'],label=LABELS[occurrence['kind']],
+    from question_titles import labels as stored_labels
+    generated=stored_labels(data['topic']['id'],[group]).get(group,{})
+    return dict(id=group,stamp=stamp,title=generated['title'] if generated.get('status')=='accepted' else question_label(occurrence),kind=occurrence['kind'],label=LABELS[occurrence['kind']],
         evidence=evidence,occurrences=len(supported),destination=' ↔ '.join(e['lang'].upper() for e in evidence),
         href='/langcompare/'+data['topic']['id']+'?'+urlencode(query))

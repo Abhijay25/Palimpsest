@@ -118,10 +118,12 @@ def tracker_context(topic,args):
     back=args.get('skyline','')
     # The return target is always our own explorer, never a supplied URL.
     if len(back)>2500:raise ValueError('Invalid skyline return context.')
+    from question_titles import labels
+    generated=labels(topic,[group]).get(group,{})
     return dict(historical=True,topic=topic,title=data['topic']['title'],current_lang=current,source=current,
                 selected_languages=languages,langs=list(NAMES),historical_run=run,historical_group=group,
                 historical_stamp=stamp,historical_date=datetime.fromisoformat(stamp.replace('Z','+00:00')).strftime('%d %b %Y'),
-                historical_title=question_label(occurrence),historical_label=LABELS[occurrence['kind']],
+                historical_title=generated['title'] if generated.get('status')=='accepted' else question_label(occurrence),historical_label=LABELS[occurrence['kind']],
                 historical_evidence=evidence,historical_occurrences=stored['occurrences'],historical_occurrence=occurrence['id'],
                 historical_reason=phase['reason'],historical_action=phase['action'],historical_back='/explore'+('?' + back if back else ''),
                 historical_sampled=phase.get('sampled',False),demo=False)

@@ -1,0 +1,20 @@
+HACKATHON DELIVERY GOAL — JUDGE-READY FINNISH-HISTORY EDITING WORKFLOW
+
+Purpose
+Deliver a polished, reliable NeoWiki research demo that a nontechnical judge can use without coaching: choose a Finnish-history article, compare English/Finnish/Swedish perspectives, inspect a meaningful real difference, understand its historical source context, and prepare a cited human-reviewed edit.
+
+Delivery priorities, in order
+1. Keep the supplied editorial matrix design as the main experience. Make it fit a normal 1280x720 laptop and a 390px mobile viewport. Panning/date navigation, search, row selection and reset must work without introducing extra dashboards.
+2. Populate a focused collection of 20 verified Finnish-history articles with all three supplied language editions where available. Reuse finished Winter War/Tornedalians results; process the remaining selected articles as real snapshots first. Clearly distinguish snapshot-only articles from Winter War's monthly history. Do not imply current/live 2026 Wikipedia data.
+3. Provide useful starting examples using actual, evidence-grounded question titles. Prioritize accepted descriptive titles within category priority; retain all other questions with honest provisional/review-needed states. Do not fabricate contradictions or lower the strict classifier/naming gates to make a demo look better.
+4. Let the judge drill from a question/time cell to the exact source pair, native-language excerpts, machine translations, relevant existing highlights, source revision URLs and the existing article discrepancy tracker. Preserve selected article, language, period, question, category, pair and exact occurrence on return.
+5. Add a small Draft edit tab inside the existing evidence pane. Choose a target language, inspect the original target excerpt when it exists, write a proposed replacement/addition, save locally, mark ready for review, copy/export and open the current Wikipedia edit page. Never open an old revision in edit mode or publish automatically. Revision provenance is not an independent Wikipedia citation; make underlying-reference verification accessible.
+6. Make review and draft state understandable and recoverable. Scope it to article/language/question/source occurrence, clearly label local-device storage, and allow review toggles to be undone. No native MediaWiki stack expansion is required.
+7. Use explicit resumable preparation and naming queues with cache reuse, two article workers, six shared provider slots and at most two naming slots. Stop safely at the existing disk guard; do not delete unique data or weaken it. No whole-corpus historical sweep during this delivery.
+8. Verify desktop/mobile interaction, keyboard access, panning, empty/unknown states, search refinement, exact tracker handoff and browser Back. Run the meaningful regression suites, audit source offsets and anchor timestamps, update shared agent context and the exploration registry, commit/push and update PR #6.
+
+Success criteria
+A judge can complete the browse -> real finding -> evidence -> reviewable edit draft journey in a few minutes. Every shown finding is traceable to stored source revisions. Counts deduplicate repeated occurrences. No missing observation is presented as agreement or resolution. All featured prepared articles can be searched and opened. Failures remain visible and recoverable; browsing never starts paid inference.
+
+Current completed baseline
+Winter War article-scoped v2: 86/86 observations, 431 all-time semantic groups, 11,404 occurrences; latest observation 135 groups (123 context, 12 framing, zero strict contradictions). The initial ten-article pilot contains 519 groups and 11,498 occurrences. Audit: 22,996 source excerpts across 192 revisions, zero offset or timestamp/anchor mismatches. Older v1 and Russian samples remain separate. Expanded focused-history processing and editor-draft work are the next delivery increment.
