@@ -663,7 +663,14 @@ final class BlameApi extends ApiBase {
 		$ids = $bundle->parsoid['ids'] ?? [];
 		$html = $holder->getAsHtmlString() ?? '';
 		$mapped = ( new \MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidTextMapper() )->map( $html, $source, $ids, $tokens );
-		return [ 'html' => $mapped['html'], 'mapped_characters' => $mapped['mapped_characters'], 'reasons' => $mapped['unmapped_reasons'] ];
+		$normalizedHtml = ( new \MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidLinkNormalizer() )->normalize(
+			$mapped['html'],
+			static function ( string $targetText ): ?string {
+				$target = Title::newFromText( $targetText );
+				return $target ? $target->getLocalURL() : null;
+			}
+		);
+		return [ 'html' => $normalizedHtml, 'mapped_characters' => $mapped['mapped_characters'], 'reasons' => $mapped['unmapped_reasons'] ];
 	}
 
 	private function selection( string $encoded, string $source, array $tokens, array $events ): array {

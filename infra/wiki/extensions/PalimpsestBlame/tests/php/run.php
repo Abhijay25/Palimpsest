@@ -4,10 +4,12 @@ declare( strict_types = 1 );
 require_once __DIR__ . '/../../includes/Attribution/SourceTokenizer.php';
 require_once __DIR__ . '/../../includes/Attribution/AttributionEngine.php';
 require_once __DIR__ . '/../../includes/Attribution/ParsoidTextMapper.php';
+require_once __DIR__ . '/../../includes/Attribution/ParsoidLinkNormalizer.php';
 
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionEngine;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\SourceTokenizer;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidTextMapper;
+use MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidLinkNormalizer;
 
 function check( bool $condition, string $message ): void {
 	if ( !$condition ) { fwrite( STDERR, "FAIL: $message\n" ); exit( 1 ); }
@@ -92,6 +94,14 @@ check( $mapped['mapped_characters'] === strlen( 'A bold and label' ), 'only visi
 check( str_contains( $mapped['html'], '<b id="b"><span data-pb-start=' ), 'bold formatting survives with an exact annotated text span' );
 check( str_contains( $mapped['html'], '<a id="l"><span data-pb-start=' ), 'piped link survives with its exact label span' );
 
+// Parsoid's ./Title links must work when its HTML is inserted into action=blame.
+$normalizedLinks = ( new ParsoidLinkNormalizer() )->normalize(
+	'<a href="./Finnish_Rally_Championship?action=edit&amp;redlink=1#History">missing page</a> <a href="https://example.org/">external</a>',
+	static fn ( string $text ): string => '/wiki/' . rawurlencode( str_replace( ' ', '_', $text ) )
+);
+check( str_contains( $normalizedLinks, 'href="/wiki/Finnish_Rally_Championship?action=edit&amp;redlink=1#History"' ), 'relative internal link becomes a working local title URL and preserves query and fragment' );
+check( str_contains( $normalizedLinks, 'href="https://example.org/"' ), 'external links remain unchanged' );
+
 $generatedSource = 'before {{T}}';
 $generatedTokens = $engine->analyze( [ [ 'id' => 61, 'text' => $generatedSource ] ] )['tokens'];
 $generated = ( new ParsoidTextMapper() )->map(
@@ -119,4 +129,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 12 isolated attribution and DSR fixtures\n";
+echo "PASS: 13 isolated attribution, DSR, and link fixtures\n";
