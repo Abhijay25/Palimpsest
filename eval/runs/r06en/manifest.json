@@ -1,0 +1,11 @@
+{
+  "prompt_version": "stage2_v3",
+  "models": [
+    "haiku",
+    "sonnet"
+  ],
+  "case_files": [
+    "/tmp/claude-1000/-home-abhijay-repos-Palimpsest/9a81a32b-cd1e-47b2-8396-60dc79d3c8d5/scratchpad/en_reverts.jsonl",
+    "/tmp/claude-1000/-home-abhijay-repos-Palimpsest/9a81a32b-cd1e-47b2-8396-60dc79d3c8d5/scratchpad/en_controls.jsonl"
+  ]
+}
