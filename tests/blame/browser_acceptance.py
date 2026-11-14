@@ -59,6 +59,7 @@ def enter_blame_with_keyboard(page: Page) -> None:
 
 
 def verify_keyboard_phrase_activation(page: Page, phrase: str, key: str) -> None:
+    wait_for_article_selection_ready(page, phrase)
     target = page.locator("#mw-content-text [data-pb-start]").filter(
         has_text=re.compile(rf"^{re.escape(phrase)}$")
     ).first
@@ -96,7 +97,7 @@ def verify_keyboard_phrase_activation(page: Page, phrase: str, key: str) -> None
     expect(target).to_be_focused()
 
 
-def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
+def wait_for_article_selection_ready(page: Page, quote: str) -> None:
     page.wait_for_function(
         """({quote}) => {
           const root = document.querySelector('#mw-content-text');
@@ -115,6 +116,10 @@ def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
         arg={"quote": quote},
         timeout=15000,
     )
+
+
+def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
+    wait_for_article_selection_ready(page, quote)
     selected = page.evaluate(
         """({quote, occurrence}) => {
           const root = document.querySelector('#mw-content-text');
@@ -491,6 +496,8 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
 def verify_mouse_partial_selection(page: Page, origin: str, cross: dict) -> None:
     page.goto(article_url(origin, cross["title"]) + "&action=blame", wait_until="domcontentloaded")
     expect(page.locator("#palimpsest-blame")).to_be_visible()
+    expected_article_text = load_fixture("cross_contributor_deletion")["revisions"][-1]["text"]
+    wait_for_article_selection_ready(page, expected_article_text)
     coordinates = page.evaluate(
         """() => {
           const root = document.querySelector('#mw-content-text');
@@ -500,14 +507,30 @@ def verify_mouse_partial_selection(page: Page, origin: str, cross: dict) -> None
                 ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
             }
           });
+          const nodes = []; let full = '';
           while (walker.nextNode()) {
-            const text = walker.currentNode.nodeValue || '', word = 'green', at = text.indexOf(word);
-            if (at < 0) continue;
-            const range = document.createRange(); range.setStart(walker.currentNode, at + 1); range.setEnd(walker.currentNode, at + 4);
-            const rect = range.getBoundingClientRect();
-            return {startX: rect.left + 0.25, endX: rect.right - 0.25, y: rect.top + rect.height / 2};
+            nodes.push({node: walker.currentNode, start: full.length});
+            full += walker.currentNode.nodeValue || '';
           }
-          return null;
+          const at = full.indexOf('green');
+          if (at < 0) return null;
+          const locate = (offset, isEnd) => {
+            for (const item of nodes) {
+              const length = item.node.nodeValue.length;
+              if (offset >= item.start && (offset < item.start + length || (isEnd && offset === item.start + length))) {
+                return {node: item.node, offset: offset - item.start};
+              }
+            }
+            return null;
+          };
+          const start = locate(at + 1, false), end = locate(at + 4, true);
+          if (!start || !end) return null;
+          const range = document.createRange(); range.setStart(start.node, start.offset); range.setEnd(end.node, end.offset);
+          const rects = [...range.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0);
+          if (!rects.length) return null;
+          const first = rects[0], last = rects[rects.length - 1];
+          if (Math.abs(first.top - last.top) > 1) return null;
+          return {startX: first.left + 0.25, endX: last.right - 0.25, y: first.top + first.height / 2};
         }"""
     )
     if not coordinates or coordinates["endX"] <= coordinates["startX"]:
@@ -556,6 +579,7 @@ def verify_concurrent_snapshot(page: Page, origin: str, language: str, auth: dic
     old_id = editor.edit(title, old_text, f"[synthetic Blame concurrency baseline {run_id}] {language}")
     page.goto(article_url(origin, title) + "&action=blame", wait_until="domcontentloaded")
     verify_article_snapshot(page, old_text, old_id)
+    wait_for_article_selection_ready(page, old_text)
     requested_revisions = []
 
     def capture_api_request(request) -> None:
