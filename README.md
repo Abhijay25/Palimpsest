@@ -9,6 +9,7 @@ the Gemini API instead, set the key in `.env` (never commit it) and pass one fla
 ```
 GEMINI_API_KEY=...            # required
 PALIMPSEST_USE_GEMINI=1       # required opt-in; without it the key is never used
+GEMINI_FIRST_PASS_MODEL=...   # optional: cheap first pass; only its flags go to GEMINI_JUDGE_MODEL
 GEMINI_JUDGE_MODEL=gemini-4-hydrogen    # optional
 GEMINI_TRIAGE_MODEL=gemini-decision-1   # optional (GeminiTriageBackend)
 GEMINI_CONCURRENCY=8          # optional, parallel calls

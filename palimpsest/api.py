@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import os
 import time
 from collections.abc import AsyncIterator
 from functools import cache
@@ -13,7 +14,8 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import AfterValidator, BaseModel, Field
 
 from palimpsest.backends.gemini import GeminiJudgeBackend, gemini_enabled
-from palimpsest.judge import PreparedCase
+from palimpsest.cascade import CascadeJudgeBackend
+from palimpsest.judge import AsyncJudge, PreparedCase
 from palimpsest.pipeline import (
     CACHE_DIR,
     _case_result,
@@ -84,11 +86,19 @@ def get_fetcher() -> SourceFetcher:
 
 
 @cache
-def get_judge_backend() -> GeminiJudgeBackend | None:
-    """Gemini judge when GEMINI_API_KEY is set and opted in, else None (never faked)."""
+def get_judge_backend() -> AsyncJudge | None:
+    """Gemini judge when GEMINI_API_KEY is set and opted in, else None (never faked).
+
+    With GEMINI_FIRST_PASS_MODEL set, a cheap first pass judges every unit and
+    only its flags go to the main judge (CascadeJudgeBackend).
+    """
     if not gemini_enabled():
         return None
-    return GeminiJudgeBackend()
+    main = GeminiJudgeBackend()
+    first_model = os.environ.get("GEMINI_FIRST_PASS_MODEL")
+    if first_model:
+        return CascadeJudgeBackend(GeminiJudgeBackend(model=first_model), main)
+    return main
 
 
 def _http_url(url: str) -> str:
@@ -224,7 +234,7 @@ def _spans_with_offsets(
 
 @app.get("/healthz", response_model=HealthResponse)
 def healthz(
-    backend: Annotated[GeminiJudgeBackend | None, Depends(get_judge_backend)],
+    backend: Annotated[AsyncJudge | None, Depends(get_judge_backend)],
 ) -> HealthResponse:
     load_dotenv()
     return HealthResponse(
@@ -325,7 +335,7 @@ async def _judge_unit(
     changed_refs: list[str] | None,
     diff_scan: ScanResult,
     fetcher: SourceFetcher,
-    backend: GeminiJudgeBackend | None,
+    backend: AsyncJudge | None,
     semaphore: asyncio.Semaphore,
 ) -> _UnitOutcome:
     async with semaphore:
@@ -396,7 +406,7 @@ async def _cancel_all(tasks: "list[asyncio.Task[_UnitOutcome]]") -> None:
 async def audit_diff(
     req: AuditDiffRequest,
     fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
-    backend: Annotated[GeminiJudgeBackend | None, Depends(get_judge_backend)],
+    backend: Annotated[AsyncJudge | None, Depends(get_judge_backend)],
     auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
 ) -> AuditDiffResponse:
     started = time.perf_counter()

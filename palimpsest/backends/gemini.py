@@ -184,8 +184,11 @@ class GeminiJudgeBackend:
         client: GeminiClient | None = None,
         prompt_version: str = PROMPT_VERSION,
         backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+        model: str | None = None,
     ) -> None:
-        self.model = os.environ.get("GEMINI_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL
+        self.model = (
+            model or os.environ.get("GEMINI_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL
+        )
         self._caller = _GeminiCaller(self.model, client, backoff_seconds)
         self._system = (PROMPTS_DIR / f"{prompt_version}.txt").read_text()
         self.latencies_ms: dict[str, float] = {}

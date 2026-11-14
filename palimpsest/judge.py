@@ -51,6 +51,18 @@ class JudgeBackend(Protocol):
     name: str
 
 
+class AsyncJudge(Protocol):
+    """A judge that returns one AuditOutput (or an error string) per case_id."""
+
+    name: str
+    model: str
+    latencies_ms: dict[str, float]
+
+    async def judge(
+        self, cases: list[PreparedCase]
+    ) -> dict[str, AuditOutput | str]: ...
+
+
 def _neutralise(text: str) -> str:
     """Defuse delimiters and field headers so untrusted text cannot spoof the payload."""
     text = _UNTRUSTED_TAG_RE.sub(r"&lt;\1untrusted_field", text)
@@ -87,7 +99,10 @@ def render_case_payload(pc: PreparedCase) -> str:
     )
 
 
-_EMPTY_WHEN_NOT_FLAGGED: Final[dict[str, object]] = {"flagged_spans": [], "neutral_rewrite": None}
+_EMPTY_WHEN_NOT_FLAGGED: Final[dict[str, object]] = {
+    "flagged_spans": [],
+    "neutral_rewrite": None,
+}
 
 
 def normalize_non_flag_output(output: object) -> object:
