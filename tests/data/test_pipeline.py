@@ -16,7 +16,7 @@ from scripts.palimpsest_data.io import DataError, atomic_json, canonical_json, s
 from scripts.palimpsest_data.manifests import validate_corpus
 from scripts.palimpsest_data.support import discover_support
 from scripts.palimpsest_data.xml_export import export_article, export_article_stream, mediawiki_xml
-from scripts.palimpsest_data.importer import map_revisions
+from scripts.palimpsest_data.importer import fetch_local_page, map_revisions
 import xml.etree.ElementTree as ET
 
 
@@ -60,6 +60,17 @@ class DataPipelineTests(unittest.TestCase):
                          root / "dataset" / "manifests" / "sample-corpus.json")
         self.assertEqual(_manifest_for(Namespace(sample_manifest=None, data_root=root, all_pages=True)),
                          root / "dataset" / "manifests" / "full-corpus.json")
+
+    def test_local_api_url_accepts_runtime_root_api_endpoint(self):
+        urls = []
+        def api(url):
+            urls.append(url)
+            return {"query": {"pages": [{"pageid": 9, "revisions": []}]}}
+        page_id, rows = fetch_local_page("http://127.0.0.1:28081/api.php", "Example", api=api)
+        self.assertEqual(page_id, 9)
+        self.assertEqual(rows, [])
+        self.assertIn("/api.php?", urls[0])
+        self.assertNotIn("/api.php/w/api.php", urls[0])
 
     def test_full_acquisition_requires_opt_in_then_uses_fake_api(self):
         from types import SimpleNamespace

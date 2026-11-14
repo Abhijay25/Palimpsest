@@ -135,7 +135,7 @@ def fetch_local_page(api_url: str, title: str, *, api: Callable = fetch_json) ->
         if continuation:
             query.update(continuation)
         endpoint = api_url.rstrip("/")
-        if not endpoint.endswith("/w/api.php"):
+        if not endpoint.endswith("api.php"):
             endpoint += "/w/api.php"
         data = api(endpoint + "?" + urllib.parse.urlencode(query))
         pages = data.get("query", {}).get("pages", [])
