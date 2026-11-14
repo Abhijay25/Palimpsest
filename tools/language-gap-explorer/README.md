@@ -146,3 +146,9 @@ The bounded replay uses the 50 revisions ending at each dataset anchor in EN/FI/
 **Compare editions at this time** is an explicit CSRF-protected POST. It selects a counterpart revision at/before the event and target anchor, then ranks three candidates using local multilingual E5-small embeddings and MariaDB exact cosine search restricted to that revision. This is candidate retrieval, not a cross-language contradiction judgment. Your edition remains left; the changed edition is right. No extra paid call is made. Original before/after text and local Argos translations remain visible.
 
 Limits: historical sample, not live Wikipedia; different edition windows are not comparable bias rates. Normalization excludes tables/infoboxes and reference lists. Historical HTML is rendered today, so templates/transclusions may reflect newer versions. Long changed passages are bounded to 1,200 characters and 400 tokenizer tokens per side and may lose alignment/context; those splits are labeled. Meanings require both semantic-change and category scores at least 0.80. Scores are not calibrated factual correctness probabilities. No automatic Wikipedia edits. Preparation, tables and caches are isolated from Tornedalians results and review history.
+
+## Article flags tab
+
+`/article/<topic>` combines the existing Language comparison with an explicit Flags tab for the selected skyline block. Cached audits are read on GET; scanning is deliberate and posts to `PALIMPSEST_API_URL` (default `http://127.0.0.1:8765`) with a 90-second timeout. Revision and audit cache files live under `data/flags-cache/` (or `LANGGAP_FLAGS_CACHE`), which is ignored.
+
+For a database-free UI check, set `LANGGAP_FIXTURES=1` and run `python -m flask --app app run --host 127.0.0.1 --port 8022`; open `/article/Q-demo?tab=flags`. The synthetic fixture includes no Wikipedia text and never makes a network or detector request unless an uncached scan is explicitly requested.

@@ -1,0 +1,125 @@
+name: Blame acceptance
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/blame.yml"
+      - "tests/blame/**"
+      - "tests/blame_provenance/**"
+      - "tests/js/**"
+      - "infra/wiki/extensions/PalimpsestBlame/resources/**"
+      - "infra/wiki/extensions/PalimpsestBlame/tests/php/**"
+      - "tests/infra/browser/Dockerfile"
+      - "tests/infra/browser/requirements.txt"
+      - "infra/**"
+      - "scripts/**"
+      - "docs/blame/**"
+      - "docs/infra/**"
+  push:
+    branches: [feature/blame-implementation]
+    paths:
+      - ".github/workflows/blame.yml"
+      - "tests/blame/**"
+      - "tests/blame_provenance/**"
+      - "tests/js/**"
+      - "infra/wiki/extensions/PalimpsestBlame/resources/**"
+      - "infra/wiki/extensions/PalimpsestBlame/tests/php/**"
+      - "tests/infra/browser/Dockerfile"
+      - "tests/infra/browser/requirements.txt"
+      - "infra/**"
+      - "scripts/**"
+      - "docs/blame/**"
+      - "docs/infra/**"
+  workflow_dispatch:
+    inputs:
+      live_browser:
+        description: Boot a fresh no-corpus runtime and run synthetic API/browser/job acceptance
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  independent-fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run independent synthetic history and API-client contracts
+        run: python3 -m unittest discover -s tests/blame -v
+      - name: Verify real provenance exporter contracts
+        run: python3 -m unittest discover -s tests/blame_provenance -v
+      - name: Run attribution and DSR fixtures in the pinned MediaWiki image
+        run: |
+          image_ref="$(python3 -c 'import json; image=json.load(open("infra/wiki/images.lock.json"))["images"]["mediawiki"]; print(image["reference"] + "@" + image["digest"])')"
+          docker run --rm --network none --volume "$PWD:/repo:ro" --workdir /repo --entrypoint php "$image_ref" infra/wiki/extensions/PalimpsestBlame/tests/php/run.php
+      - name: Compile acceptance runners
+        run: python3 -m py_compile tests/blame/*.py
+      - name: Build the pinned Playwright runner for independent UI checks
+        run: docker build --tag palimpsest-blame-browser:1.65.1 --file tests/infra/browser/Dockerfile tests/infra/browser
+      - name: Run JavaScript consumer contracts in the pinned browser image
+        run: >-
+          docker run --rm --network none
+          --volume "$PWD:/repo:ro" --workdir /repo
+          --entrypoint /usr/local/lib/python3.12/dist-packages/playwright/driver/node
+          palimpsest-blame-browser:1.65.1
+          --test /repo/tests/js/helpers.test.cjs
+      - name: Run the UI consumer flow in Chromium
+        run: >-
+          docker run --rm --network none
+          --volume "$PWD:/repo:ro" --workdir /repo
+          --entrypoint python palimpsest-blame-browser:1.65.1
+          /repo/tests/js/ui_flow_browser.py
+      - name: Run native selection range checks in Chromium
+        run: >-
+          docker run --rm --network none
+          --volume "$PWD:/repo:ro" --workdir /repo
+          --entrypoint python palimpsest-blame-browser:1.65.1
+          /repo/tests/js/selection_ranges_browser.py
+      - name: Verify revision colours and grouped selected wording in Chromium
+        run: >-
+          docker run --rm --network none
+          --volume "$PWD:/repo:ro" --workdir /repo
+          --entrypoint python palimpsest-blame-browser:1.65.1
+          /repo/tests/js/revision_colours_browser.py
+
+  live-browser:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.live_browser }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Boot one isolated three-wiki runtime
+        run: >-
+          python3 scripts/wiki --project palimpsest-blame
+          --data-root "$RUNNER_TEMP/palimpsest-blame-data"
+          --ports 48081,48082,48083 setup
+      - name: Create synthetic history pages through core APIs
+        run: |
+          python3 scripts/wiki --project palimpsest-blame --data-root "$RUNNER_TEMP/palimpsest-blame-data" --ports 48081,48082,48083 manifest > "$RUNNER_TEMP/c1-path"
+          python3 tests/blame/seed_synthetic.py --manifest "$(cat "$RUNNER_TEMP/c1-path")" --confirm-project palimpsest-blame --state-file "$RUNNER_TEMP/blame-fixtures.json" --auth-file "$RUNNER_TEMP/blame-fixture-auth.json" --include-job-history
+      - name: Verify live API outcomes and performance size
+        run: python3 tests/blame/verify_live.py --manifest "$(cat "$RUNNER_TEMP/c1-path")" --state-file "$RUNNER_TEMP/blame-fixtures.json" --auth-file "$RUNNER_TEMP/blame-fixture-auth.json" --confirm-project palimpsest-blame
+      - name: Verify resumable job and write-API security
+        run: python3 tests/blame/verify_jobs.py --manifest "$(cat "$RUNNER_TEMP/c1-path")" --state-file "$RUNNER_TEMP/blame-fixtures.json" --auth-file "$RUNNER_TEMP/blame-fixture-auth.json" --confirm-project palimpsest-blame
+      - name: Build the pinned Playwright 1.65.1 runner
+        run: docker build --tag palimpsest-blame-browser:1.65.1 --file tests/infra/browser/Dockerfile tests/infra/browser
+      - name: Exercise Blame in desktop, mobile and keyboard layouts across all wikis
+        run: >-
+          timeout 900s docker run --rm --network host --entrypoint python
+          --volume "$PWD:/repo:ro" --workdir /repo
+          --volume "$RUNNER_TEMP/blame-fixtures.json:/test-data/fixtures.json:ro"
+          --volume "$RUNNER_TEMP/blame-fixture-auth.json:/test-data/auth.json:ro"
+          --volume "$RUNNER_TEMP/blame-screenshots:/test-results:rw"
+          --env PALIMPSEST_BLAME_BROWSER_ORIGIN_FI=http://127.0.0.1:48081
+          --env PALIMPSEST_BLAME_BROWSER_ORIGIN_SV=http://127.0.0.1:48082
+          --env PALIMPSEST_BLAME_BROWSER_ORIGIN_EN=http://127.0.0.1:48083
+          palimpsest-blame-browser:1.65.1
+          /repo/tests/blame/browser_acceptance.py --state-file /test-data/fixtures.json --auth-file /test-data/auth.json --screenshot-dir /test-results
+      - name: Preserve runtime state on failure; stop only this CI runtime
+        if: always()
+        run: >-
+          python3 scripts/wiki --project palimpsest-blame
+          --data-root "$RUNNER_TEMP/palimpsest-blame-data"
+          --ports 48081,48082,48083 down

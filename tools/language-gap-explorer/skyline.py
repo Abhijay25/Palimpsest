@@ -105,9 +105,11 @@ def question_page(data,languages,stamp,page=1,kind='all',current='en',back_query
         query=[('lang',left),('run',data['run']),('group',row['id']),('stamp',stamp),('occurrence',occurrence['id']),('skyline',back_query)]
         query += [('languages',lang) for lang in languages]
         pairs=sorted({' ↔ '.join(sorted({e['lang'].upper() for e in p['evidence']})) for p in phase['pairs'] if {e['lang'] for e in p['evidence']}<=set(languages)})
+        handoff='/article/'+data['topic']['id']+'?'+urlencode(query)
         return dict(id=row['id'],title=question_label(occurrence),kind=category,label=LABELS[category],pairs=pairs,
                     occurrences=len(stored['occurrences']),destination=' ↔ '.join([left.upper()]+[l.upper() for l in others]),
-                    href='/langcompare/'+data['topic']['id']+'?'+urlencode(query))
+                    href='/langcompare/'+data['topic']['id']+'?'+urlencode(query),article_href=handoff+'&tab=language',
+                    flags_href=handoff+'&tab=flags&scan=1')
     with ThreadPoolExecutor(max_workers=4) as pool:questions=list(pool.map(present,items[(page-1)*10:page*10]))
     return dict(questions=questions,total=len(items),page=page,pages=pages,stamp=stamp)
 

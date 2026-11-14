@@ -1,0 +1,36 @@
+pyproject.toml            uv project, deps (pydantic, httpx, mwparserfromhell, pyarrow, python-dotenv), mypy strict
+palimpsest/schema.py      Section 10 AuditOutput + enums, Case, SourceWindow, CaseResult wrapper, jsonl load/dump
+tests/test_schema.py      Schema roundtrip and validation tests
+docs/superpowers/         Design spec and implementation plan (source of truth for tasks)
+data/ cache/              Gitignored datasets and Exa cache
+eval/                     (planned) case builders, cases/*.jsonl, runs/
+palimpsest/sources.py: Stage 1 Exa source windows + cache (tests/test_sources.py)
+palimpsest/wordlists.py   Stage 0 EN/FI watch-lists (exact tokens, FI stem prefixes, phrases)
+palimpsest/stage0.py      Stage 0 deterministic pre-filter (prefilter, extract_ref_urls, strip_wikitext)
+tests/test_stage0.py      Stage 0 tests
+palimpsest/prompts/       stage2_v1.txt (spec s10 prompt verbatim), subagent_judge.txt (batch instructions)
+palimpsest/judge.py       PreparedCase, render_case_payload, FileExchangeBackend (write_batches/read_results)
+palimpsest/pipeline.py    prepare(): Stage 0 + concurrent Stage 1 (sem 8) + batch files; ingest() (Task 5)
+palimpsest/__main__.py    CLI: prepare / ingest
+palimpsest/scoring.py     Metrics, score(), agreement(); pass bar constants
+palimpsest/report.py      render_report(): static HTML (diff, span highlight, metrics, compare)
+palimpsest/stealth/        Pillar 1 deterministic scanner: models.py (spec s5 contract), sanitizer.py (tags, controls, homoglyphs, hidden channels), scanner.py scan(text,target,old_text) edit-relative; CLI python -m palimpsest.stealth <file> (tests/test_stealth.py)
+palimpsest/stealth/triage.py + prompts/triage_v1.txt: Pillar 2 (hidden_delta, apply_triage, batch render, read_verdicts); eval.py: prepare/ingest CLI + report.html (tests/test_stealth_triage.py, test_stealth_eval.py)
+palimpsest/stage0.py: refs_for_changed_sentences(old_wikitext, new_wikitext) -> URLs of refs on sentences new vs old (named refs resolved)
+palimpsest/sources.py: discourse_window_scored, SourceFetcher.window_scored (overlap score), calls/cost_dollars counters, EXA_MAX_CALLS budget guard
+palimpsest/pipeline.py: _window_for picks best-overlap window over changed_ref_urls (<=3); empty list -> "uncited"; prepare prints Exa calls/cost
+palimpsest/scoring.py: Metrics.uncited_rate; judge.py UNCITED_LINE payload
+eval/build/fi_dataset_m.py, en_reverts.py: emit old_wikitext/new_wikitext/changed_ref_urls; argparse --reverts/--controls
+palimpsest/pipeline.py: stealth pre-hook in prepare (diff scan + sanitize old/new_text before Stage 0; ref scan via SourceFetcher.window_scored(on_text=), CRITICAL ref -> unavailable); PreparedCase.diff_scan/ref_scan/stealth_ms; CaseResult.stealth_status/vectors/ms; Metrics.stealth_flag_rate/stealth_flags; report stealth badge
+palimpsest/backends/gemini.py: GeminiJudgeBackend/GeminiTriageBackend (google-genai 3.3.0 generate_content); prepare --backend gemini writes file-exchange-format results + stage2_ms (tests/test_gemini_backend.py)
+palimpsest/api.py         FastAPI: /api/v1/stealth-scan, /api/v1/audit-diff, /healthz (tests/test_api.py; deps via get_fetcher/get_judge_backend, override in tests)
+palimpsest/segment.py     split_edit(): changed/inserted/deleted paragraph units (difflib); api judges units 4 at a time, MAX_UNITS=12 -> partial
+palimpsest/cascade.py     CascadeJudgeBackend(first, second): only first-pass flags/errors go to second; api uses it when GEMINI_FIRST_PASS_MODEL is set
+palimpsest/reasons.py     reason_code(): CONTRADICTS_SOURCE / UNSUPPORTED_CLAIM / LOADED_WORDING / REMOVED_CONTEXT from verdict + diff (no model call); api returns reason/reason_text
+palimpsest/render_service.py  scan_ref_pages(): concurrent Pillar 3 render of edit-touched refs in audit-diff (escalate-only), shared lazy PageRenderer(screenshots="none")
+palimpsest/stealth/render.py  PageRenderer (system chromium, viewport tiles 1280x800 + 64px overlap, SSRF guard, scroll-lock fallback, screenshots none|images|all), RenderAudit
+palimpsest/stealth/pillar3.py render_findings(audit, judged_text), judged_drift(); vision.py + prompts/vision_v1.txt: image-only text (context only, never escalates)
+palimpsest/stealth/render_eval.py  prepare/ingest/vision-prepare/vision-ingest over eval/stealth/render_cases + live real ref URLs
+palimpsest/prompts/stage2_v7.txt   default judge prompt (v6 + WP:BLP exception); screen_v1.txt = short first-pass screen (empty arrays)
+palimpsest/backends/gemini.py: gemini_enabled() requires GEMINI_API_KEY and PALIMPSEST_USE_GEMINI=1; GeminiJudgeBackend(model=...)
+eval/build/fi_dataset_m.py: --seed --exclude --no-pov-preference --out-prefix (blind sets); en_reverts.py --reverts-out

@@ -2,10 +2,57 @@ import json
 import re
 import secrets
 from datetime import datetime, timezone
-import pymysql
-import requests
+try:
+    import pymysql
+    _MYSQL_AVAILABLE=True
+except ModuleNotFoundError:  # permits the explicit offline fixture without DB extras
+    _MYSQL_AVAILABLE=False
+    class pymysql:  # type: ignore[no-redef]
+        class MySQLError(Exception): pass
+try:
+    import requests
+except ModuleNotFoundError:
+    requests=None
 from flask import Flask, render_template, request, abort, jsonify, redirect, url_for, session
-from core import connect, compare, LANGS, MODEL
+if _MYSQL_AVAILABLE:
+    from core import connect, compare, LANGS, MODEL
+else:
+    LANGS=('fi','en','sv');MODEL='offline'
+    def connect(): raise pymysql.MySQLError('MariaDB support is not installed.')
+    def compare(*_args): return []
+
+
+def comparison_context(topic):
+    """Existing comparison preparation, kept separate so article tabs reuse it."""
+    source=request.args.get('lang') or request.args.get('source') or session.get('showcase_article_language','en' if topic=='Q2606233' else 'fi')
+    target=request.args.get('target') or next(l for l in LANGS if l!=source)
+    if source==target and request.args.get('lang'):target=next(l for l in LANGS if l!=source)
+    if source not in LANGS or target not in LANGS or source==target: abort(400)
+    with connect() as db, db.cursor() as c:
+        c.execute('''SELECT a.*, (SELECT COUNT(*) FROM passage p WHERE p.lang=a.lang AND p.page_id=a.page_id AND p.model=%s) AS passages
+          FROM article a WHERE wikidata_id=%s''',(MODEL,topic))
+        articles={a['lang']:a for a in c.fetchall()}
+        if not articles: abort(404)
+        rows=compare(c,topic,source,target) if source in articles and target in articles else []
+    title=articles.get('en',next(iter(articles.values())))['title']
+    from mock_review import mock_review, CATEGORIES
+    from pipeline import latest, review_candidates
+    demo=request.args.get('demo')=='1';run,findings=latest(topic)
+    if demo: findings,review_counts=review_candidates(mock_review(topic,articles))
+    else: review_counts=run['review_counts'] if run else {'equivalent':0,'uncertain':0,'actionable':0,'exact_duplicates':0}
+    from review_view import select_languages,section_groups
+    try: selected_languages=select_languages(request.args.getlist('languages') or (session.get('showcase_languages',['en','fi','sv']) if topic=='Q2606233' and not demo else []),articles,source,target)
+    except ValueError as error:
+        if not request.args.getlist('languages') and len(articles)<2:selected_languages=list(articles)
+        else: abort(400,description=str(error))
+    current_lang=source if source in articles else next(iter(articles))
+    findings=[dict(f,evidence=sorted(f['evidence'],key=lambda e:e['lang']!=current_lang)) for f in findings]
+    findings,sections=section_groups(findings,selected_languages)
+    review_counts=dict(review_counts,actionable=sum(f['category']!='uncertain' for f in findings),uncertain=sum(f['category']=='uncertain' for f in findings))
+    session.setdefault('review_token',secrets.token_hex(24))
+    return dict(historical=False,topic=topic,title=title,articles=articles,source=source,target=target,rows=rows,langs=LANGS,
+        findings=findings,categories=CATEGORIES,review_counts=review_counts,selected_languages=selected_languages,
+        review_sections=sections,current_lang=current_lang,demo=demo,run=run,review_token=session['review_token'])
 
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
@@ -22,7 +69,7 @@ def database_error(error):
 
 @app.get('/')
 def home():
-    return redirect(url_for('article_page',topic='Q2606233',lang='en'))
+    return redirect('/explore')
 
 @app.get('/articles')
 def index():
@@ -43,22 +90,31 @@ def index():
 @app.get('/wiki/<topic>')
 def article_page(topic):
     from article_render import render_article
-    if not re.fullmatch(r'Q\d+',topic): abort(404)
+    from flags_routes import fixture_context
+    fixture=fixture_context(topic)
+    if fixture is None and not re.fullmatch(r'Q\d+',topic): abort(404)
     lang=request.args.get('lang')
     if lang is not None and lang not in LANGS: abort(400)
-    with connect() as db, db.cursor() as c:
-        c.execute('SELECT * FROM article WHERE wikidata_id=%s',(topic,))
-        articles={a['lang']:a for a in c.fetchall()}
+    if fixture is not None:
+        articles={code:dict(value,page_id=0,rev_id=0,date_modified='offline fixture',url='')
+                  for code,value in fixture['articles'].items()}
+    else:
+        with connect() as db, db.cursor() as c:
+            c.execute('SELECT * FROM article WHERE wikidata_id=%s',(topic,))
+            articles={a['lang']:a for a in c.fetchall()}
     if not articles: abort(404)
     if lang and lang not in articles: abort(404,description='This language is absent from the local snapshot.')
     lang=lang or next(l for l in ('en','fi','sv') if l in articles)
     article=articles[lang]
     body,contents=render_article(article['text'],lang,article['title'])
     target=next(l for l in ('fi','en','sv') if l!=lang)
-    from pipeline import latest
-    article_run,article_findings=latest(topic)
-    from watchlist import overview
-    watch_notices,_=overview(topic)
+    if fixture is not None:
+        article_run,article_findings,watch_notices=None,[],[]
+    else:
+        from pipeline import latest
+        article_run,article_findings=latest(topic)
+        from watchlist import overview
+        watch_notices,_=overview(topic)
     if topic=='Q2606233':
         from review_view import section_groups
         article_findings,_=section_groups(article_findings,session.get('showcase_languages',['en','fi','sv']))
@@ -77,42 +133,7 @@ def topic_page(topic):
         try:return render_template('topic.html',**tracker_context(topic,args))
         except ValueError as error:return render_template('historical_unavailable.html',topic=topic,message=str(error)),400
         except LookupError as error:return render_template('historical_unavailable.html',topic=topic,message=str(error)),404
-    source=request.args.get('lang') or request.args.get('source') or session.get('showcase_article_language','en' if topic=='Q2606233' else 'fi')
-    target=request.args.get('target') or next(l for l in LANGS if l!=source)
-    if source==target and request.args.get('lang'):target=next(l for l in LANGS if l!=source)
-    if source not in LANGS or target not in LANGS or source==target: abort(400)
-    with connect() as db, db.cursor() as c:
-        c.execute('''SELECT a.*, (SELECT COUNT(*) FROM passage p WHERE p.lang=a.lang AND p.page_id=a.page_id AND p.model=%s) AS passages
-          FROM article a WHERE wikidata_id=%s''',(MODEL,topic))
-        articles={a['lang']:a for a in c.fetchall()}
-        if not articles: abort(404)
-        rows=compare(c,topic,source,target) if source in articles and target in articles else []
-    title=articles.get('en',next(iter(articles.values())))['title']
-    from mock_review import mock_review, CATEGORIES
-    from pipeline import latest
-    demo=request.args.get('demo')=='1'
-    run,findings=latest(topic)
-    from pipeline import review_candidates
-    if demo: findings,review_counts=review_candidates(mock_review(topic,articles))
-    else: review_counts=run['review_counts'] if run else {'equivalent':0,'uncertain':0,'actionable':0,'exact_duplicates':0}
-    from review_view import select_languages,section_groups
-    try: selected_languages=select_languages(request.args.getlist('languages') or (session.get('showcase_languages',['en','fi','sv']) if topic=='Q2606233' and not demo else []),articles,source,target)
-    except ValueError as error:
-        if not request.args.getlist('languages') and len(articles)<2:
-            selected_languages=list(articles)
-        else: abort(400,description=str(error))
-    current_lang=source
-    if current_lang not in articles:current_lang=next(iter(articles))
-    findings=[dict(f,evidence=sorted(f['evidence'],key=lambda e:e['lang']!=current_lang)) for f in findings]
-    findings,sections=section_groups(findings,selected_languages)
-    review_counts=dict(review_counts,actionable=sum(f['category']!='uncertain' for f in findings),
-        uncertain=sum(f['category']=='uncertain' for f in findings))
-    session.setdefault('review_token',secrets.token_hex(24))
-    return render_template('topic.html',topic=topic,title=title,articles=articles,
-        source=source,target=target,rows=rows,langs=LANGS,
-        findings=findings,categories=CATEGORIES,review_counts=review_counts,
-        selected_languages=selected_languages,review_sections=sections,current_lang=current_lang,
-        demo=demo,run=run,review_token=session['review_token'])
+    return render_template('topic.html',**comparison_context(topic))
 
 @app.post('/reviews/<topic>')
 def start_review(topic):
@@ -208,14 +229,17 @@ def showcase_context():
         historical_pending=update_issue_count(rows,current_lang),
         history_range=(min(r['stamp'] for r in rows)+' - '+max(r['stamp'] for r in rows)) if rows else '')
 
-from showcase_routes import bp as showcase_blueprint
-app.register_blueprint(showcase_blueprint)
-from watch_routes import bp as watch_blueprint
-app.register_blueprint(watch_blueprint)
-from timeline_routes import bp as timeline_blueprint
-app.register_blueprint(timeline_blueprint)
-from discrepancy_explorer import bp as discrepancy_explorer_blueprint
-app.register_blueprint(discrepancy_explorer_blueprint)
+if _MYSQL_AVAILABLE:
+    from showcase_routes import bp as showcase_blueprint
+    app.register_blueprint(showcase_blueprint)
+    from watch_routes import bp as watch_blueprint
+    app.register_blueprint(watch_blueprint)
+    from timeline_routes import bp as timeline_blueprint
+    app.register_blueprint(timeline_blueprint)
+    from discrepancy_explorer import bp as discrepancy_explorer_blueprint
+    app.register_blueprint(discrepancy_explorer_blueprint)
+from flags_routes import bp as flags_blueprint
+app.register_blueprint(flags_blueprint)
 
 if __name__=='__main__':
     from pipeline import init

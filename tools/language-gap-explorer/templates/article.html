@@ -2,6 +2,8 @@
 {% block title %}{{ article.title }} — Wikipedia prototype{% endblock %}
 {% block content %}
 <div class="article-heading"><h1>{{ article.title }}</h1><details class="language-menu"><summary>{{ articles|length }} languages</summary><ul>{% for l,a in articles.items() %}<li><a href="/wiki/{{ topic }}?lang={{ l }}" lang="{{ l }}">{{ {'fi':'Suomi','en':'English','sv':'Svenska'}[l] }}</a></li>{% endfor %}</ul></details></div>
+{% set article_tab = 'language' %}{% set tab_lang = lang %}{% include 'article_tab_control.html' %}
+<link rel="stylesheet" href="{{ url_for('static',filename='flags/flags.css') }}">
 {% if showcase %}{% include 'showcase_tabs.html' %}
 <aside class="watch-article-notice" aria-label="Help improve this page"><strong>Help improve this page</strong><p>{% if article_findings|selectattr('category','equalto','conflict')|list|length %}Potential discrepancies have been detected across language editions.{% else %}Compare language editions and review changes that may need attention.{% endif %}</p><p><a href="{{ showcase_compare_url }}">View language discrepancies</a> &middot; <a href="{{ showcase_updates_url }}">Help fix issues on this page</a></p><small>Review the evidence before proposing an edit.</small></aside>
 {% else %}<nav class="article-tabs"><span class="active">Article</span><a href="/langcompare/{{ topic }}">Compare languages</a><a href="/watchlist?topic={{ topic }}">Watch updates</a></nav>{% endif %}

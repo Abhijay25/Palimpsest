@@ -1,0 +1,4 @@
+<nav class="page-tabs tab-control" role="tablist" aria-label="Article review">
+  <a id="language-tab" role="tab" aria-selected="{{ 'true' if article_tab != 'flags' else 'false' }}" {{ 'aria-current="page"'|safe if article_tab != 'flags' else '' }} href="/article/{{ topic }}?lang={{ tab_lang }}&amp;tab=language">Language</a>
+  <a id="flags-tab" role="tab" aria-selected="{{ 'true' if article_tab == 'flags' else 'false' }}" {{ 'aria-current="page"'|safe if article_tab == 'flags' else '' }} href="/article/{{ topic }}?lang={{ tab_lang }}&amp;tab=flags">Flags</a>
+</nav>

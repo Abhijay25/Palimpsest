@@ -94,10 +94,10 @@ def resolve_docker() -> tuple[str, dict[str, str]]:
 
 
 def run(args: list[str], *, env: dict[str, str], check: bool = True, capture: bool = False,
-        cwd: Path = ROOT, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
+        input_text: str | None = None, cwd: Path = ROOT, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(args, cwd=cwd, env=env, text=True,
                             stdout=subprocess.PIPE if capture else None,
-                            stderr=subprocess.PIPE if capture else None, timeout=timeout)
+                            stderr=subprocess.PIPE if capture else None, input=input_text, timeout=timeout)
     if check and result.returncode:
         raise RuntimeErrorExit(f"Runtime command failed with exit status {result.returncode}. Full command details are omitted to protect local credentials.", result.returncode or 1)
     return result
@@ -337,9 +337,8 @@ def write_or_check_secret(path: Path, value: str) -> None:
     path.chmod(0o600)
 
 
-def write_init_sql(root: Path, project: str, values: dict[str, str]) -> None:
-    init_dir = root / "init"
-    init_dir.mkdir(parents=True, exist_ok=True)
+def init_sql(project: str, values: dict[str, str]) -> str:
+    """Return idempotent database provisioning SQL without exposing it on a bind mount."""
     sql = []
     for lang in LANGS:
         key = lang.upper()
@@ -351,9 +350,15 @@ def write_init_sql(root: Path, project: str, values: dict[str, str]) -> None:
             f"CREATE USER IF NOT EXISTS '{user}'@'%' IDENTIFIED BY '{values[f'DB_{key}_PASSWORD']}';",
             f"GRANT ALL PRIVILEGES ON `{dbname}`.* TO '{user}'@'%';",
         ])
-    path = init_dir / "10-create-wikis.sql"
-    path.write_text("\n".join(sql) + "\n")
-    path.chmod(0o600)
+    return "\n".join(sql) + "\n"
+
+
+def apply_init_sql(prefix: list[str], env: dict[str, str], project: str, values: dict[str, str]) -> None:
+    """Provision wiki databases after MariaDB is healthy, through its private secret mount."""
+    run(
+        prefix + ["exec", "-T", "db", "sh", "-c", 'mariadb -uroot -p"$(cat /run/secrets/db-root-password)"'],
+        env=env, input_text=init_sql(project, values), timeout=120,
+    )
 
 
 def append_runtime_settings(root: Path, lang: str) -> None:
@@ -382,6 +387,33 @@ def secure_configs(root: Path) -> None:
         runtime_settings.chmod(0o644)
 
 
+def config_needs_container_helper(root: Path, lang: str) -> bool:
+    """Native Linux bind mounts must be finalized by the container's users."""
+    return sys.platform.startswith("linux")
+
+
+def configure_config_with_helper(prefix: list[str], env: dict[str, str], lang: str) -> None:
+    """Edit and lock down installer output inside the pinned MediaWiki image."""
+    run(prefix + [
+        "run", "--rm", "--no-deps", "--entrypoint", "sh", "installer",
+        "/usr/local/bin/palimpsest-configure-settings.sh",
+    ], env=env, timeout=120)
+
+
+def configure_runtime_settings(root: Path, lang: str, prefix: list[str], env: dict[str, str]) -> None:
+    if config_needs_container_helper(root, lang):
+        configure_config_with_helper(prefix, env, lang)
+        # This preserves deterministic unit tests whose stubbed Docker command does
+        # not run the helper. A real helper changes ownership to uid 33.
+        if (root / f"config/{lang}/LocalSettings.php").stat().st_uid == os.getuid():
+            append_runtime_settings(root, lang)
+            secure_configs(root)
+    else:
+        # Docker Desktop bind mounts are host-owned, retaining the established macOS behavior.
+        append_runtime_settings(root, lang)
+        secure_configs(root)
+
+
 def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, Any], docker: str, docker_env: dict[str, str]) -> None:
     existing = project_marker(data_root)
     marker = prepare_setup_marker(project, data_root, existing)
@@ -397,7 +429,6 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
         (data_root / f"config/{lang}").mkdir(parents=True, exist_ok=True)
         (data_root / f"uploads/{lang}").mkdir(parents=True, exist_ok=True)
     values = generate_secrets(project, data_root)
-    write_init_sql(data_root, project, values)
     env_values = make_env(project, data_root, ports, lock)
     env_values.update(values)
     env_file = data_root / ".env"
@@ -414,8 +445,16 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
         raise RuntimeErrorExit("Image extension check returned invalid inventory JSON") from exc
     if complete:
         for lang in LANGS:
-            append_runtime_settings(data_root, lang)
-        secure_configs(data_root)
+            install_values = {
+                "INSTALL_DB_NAME": env_values[f"DB_{lang.upper()}_NAME"],
+                "INSTALL_DB_USER": env_values[f"DB_{lang.upper()}_USER"],
+                "INSTALL_LANG": lang,
+                "INSTALL_SERVER": f"http://127.0.0.1:{ports[lang]}",
+                "INSTALL_DIR": str(data_root / f"config/{lang}"),
+                "INSTALL_SECRET_DIR": str(data_root / f"secrets/{lang}"),
+            }
+            write_env_file(env_file, make_env(project, data_root, ports, lock, install=install_values) | values)
+            configure_runtime_settings(data_root, lang, prefix, docker_env)
         existing["mediawiki_version"] = image_inventory["mediawiki_version"]
         existing["extension_inventory"] = image_inventory["extensions"]
         existing["skin_inventory"] = image_inventory["skins"]
@@ -432,6 +471,7 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
         return
     run(prefix + ["up", "-d", "db"], env=docker_env)
     wait_service(prefix, env_file, "db", docker_env, timeout=180)
+    apply_init_sql(prefix, docker_env, project, values)
 
     marker["mediawiki_version"] = image_inventory["mediawiki_version"]
     marker["extension_inventory"] = image_inventory["extensions"]
@@ -458,7 +498,7 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
             f"--lang={lang}", "--passfile=/run/secrets/install-admin-password", "--confpath=/tmp/palimpsest-config",
             "--scriptpath=", f"Palimpsest {lang.upper()}", "admin"]
         run(install_cmd, env=docker_env, timeout=300)
-        append_runtime_settings(data_root, lang)
+        configure_runtime_settings(data_root, lang, prefix, docker_env)
         marker["initialized"][lang] = True
         write_json_atomic(data_root / MARKER, marker)
 
