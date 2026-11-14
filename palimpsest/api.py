@@ -422,19 +422,20 @@ async def audit_diff(
         top = sorted(all_units, key=lambda u: (-changed_chars(u), u.index))[:MAX_UNITS]
         units = sorted(top, key=lambda u: u.index)
     refs_by_unit = {u.index: _unit_changed_refs(u) for u in units}
+    # Edit-relative: render only refs the edit touched. Without wikitext the
+    # changed refs are unknown, so fall back to ref_urls unless Stage 0 says the
+    # unit is a typo/format-only change (nothing new to plant on a cited page).
     union_refs: list[str] = []
     for unit in units:
-        for url in (
-            req.ref_urls
-            if refs_by_unit[unit.index] is None
-            else refs_by_unit[unit.index]
-        ) or []:
+        unit_refs = refs_by_unit[unit.index]
+        if unit_refs is None:
+            clean = prefilter(unit.old_text, unit.new_text, req.lang_code).clean
+            unit_refs = [] if clean else req.ref_urls
+        for url in unit_refs:
             if url not in union_refs:
                 union_refs.append(url)
     render_task = asyncio.create_task(
-        scan_ref_pages_in_temp_dir(
-            union_refs or req.ref_urls, auditor_provider, fetcher.cached_text
-        )
+        scan_ref_pages_in_temp_dir(union_refs, auditor_provider, fetcher.cached_text)
     )
     semaphore = asyncio.Semaphore(UNIT_CONCURRENCY)
     unit_tasks = [
