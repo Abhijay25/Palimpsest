@@ -46,6 +46,45 @@ def skyline_questions():
     except Exception:return jsonify(error='Stored question evidence is temporarily unavailable.'),503
 
 
+@bp.get('/explore/api/matrix')
+def heatmap_matrix():
+    from heatmap import public_catalog
+    try:
+        data,languages=skyline_run()
+        return jsonify(public_catalog(data,languages))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Stored question matrix is temporarily unavailable.'),503
+
+
+@bp.get('/explore/api/cell')
+def heatmap_cell():
+    from heatmap import cell_detail
+    try:
+        if not detail_args(request.args):raise ValueError('Invalid historical cell identity.')
+        if len(request.args.get('back',''))>2500:raise ValueError('Invalid return context.')
+        data,languages=skyline_run()
+        return jsonify(cell_detail(data,languages,request.args['group'],request.args['stamp'],request.args.get('current','en'),request.args.get('back',''),request.args.get('pair','all'),request.args.get('kind','all')))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Stored cell evidence is temporarily unavailable.'),503
+
+
+@bp.post('/explore/api/search')
+def heatmap_search():
+    if request.headers.get('Sec-Fetch-Site')=='cross-site' or not secrets.compare_digest(request.headers.get('X-Review-Token',''),session.get('review_token','invalid')):
+        return jsonify(error='Reload this local page before searching.'),403
+    from heatmap import catalog,hybrid_search
+    try:
+        data,languages=skyline_run()
+        query=(request.get_json(silent=True) or {}).get('query','')
+        if not isinstance(query,str):raise ValueError('Enter a search phrase.')
+        return jsonify(hybrid_search(catalog(data,languages)['rows'],query))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Search is temporarily unavailable. Clear the search to explore all questions.'),503
+
+
 @bp.get('/explore/api/history')
 def historical():
     topic=request.args.get('topic','')
