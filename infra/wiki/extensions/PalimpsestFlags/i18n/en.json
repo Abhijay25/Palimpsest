@@ -1,0 +1,7 @@
+{
+	"@metadata": { "authors": [ "Palimpsest contributors" ] },
+	"palimpsestflags-revision-unavailable": "One or both requested revisions are unavailable for audit.",
+	"apihelp-query+palimpsestflags-description": "Retrieve Palimpsest audit flags for a pair of readable revisions.",
+	"apihelp-query+palimpsestflags-param-oldid": "Old revision ID.",
+	"apihelp-query+palimpsestflags-param-diff": "New revision ID."
+}
