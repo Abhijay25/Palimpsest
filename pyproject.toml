@@ -27,6 +27,8 @@ packages = ["palimpsest"]
 
 [tool.mypy]
 strict = true
+# Teammates' infra, blame and library code has its own checks; strict mypy covers the detector.
+exclude = ["^scripts/", "^apps/", "^infra/", "^tests/(infra|runtime|blame|blame_provenance|data|js)/"]
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
@@ -35,3 +37,7 @@ testpaths = ["tests"]
 [[tool.mypy.overrides]]
 module = ["pyarrow", "pyarrow.*"]
 ignore_missing_imports = true
+
+[tool.ruff]
+# Same scope as mypy: teammates' infra, blame and library code keeps its own style.
+extend-exclude = ["scripts", "apps", "infra", "tests/infra", "tests/runtime", "tests/blame", "tests/blame_provenance", "tests/data", "tests/js"]
