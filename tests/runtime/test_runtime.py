@@ -64,11 +64,20 @@ class RuntimeContractTests(unittest.TestCase):
             (config / "LocalSettings.php").write_text("<?php\nwfLoadSkin( 'Vector' );\nwfLoadExtension( 'Cite' );\n$wgDBpassword = 'fixture';\n")
             with patch.object(runtime, "ROOT", Path(__file__).resolve().parents[2]):
                 runtime.append_runtime_settings(root, "fi")
+            for lang in ("sv", "en"):
+                other = root / f"config/{lang}"
+                other.mkdir(parents=True)
+                (other / "LocalSettings.php").write_text("<?php\n")
+                (other / "runtime-settings.php").write_text("<?php\n")
             text = (config / "LocalSettings.php").read_text()
             self.assertEqual(text.count("wfLoadSkin( 'Vector' )"), 0)
             self.assertEqual(text.count("wfLoadExtension( 'Cite' )"), 0)
             self.assertEqual(text.count("require_once '/etc/palimpsest/runtime-settings.php';"), 1)
             self.assertTrue((config / "runtime-settings.php").is_file())
+            self.assertEqual((config / "LocalSettings.php").stat().st_mode & 0o777, 0o600)
+            (config / "LocalSettings.php").chmod(0o644)
+            runtime.secure_configs(root)
+            self.assertEqual((config / "LocalSettings.php").stat().st_mode & 0o777, 0o600)
 
     def test_runtime_reset_preserves_data_tool_files_and_rejects_symlinked_runtime_path(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -89,6 +98,27 @@ class RuntimeContractTests(unittest.TestCase):
             with self.assertRaises(runtime.RuntimeErrorExit):
                 runtime.cleanup_runtime_paths(root)
             self.assertTrue(target.is_dir())
+
+    def test_partial_setup_resume_preserves_successful_languages_and_rejects_marker_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            fi = root / "config/fi"
+            fi.mkdir(parents=True)
+            (fi / "LocalSettings.php").write_text("<?php\n")
+            (fi / "runtime-settings.php").write_text("<?php\n")
+            existing = {"schema_version": 1, "project": "palimpsest-a", "initialized": {"fi": True, "sv": False, "en": False}}
+            resumed = runtime.prepare_setup_marker("palimpsest-a", root, existing)
+            self.assertEqual(resumed["initialized"], {"fi": True, "sv": False, "en": False})
+            self.assertTrue(resumed["initialized"]["fi"])
+            self.assertFalse((root / "config/sv/LocalSettings.php").exists())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sv = root / "config/sv"
+            sv.mkdir(parents=True)
+            (sv / "LocalSettings.php").write_text("<?php\n")
+            existing = {"schema_version": 1, "project": "palimpsest-a", "initialized": {"fi": False, "sv": False, "en": False}}
+            with self.assertRaises(runtime.RuntimeErrorExit):
+                runtime.prepare_setup_marker("palimpsest-a", root, existing)
 
 
 if __name__ == "__main__":

@@ -178,6 +178,30 @@ def project_marker(data_root: Path) -> dict[str, Any] | None:
         raise RuntimeErrorExit(f"Runtime state marker is unreadable ({marker}); preserve data and inspect before resetting") from exc
 
 
+def prepare_setup_marker(project: str, data_root: Path, existing: dict[str, Any] | None) -> dict[str, Any]:
+    if existing is None:
+        return {"schema_version": 1, "project": project, "created_at": datetime.now(timezone.utc).isoformat(), "initialized": {lang: False for lang in LANGS}}
+    if existing.get("project") != project:
+        raise RuntimeErrorExit(f"Data root belongs to project '{existing.get('project')}', not '{project}'")
+    flags = existing.get("initialized")
+    if not isinstance(flags, dict):
+        raise RuntimeErrorExit("Runtime marker has no valid per-language initialization state; inspect before retrying.")
+    normalized = {}
+    for lang in LANGS:
+        done = flags.get(lang, False)
+        if not isinstance(done, bool):
+            raise RuntimeErrorExit(f"Runtime marker has an invalid initialization state for {lang}.")
+        settings = data_root / f"config/{lang}/LocalSettings.php"
+        runtime_settings = data_root / f"config/{lang}/runtime-settings.php"
+        has_config = settings.is_file() or runtime_settings.is_file()
+        if done and not (settings.is_file() and runtime_settings.is_file()):
+            raise RuntimeErrorExit(f"Runtime marker says {lang} is initialized but its settings files are incomplete.")
+        if not done and has_config:
+            raise RuntimeErrorExit(f"An unfinished installer left settings files for {lang} without a completion marker; inspect before retrying or resetting.")
+        normalized[lang] = done
+    return {**existing, "initialized": normalized}
+
+
 def write_json_atomic(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -340,16 +364,20 @@ def append_runtime_settings(root: Path, lang: str) -> None:
     runtime_settings.chmod(0o644)
 
 
+def secure_configs(root: Path) -> None:
+    for lang in LANGS:
+        settings = root / f"config/{lang}/LocalSettings.php"
+        runtime_settings = root / f"config/{lang}/runtime-settings.php"
+        if not settings.is_file() or not runtime_settings.is_file():
+            raise RuntimeErrorExit(f"Project config is missing for {lang}; preserve runtime data and inspect before repairing.")
+        settings.chmod(0o600)
+        runtime_settings.chmod(0o644)
+
+
 def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, Any], docker: str, docker_env: dict[str, str]) -> None:
     existing = project_marker(data_root)
-    if existing and existing.get("project") != project:
-        raise RuntimeErrorExit(f"Data root belongs to project '{existing.get('project')}', not '{project}'")
-    if existing and existing.get("initialized") and not all(existing["initialized"].get(lang) for lang in LANGS):
-        partial_files = [str(data_root / f"config/{lang}/LocalSettings.php") for lang in LANGS
-                         if not existing["initialized"].get(lang) and (data_root / f"config/{lang}/LocalSettings.php").exists()]
-        if partial_files:
-            raise RuntimeErrorExit("An unfinished installer left a LocalSettings.php file without an initialized marker. Preserve the data and inspect it before retrying or resetting.")
-    complete = bool(existing and all(existing.get("initialized", {}).get(lang) for lang in LANGS))
+    marker = prepare_setup_marker(project, data_root, existing)
+    complete = all(marker["initialized"].get(lang, False) for lang in LANGS)
     if not existing:
         ensure_free_ports(ports)
         free = shutil.disk_usage(data_root.parent if data_root.parent.exists() else ROOT).free
@@ -376,6 +404,7 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
     except (TypeError, json.JSONDecodeError) as exc:
         raise RuntimeErrorExit("Image extension check returned invalid inventory JSON") from exc
     if complete:
+        secure_configs(data_root)
         existing["mediawiki_version"] = image_inventory["mediawiki_version"]
         existing["extension_inventory"] = image_inventory["extensions"]
         existing["skin_inventory"] = image_inventory["skins"]
@@ -392,7 +421,10 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
     run(prefix + ["up", "-d", "db"], env=docker_env)
     wait_service(prefix, env_file, "db", docker_env, timeout=180)
 
-    marker = {"schema_version": 1, "project": project, "created_at": datetime.now(timezone.utc).isoformat(), "initialized": {lang: False for lang in LANGS}, "mediawiki_version": image_inventory["mediawiki_version"], "extension_inventory": image_inventory["extensions"], "skin_inventory": image_inventory["skins"], "integrations": image_inventory["integrations"]}
+    marker["mediawiki_version"] = image_inventory["mediawiki_version"]
+    marker["extension_inventory"] = image_inventory["extensions"]
+    marker["skin_inventory"] = image_inventory["skins"]
+    marker["integrations"] = image_inventory["integrations"]
     write_json_atomic(data_root / MARKER, marker)
     for lang in LANGS:
         if marker["initialized"].get(lang):
