@@ -1,0 +1,9 @@
+{
+  "prompt_version": "stage2_v7",
+  "models": [
+    "gemini-4-argon"
+  ],
+  "case_files": [
+    "/tmp/claude-1000/-home-abhijay-repos-Palimpsest/9a81a32b-cd1e-47b2-8396-60dc79d3c8d5/scratchpad/g02_cases.jsonl"
+  ]
+}
