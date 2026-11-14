@@ -25,7 +25,10 @@ def plain(text: str) -> str:
     return " ".join(_MARKUP.sub("", text or "").split()).casefold()
 
 
-def audit(edit: dict[str, object]) -> dict[str, object]:
+def audit_request(
+    edit: dict[str, object], *, fresh: bool = False
+) -> urllib.request.Request:
+    """Build the shared audit-diff request used by replay-style evaluators."""
     old, new = str(edit["old_wikitext"]), str(edit["new_wikitext"])
     body = {
         "lang_code": edit["lang"],
@@ -39,9 +42,14 @@ def audit(edit: dict[str, object]) -> dict[str, object]:
         "new_wikitext": new,
         "ref_urls": [],
     }
-    request = urllib.request.Request(
-        API, json.dumps(body).encode(), {"Content-Type": "application/json"}
-    )
+    headers = {"Content-Type": "application/json"}
+    if fresh:
+        headers["X-Palimpsest-Fresh"] = "1"
+    return urllib.request.Request(API, json.dumps(body).encode(), headers)
+
+
+def audit(edit: dict[str, object], *, fresh: bool = False) -> dict[str, object]:
+    request = audit_request(edit, fresh=fresh)
     with urllib.request.urlopen(request, timeout=300) as response:
         result: dict[str, object] = json.load(response)
         return result
