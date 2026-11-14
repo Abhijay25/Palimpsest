@@ -11,7 +11,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from palimpsest.schema import Case, dump_jsonl
+from palimpsest.schema import Case, dump_jsonl, load_cases
 from palimpsest.stage0 import (
     extract_ref_urls,
     refs_for_changed_sentences,
@@ -310,11 +310,30 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reverts", type=int, default=REVERT_COUNT)
     parser.add_argument("--controls", type=int, default=CONTROL_COUNT)
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument(
+        "--exclude",
+        type=Path,
+        nargs="*",
+        default=[],
+        help="JSONL case files; their case_ids are never selected (keeps sets blind)",
+    )
+    parser.add_argument(
+        "--no-pov-preference",
+        action="store_true",
+        help="sample reverts uniformly instead of preferring POV-regex matches",
+    )
+    parser.add_argument("--out-prefix", default="fi")
     args = parser.parse_args()
-    rng = random.Random(SEED)
+    rng = random.Random(args.seed)
+    excluded = {c.case_id for path in args.exclude for c in load_cases(path)}
     pages = load_versions()
-    reverts = revert_candidates(pages)
-    controls = control_candidates(pages)
+    reverts = [
+        c for c in revert_candidates(pages) if f"fi_revert_{c.rev_id}" not in excluded
+    ]
+    controls = [
+        c for c in control_candidates(pages) if f"fi_control_{c.rev_id}" not in excluded
+    ]
     print(f"revert candidates: {len(reverts)}, control candidates: {len(controls)}")
     pov_hits = [c for c in reverts if c.matches_pov]
     print(f"revert candidates matching POV regex: {len(pov_hits)}")
@@ -325,6 +344,10 @@ def main() -> None:
     others = [c for c in reverts if not c.matches_pov]
     rng.shuffle(others)
     revert_pool = pov_hits + others
+    if args.no_pov_preference:
+        revert_pool = list(reverts)
+        rng.shuffle(revert_pool)
+        pov_hits = []
     needed = {r for c in revert_pool + control_pool for r in (c.old_rev, c.new_rev)}
     texts = load_texts(needed)
     pov_selected = select(pov_hits, texts, args.reverts, rng, False)
@@ -341,8 +364,8 @@ def main() -> None:
         to_case(c, e, "CLEAN_PASS", "fi_control")
         for c, e in select(control_pool, texts, args.controls, rng, False)
     ]
-    dump_jsonl(OUT_DIR / "fi_reverts.jsonl", revert_cases)
-    dump_jsonl(OUT_DIR / "fi_controls.jsonl", control_cases)
+    dump_jsonl(OUT_DIR / f"{args.out_prefix}_reverts.jsonl", revert_cases)
+    dump_jsonl(OUT_DIR / f"{args.out_prefix}_controls.jsonl", control_cases)
     print(f"wrote {len(revert_cases)} reverts, {len(control_cases)} controls")
 
 
