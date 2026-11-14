@@ -28,6 +28,10 @@ WAYBACK_AVAILABLE_URL: Final = "https://archive.org/wayback/available"
 _TOKEN: Final = re.compile(r"\w+", re.UNICODE)
 _HTML_COMMENT: Final = re.compile(r"<!--.*?-->", re.DOTALL)
 _REDIRECT_STATUSES: Final = frozenset({301, 302, 303, 307, 308})
+_PARKED_DOMAIN_TEXT: Final = re.compile(
+    r"\b(domain (?:is )?(?:for sale|parked)|buy this domain|parking page)\b",
+    re.IGNORECASE,
+)
 _SECOND_LEVEL_SUFFIXES: Final = frozenset(
     {"ac", "co", "com", "edu", "gov", "net", "org"}
 )
@@ -77,6 +81,15 @@ class LiveHttpMeta(BaseModel):
     final_redirect_url: str
     tls_issuer: str | None = None
     asn_org: str | None = None
+
+
+class LiveLinkCheck(BaseModel):
+    """The bounded availability result used before optional archival comparison."""
+
+    outcome: Literal["ok", "hard", "soft", "unchecked"]
+    final_url: str | None = None
+    http_status: int | None = None
+    detail: str = ""
 
 
 class Embedder(Protocol):
@@ -341,6 +354,11 @@ def _is_soft_404_redirect(original_url: str, final_url: str) -> bool:
     )
 
 
+def registrable_domain(url: str) -> str:
+    """Return the grouping domain used for citation availability findings."""
+    return _registrable_domain(url)
+
+
 def _infra_changes(snapshot: CitationSnapshot, live: LiveHttpMeta) -> list[str]:
     changes: list[str] = []
     if snapshot.tls_issuer is not None and snapshot.tls_issuer != live.tls_issuer:
@@ -514,6 +532,109 @@ async def fetch_live_http_meta(
         public_url_checker=public_url_checker,
     )
     return meta
+
+
+async def check_live_link(
+    url: str,
+    *,
+    client: httpx.AsyncClient,
+    public_url_checker: PublicUrlChecker = _check_public_url,
+) -> LiveLinkCheck:
+    """Probe a public citation with HEAD and a GET fallback, without archive access."""
+    host = urlsplit(url).hostname
+    if (
+        public_url_checker is _check_public_url
+        and host
+        and not await _host_resolves(host)
+    ):
+        return LiveLinkCheck(outcome="hard", detail=f"DNS: {host} does not resolve")
+    if not await public_url_checker(url):
+        return LiveLinkCheck(
+            outcome="unchecked", detail="URL failed the public-address guard"
+        )
+    current_url = url
+    for _ in range(11):
+        if not await public_url_checker(current_url):
+            return LiveLinkCheck(
+                outcome="unchecked", detail="Redirect failed the public-address guard"
+            )
+        try:
+            response = await client.head(current_url, follow_redirects=False)
+            if response.status_code in (405, 501) or (
+                response.status_code < 400 and not response.text
+            ):
+                response = await client.get(current_url, follow_redirects=False)
+        except httpx.TimeoutException:
+            return LiveLinkCheck(outcome="unchecked", detail="Live request timed out")
+        except httpx.ConnectError as exc:
+            try:
+                await client.get(current_url, follow_redirects=False)
+            except httpx.TimeoutException:
+                return LiveLinkCheck(
+                    outcome="unchecked", detail="Connection retry timed out"
+                )
+            except httpx.ConnectError as retry_exc:
+                return LiveLinkCheck(
+                    outcome="hard", detail=f"Connection failed after retry: {retry_exc}"
+                )
+            except httpx.HTTPError as retry_exc:
+                return LiveLinkCheck(
+                    outcome="unchecked", detail=f"Connection retry failed: {retry_exc}"
+                )
+            return LiveLinkCheck(
+                outcome="unchecked", detail=f"Connection recovered after retry: {exc}"
+            )
+        except httpx.HTTPError as exc:
+            return LiveLinkCheck(
+                outcome="unchecked", detail=f"Live request failed: {exc}"
+            )
+        location = response.headers.get("location")
+        if response.status_code in _REDIRECT_STATUSES and location:
+            current_url = urljoin(current_url, location)
+            continue
+        final_url = str(response.url)
+        if not await public_url_checker(final_url):
+            return LiveLinkCheck(
+                outcome="unchecked", detail="Final URL failed the public-address guard"
+            )
+        if response.status_code in {404, 410, 451} or response.status_code >= 500:
+            # A second response distinguishes a persistent status from a transient outage.
+            try:
+                retry = await client.get(current_url, follow_redirects=False)
+            except httpx.TimeoutException:
+                return LiveLinkCheck(outcome="unchecked", detail="Retry timed out")
+            except httpx.ConnectError as exc:
+                return LiveLinkCheck(outcome="hard", detail=f"Connection failed: {exc}")
+            except httpx.HTTPError as exc:
+                return LiveLinkCheck(outcome="unchecked", detail=f"Retry failed: {exc}")
+            if retry.status_code in {404, 410, 451} or retry.status_code >= 500:
+                return LiveLinkCheck(
+                    outcome="hard",
+                    final_url=final_url,
+                    http_status=retry.status_code,
+                    detail=f"HTTP {retry.status_code} after retry",
+                )
+            return LiveLinkCheck(
+                outcome="unchecked", detail="Failure did not persist after retry"
+            )
+        if _is_soft_404_redirect(url, final_url):
+            return LiveLinkCheck(
+                outcome="soft",
+                final_url=final_url,
+                http_status=response.status_code,
+                detail="Redirected to a site root or unrelated domain",
+            )
+        if _PARKED_DOMAIN_TEXT.search(response.text):
+            return LiveLinkCheck(
+                outcome="hard",
+                final_url=final_url,
+                http_status=response.status_code,
+                detail="Domain appears to be parked",
+            )
+        return LiveLinkCheck(
+            outcome="ok", final_url=final_url, http_status=response.status_code
+        )
+    return LiveLinkCheck(outcome="unchecked", detail="Too many redirects")
 
 
 class _WaybackClosest(BaseModel):

@@ -15,7 +15,9 @@ ARCHIVE_URL = (
     "https://web.archive.org/web/20200102030405id_/https://source.test/article"
 )
 BASELINE = "The council approved the harbour budget after a public vote."
-CANDIDATE = [(URL, date(2020, 1, 2), "The council approved the harbour budget.")]
+CANDIDATE: list[tuple[str, date | None, str]] = [
+    (URL, date(2020, 1, 2), "The council approved the harbour budget.")
+]
 
 
 async def _public(_: str) -> bool:
@@ -60,12 +62,6 @@ def _handler(live: Callable[[httpx.Request], httpx.Response]) -> httpx.MockTrans
             ),
             "SOFT_404_REDIRECT",
         ),
-        (
-            lambda _: httpx.Response(
-                200, text="Unrelated commercial material replaces every report."
-            ),
-            "SEMANTIC_RUGPULL",
-        ),
     ],
 )
 def test_citation_lifecycle_scans_mocked_dead_redirect_and_drift(
@@ -83,7 +79,7 @@ def test_citation_lifecycle_scans_mocked_dead_redirect_and_drift(
     result = asyncio.run(run())
     assert result.status == "ok"
     assert result.findings[0].drift_status == expected
-    assert result.findings[0].wayback_fallback_url == ARCHIVE_URL
+    assert result.findings[0].wayback_fallback_url is None
 
 
 def test_citation_lifecycle_skips_a_url_without_a_wayback_baseline() -> None:
@@ -102,6 +98,31 @@ def test_citation_lifecycle_skips_a_url_without_a_wayback_baseline() -> None:
 
     result = asyncio.run(run())
     assert result.status == "ok" and result.findings == []
+
+
+def test_citation_lifecycle_uses_wayback_only_when_drift_is_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PALIMPSEST_A1_DRIFT", "1")
+
+    async def run() -> api.CitationLifecycleScan:
+        async with httpx.AsyncClient(
+            transport=_handler(
+                lambda _: httpx.Response(
+                    200, text="Unrelated commercial material replaces every report."
+                )
+            )
+        ) as client:
+            return await api.scan_citation_lifecycle(
+                CANDIDATE,
+                client=client,
+                public_url_checker=_public,
+                tls_issuer_resolver=_issuer,
+            )
+
+    result = asyncio.run(run())
+    assert result.findings[0].drift_status == "SEMANTIC_RUGPULL"
+    assert result.findings[0].wayback_fallback_url == ARCHIVE_URL
 
 
 def test_citation_lifecycle_includes_an_added_ref_on_an_unchanged_claim() -> None:
@@ -182,8 +203,59 @@ def test_citation_lifecycle_isolates_one_failed_url() -> None:
 
     result = asyncio.run(run())
     assert result.status == "ok"
-    assert result.findings[0].url == second[0]
-    assert result.error is not None and URL in result.error
+    assert {finding.url for finding in result.findings} == {URL, second[0]}
+
+
+def test_citation_lifecycle_groups_all_live_dead_urls_by_domain() -> None:
+    urls = [f"https://dead.test/{index}" for index in range(6)] + [
+        f"https://live.test/{index}" for index in range(11)
+    ]
+    candidates: list[tuple[str, date | None, str]] = [
+        (url, date(2020, 1, 2), "Claim.") for url in urls
+    ]
+
+    def live(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404 if request.url.host == "dead.test" else 200)
+
+    async def run() -> api.CitationLifecycleScan:
+        async with httpx.AsyncClient(transport=_handler(live)) as client:
+            return await api.scan_citation_lifecycle(
+                candidates, client=client, public_url_checker=_public
+            )
+
+    result = asyncio.run(run())
+    assert len(result.findings) == 1
+    assert result.findings[0].drift_status == "HARD_LINK_ROT"
+    assert all(url in result.findings[0].diff_summary for url in urls[:6])
+
+
+def test_citation_lifecycle_timeout_is_unchecked_not_rot() -> None:
+    async def run() -> api.CitationLifecycleScan:
+        def timeout(_: httpx.Request) -> httpx.Response:
+            raise httpx.ReadTimeout("slow")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(timeout)) as client:
+            return await api.scan_citation_lifecycle(
+                CANDIDATE, client=client, public_url_checker=_public
+            )
+
+    result = asyncio.run(run())
+    assert result.findings == []
+    assert result.error is not None and "Unchecked live URLs" in result.error
+
+
+def test_citation_lifecycle_connection_failure_is_rot() -> None:
+    async def run() -> api.CitationLifecycleScan:
+        def fail(_: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("DNS failure")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(fail)) as client:
+            return await api.scan_citation_lifecycle(
+                CANDIDATE, client=client, public_url_checker=_public
+            )
+
+    result = asyncio.run(run())
+    assert result.findings[0].drift_status == "HARD_LINK_ROT"
 
 
 def test_citation_lifecycle_deadline_starts_with_the_task(

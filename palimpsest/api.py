@@ -36,8 +36,13 @@ from palimpsest.citation_dates import (
 )
 from palimpsest.citation_lifecycle import (
     CitationDriftReport,
+    DriftStatus,
     GeminiEmbedder,
     HashingEmbedder,
+    LiveLinkCheck,
+    _check_public_url,
+    check_live_link,
+    registrable_domain,
     wayback_baseline,
 )
 from palimpsest.consistency import (
@@ -143,9 +148,11 @@ TRUST_DELTA_BY_VERDICT: Final = {
 }
 TRUST_DELTA_STEALTH_ADMIN: Final = -0.20
 CITATION_DATES_TIMEOUT_S: Final = 5.0
-CITATION_LIFECYCLE_TIMEOUT_S: Final = 8.0
+CITATION_LIFECYCLE_TIMEOUT_S: Final = 6.0
 CHERRY_PICK_TIMEOUT_S: Final = 8.0
 MAX_CITATION_LIFECYCLE_URLS: Final = 4
+LIVE_CITATION_CONCURRENCY: Final = 25
+LIVE_CITATION_TIMEOUT_S: Final = 4.0
 _CITATION_WIKITEXT_RE: Final = re.compile(r"{{|<ref\b", re.IGNORECASE)
 _REF_TAG_RE: Final = re.compile(r"<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE)
 # These are wiki configuration template parameter names, not prose date labels.
@@ -652,9 +659,9 @@ def _citation_lifecycle_candidates(
     units: list[EditUnit],
     refs_by_unit: dict[int, list[str] | None],
     months: Mapping[str, int] | None = None,
-) -> list[tuple[str, date, str]]:
+) -> list[tuple[str, date | None, str]]:
     """Changed-reference URLs paired with their citation date and local claim text."""
-    candidates: list[tuple[str, date, str]] = []
+    candidates: list[tuple[str, date | None, str]] = []
     seen: set[str] = set()
     for unit in units:
         changed = refs_by_unit[unit.index]
@@ -667,20 +674,16 @@ def _citation_lifecycle_candidates(
                 continue
             match = _CITATION_PARAM_RE.search(ref)
             access_date = _access_date(match.group(2), months) if match else None
-            if access_date is None:
-                continue
             for url in urls:
                 if url not in seen:
                     candidates.append((url, access_date, unit.new_text))
                     seen.add(url)
-                    if len(candidates) == MAX_CITATION_LIFECYCLE_URLS:
-                        return candidates
     return candidates
 
 
 async def _localized_citation_lifecycle_candidates(
     units: list[EditUnit], refs_by_unit: dict[int, list[str] | None], lang_code: str
-) -> list[tuple[str, date, str]]:
+) -> list[tuple[str, date | None, str]]:
     """Read local MediaWiki month names before parsing citation parameters."""
     if lang_code == "en":
         return _citation_lifecycle_candidates(units, refs_by_unit, {})
@@ -701,24 +704,89 @@ def _lifecycle_embedder() -> HashingEmbedder | GeminiEmbedder:
 
 
 async def scan_citation_lifecycle(
-    candidates: list[tuple[str, date, str]],
+    candidates: list[tuple[str, date | None, str]],
     *,
     client: httpx.AsyncClient | None = None,
     public_url_checker: Callable[[str], Awaitable[bool]] | None = None,
     tls_issuer_resolver: Callable[[str], Awaitable[str | None]] | None = None,
 ) -> CitationLifecycleScan:
-    """Compare at most four cited pages; one bad URL never prevents the others."""
+    """Live-check every changed citation; archival drift remains explicitly opt-in."""
     if not candidates:
         return CitationLifecycleScan(status="skipped")
     own_client = client is None
     lifecycle_client = client or httpx.AsyncClient(
         headers={"User-Agent": MEDIAWIKI_USER_AGENT},
-        timeout=CITATION_LIFECYCLE_TIMEOUT_S,
+        timeout=LIVE_CITATION_TIMEOUT_S,
     )
     findings: list[CitationDriftReport] = []
     errors: list[str] = []
     try:
+        semaphore = asyncio.Semaphore(LIVE_CITATION_CONCURRENCY)
+
+        async def probe(url: str) -> tuple[str, LiveLinkCheck]:
+            async with semaphore:
+                try:
+                    result = await asyncio.wait_for(
+                        check_live_link(
+                            url,
+                            client=lifecycle_client,
+                            public_url_checker=(
+                                public_url_checker
+                                if public_url_checker is not None
+                                else _check_public_url
+                            ),
+                        ),
+                        timeout=LIVE_CITATION_TIMEOUT_S,
+                    )
+                except TimeoutError:
+                    result = LiveLinkCheck(
+                        outcome="unchecked", detail="Live request timed out"
+                    )
+                return url, result
+
+        live_results = await asyncio.gather(*(probe(url) for url, _, _ in candidates))
+        checked_urls = [
+            url for url, result in live_results if result.outcome != "unchecked"
+        ]
+        unchecked_urls = [
+            url for url, result in live_results if result.outcome == "unchecked"
+        ]
+        grouped: dict[tuple[str, str], list[tuple[str, LiveLinkCheck]]] = {}
+        for url, result in live_results:
+            if result.outcome in {"hard", "soft"}:
+                status = (
+                    "HARD_LINK_ROT" if result.outcome == "hard" else "SOFT_404_REDIRECT"
+                )
+                grouped.setdefault((status, registrable_domain(url)), []).append(
+                    (url, result)
+                )
+        for (status, domain), affected in grouped.items():
+            urls = [url for url, _ in affected]
+            details = "; ".join(result.detail for _, result in affected)
+            findings.append(
+                CitationDriftReport(
+                    url=urls[0],
+                    drift_status=cast("DriftStatus", status),
+                    semantic_drift_score=1.0,
+                    still_entails_original_claim=None,
+                    baseline_excerpt="Live availability check; no Wayback baseline used.",
+                    live_excerpt="\n".join(urls),
+                    diff_summary=(
+                        f"{domain}: {details}. Affected URLs: {', '.join(urls)}. "
+                        f"Checked URLs: {', '.join(checked_urls) or 'none'}. "
+                        f"Unchecked URLs: {', '.join(unchecked_urls) or 'none'}."
+                    ),
+                )
+            )
+        if unchecked_urls:
+            errors.append(f"Unchecked live URLs: {', '.join(unchecked_urls)}")
+        if os.environ.get("PALIMPSEST_A1_DRIFT") != "1":
+            return CitationLifecycleScan(
+                status="ok", findings=findings, error="; ".join(errors) or None
+            )
         for url, access_date, claim_anchor in candidates[:MAX_CITATION_LIFECYCLE_URLS]:
+            if access_date is None:
+                continue
             try:
                 embedder = _lifecycle_embedder()
                 baseline = (
@@ -766,15 +834,13 @@ async def scan_citation_lifecycle(
     finally:
         if own_client:
             await lifecycle_client.aclose()
-    if len(errors) == len(candidates):
-        return CitationLifecycleScan(status="unavailable", error="; ".join(errors))
     return CitationLifecycleScan(
         status="ok", findings=findings, error="; ".join(errors) or None
     )
 
 
 async def _scan_citation_lifecycle(
-    candidates: list[tuple[str, date, str]],
+    candidates: list[tuple[str, date | None, str]],
     started: "asyncio.Future[float]",
 ) -> CitationLifecycleScan:
     """Mark the deadline when the lifecycle task itself starts running."""
