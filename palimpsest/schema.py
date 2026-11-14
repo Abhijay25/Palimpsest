@@ -5,7 +5,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, ClassVar, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 LANG_CODE_PATTERN = r"^[a-z]{2,3}(-[a-z0-9]{2,8})?$"
 LangCode = Annotated[str, Field(pattern=LANG_CODE_PATTERN)]
@@ -38,6 +38,19 @@ class Guideline(StrEnum):
     G3_MOTIVE = "G3_MOTIVE"
 
 
+class SpanType(StrEnum):
+    CONTRADICTION = "CONTRADICTION"
+    VALUE_CHANGE = "VALUE_CHANGE"
+    REMOVED_QUALIFIER = "REMOVED_QUALIFIER"
+    MOTIVE_CAUSE = "MOTIVE_CAUSE"
+    EVALUATIVE_LABEL = "EVALUATIVE_LABEL"
+    EDITORIAL_VOICE = "EDITORIAL_VOICE"
+    NON_ENCYCLOPEDIC = "NON_ENCYCLOPEDIC"
+    SIZE_RANK_CLAIM = "SIZE_RANK_CLAIM"
+    INTENSIFIER = "INTENSIFIER"
+    REGISTER = "REGISTER"
+
+
 class ExpandDirection(StrEnum):
     NONE = "NONE"
     PREV = "PREV"
@@ -56,6 +69,34 @@ class FlaggedSpan(BaseModel):
     exact_substring: str
     guideline_violated: Guideline
     explanation: str
+    span_type: SpanType = SpanType.EVALUATIVE_LABEL
+
+    @model_validator(mode="before")
+    @classmethod
+    def _default_legacy_span_type(cls, value: object) -> object:
+        """Keep responses from pre-v10 prompts compatible with the new policy."""
+        if not isinstance(value, dict) or "span_type" in value:
+            return value
+        substring = str(value.get("exact_substring", "")).casefold()
+        if substring.rstrip().endswith("(removed)") or substring.rstrip().endswith(
+            "(deleted)"
+        ):
+            return {**value, "span_type": SpanType.REMOVED_QUALIFIER}
+        legacy_types = {
+            "G1_FACT": SpanType.CONTRADICTION,
+            "G2_FRAMING": SpanType.EVALUATIVE_LABEL,
+            "G3_MOTIVE": SpanType.MOTIVE_CAUSE,
+        }
+        guideline = value.get("guideline_violated")
+        span_type = (
+            legacy_types.get(guideline, SpanType.EVALUATIVE_LABEL)
+            if isinstance(guideline, str)
+            else SpanType.EVALUATIVE_LABEL
+        )
+        return {
+            **value,
+            "span_type": span_type,
+        }
 
 
 class DisplayFlaggedSpan(FlaggedSpan):
@@ -145,17 +186,29 @@ FlagKind = Literal[
     "HIDDEN_TEXT",
     "CITATION_DATE",
     "CITED_PAGE",
+    "CHERRY_PICK",
+    "OUT_OF_SYNC",
 ]
 FlagTier = Literal["admin", "review"]
 FlagSide = Literal["new", "old"]
-FlagCheck = Literal["judge", "stealth", "citation_dates", "render"]
-FlagEvidenceSource = Literal["cited", "old", "new"]
+FlagCheck = Literal[
+    "judge",
+    "stealth",
+    "citation_dates",
+    "citation_lifecycle",
+    "render",
+    "value_check",
+    "cherry_pick",
+    "consistency",
+]
+FlagEvidenceSource = Literal["cited", "old", "new", "wikidata", "page"]
 
 
 class FlagEvidence(BaseModel):
     source: FlagEvidenceSource
     quote: str
     url: str | None = None
+    section: str | None = None
 
 
 class Flag(BaseModel):
@@ -174,9 +227,12 @@ class Flag(BaseModel):
     citations: list[str]
     neutral_rewrite: str | None
     check: FlagCheck
+    occurrences: int = 1
     # Plain-text sentence before and after the edit, for a quick "what changed" view.
     before: str | None = None
     after: str | None = None
+    # A second displayed-diff anchor, used only when page evidence is also in view.
+    related_anchor_text: str | None = None
 
 
 class AuditOutput(BaseModel):
@@ -216,6 +272,10 @@ class SourceWindow(BaseModel):
     latency_ms: float
     # Existing serialized windows predate Exa highlights and remain lexical.
     method: Literal["lexical", "highlights"] = "lexical"
+    whole_source_checked: bool = False
+    whole_source_passages: list[str] = []
+    whole_source_classification: str | None = None
+    whole_source_supports_claim: bool = False
 
 
 class CaseResult(BaseModel):

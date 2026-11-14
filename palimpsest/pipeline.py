@@ -2,13 +2,21 @@
 
 import asyncio
 import json
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final, Literal
 
 from pydantic import BaseModel
 
-from palimpsest.backends.gemini import GeminiJudgeBackend
+from palimpsest.backends.gemini import GeminiJudgeBackend, GeminiReviewerBackend
+from palimpsest.context_reads import (
+    ContextMode,
+    ContextReadBudget,
+    append_highlights,
+    candidate_for_output,
+    read_more,
+)
 from palimpsest.guided import apply_value_swap_rule
 from palimpsest.judge import (
     PROMPT_VERSION,
@@ -18,11 +26,21 @@ from palimpsest.judge import (
     judge_with_latencies,
 )
 from palimpsest.report import render_report
+from palimpsest.reviewer import (
+    ReviewerCandidate,
+    ReviewerResult,
+    review_candidates,
+    review_unit_eligible,
+)
 from palimpsest.schema import (
     AuditOutput,
     Case,
     CaseResult,
     ExpandDirection,
+    Flag,
+    FlagEvidence,
+    FlaggedSpan,
+    Guideline,
     SourceWindow,
     Verdict,
     dump_jsonl,
@@ -33,6 +51,8 @@ from palimpsest.sources import SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import changed_region_has_citation, prefilter, strip_wikitext
 from palimpsest.stealth.models import ScanResult, StealthStatus
 from palimpsest.stealth.scanner import reportable_findings, scan, worst_status
+from palimpsest.value_check import check_case
+from palimpsest.value_swaps import swaps
 
 STAGE1_CONCURRENCY: Final = 8
 MAX_SOURCE_URLS: Final = 3
@@ -45,6 +65,7 @@ class Manifest(BaseModel):
     case_files: list[str]
     source_mode: Literal["highlights", "lexical"] = "highlights"
     followup: bool = False
+    context_mode: ContextMode = "rule"
 
 
 def _ref_scanner(
@@ -129,6 +150,10 @@ async def prepare(
     gemini_backend: GeminiJudgeBackend | None = None,
     source_mode: Literal["highlights", "lexical"] = "highlights",
     followup: bool = False,
+    context_mode: ContextMode = "rule",
+    value_check: bool = True,
+    reviewer: bool = False,
+    reviewer_backend: GeminiReviewerBackend | None = None,
 ) -> None:
     if not (PROMPTS_DIR / f"{prompt_version}.txt").is_file():
         raise SystemExit(f"unknown prompt version: {prompt_version}")
@@ -136,6 +161,10 @@ async def prepare(
         raise SystemExit(f"unknown backend: {backend}")
     if backend == "gemini" and gemini_backend is None:
         gemini_backend = GeminiJudgeBackend(prompt_version=prompt_version)
+    if reviewer and backend != "gemini":
+        raise SystemExit("--reviewer requires --backend gemini")
+    if reviewer and reviewer_backend is None:
+        reviewer_backend = GeminiReviewerBackend()
     cases: dict[str, Case] = {}
     for path in cases_paths:
         for case in load_cases(path):
@@ -153,6 +182,7 @@ async def prepare(
         new_text, new_ms = _sanitized(case.new_text)
         stealth_ms = diff_scan.scan_latency_ms + old_ms + new_ms
         case = case.model_copy(update={"old_text": old_text, "new_text": new_text})
+        value_report = await check_case(case, fetcher) if value_check else None
         stage0 = prefilter(case.old_text, case.new_text, case.lang)
         if stage0.clean:
             return PreparedCase(
@@ -161,6 +191,7 @@ async def prepare(
                 window=None,
                 diff_scan=diff_scan,
                 stealth_ms=stealth_ms,
+                value_check=value_report,
             )
         ref_scans: list[ScanResult] = []
         async with semaphore:
@@ -172,6 +203,7 @@ async def prepare(
             diff_scan=diff_scan,
             ref_scan=_worst_scan(ref_scans),
             stealth_ms=stealth_ms + sum(s.scan_latency_ms for s in ref_scans),
+            value_check=value_report,
         )
 
     prepared = list(await asyncio.gather(*(prepare_one(c) for c in cases.values())))
@@ -185,10 +217,19 @@ async def prepare(
         case_files=[str(p) for p in cases_paths],
         source_mode=source_mode,
         followup=followup,
+        context_mode=context_mode,
     )
     (run_dir / "manifest.json").write_text(manifest.model_dump_json(indent=2))
     if gemini_backend is not None:
-        await _judge_with_gemini(gemini_backend, prepared, run_dir)
+        await _judge_with_gemini(
+            gemini_backend,
+            prepared,
+            run_dir,
+            fetcher,
+            reviewer_backend,
+            context_mode,
+            followup,
+        )
         batches: list[Path] = []
     else:
         batches = FileExchangeBackend().write_batches(
@@ -201,6 +242,8 @@ async def prepare(
     print(f"Exa calls: {fetcher.calls}, cost ${fetcher.cost_dollars:.4f}")
     if gemini_backend is not None:
         print(f"Gemini usage ({gemini_backend.model}): {gemini_backend.usage}")
+    if reviewer_backend is not None:
+        print(f"Gemini usage ({reviewer_backend.model}): {reviewer_backend.usage}")
     clean = sum(1 for pc in prepared if pc.stage0.clean)
     print(
         f"{len(prepared)} cases, {clean} stage-0 clean, "
@@ -208,13 +251,170 @@ async def prepare(
     )
 
 
+def _review_flag(pc: PreparedCase, output: AuditOutput, index: int) -> Flag:
+    span = output.flagged_spans[index]
+    kind = {
+        Verdict.FLAG_G1_FACT: "FACT",
+        Verdict.FLAG_G2_FRAMING: "FRAMING",
+        Verdict.FLAG_G3_MOTIVE: "MOTIVE",
+    }[output.verdict]
+    evidence = (
+        [FlagEvidence(source="cited", quote=pc.window.text, url=pc.window.url)]
+        if pc.window is not None and pc.window.text
+        else []
+    )
+    return Flag(
+        id=f"{pc.case.case_id}-s{index}",
+        kind=kind,
+        tier="admin" if output.confidence >= 0.70 else "review",
+        title="Model finding needs review",
+        reason=span.explanation,
+        confidence=output.confidence,
+        side="new",
+        anchor_text=span.exact_substring,
+        anchor_start=None,
+        anchor_end=None,
+        context_sentence=pc.case.new_text,
+        evidence=evidence,
+        citations=pc.case.changed_ref_urls or pc.case.ref_urls,
+        neutral_rewrite=output.neutral_rewrite,
+        check="judge",
+        before=pc.case.old_text,
+        after=pc.case.new_text,
+    )
+
+
+def _borderline_candidate(
+    pc: PreparedCase, output: AuditOutput
+) -> ReviewerCandidate | None:
+    if output.verdict != Verdict.CLEAN_PASS or not swaps(
+        pc.case.old_text, pc.case.new_text
+    ):
+        return None
+    return ReviewerCandidate(
+        candidate_id=f"{pc.case.case_id}-borderline",
+        kind="FACT",
+        edit_text=pc.case.new_text,
+        old_text=pc.case.old_text,
+        source_excerpts=[pc.window.text] if pc.window is not None else [],
+        title="Changed claim needs review",
+        reason="The changed claim was not clearly supported by the source excerpt.",
+        is_value_change=True,
+    )
+
+
+async def _review_output(
+    pc: PreparedCase,
+    output: AuditOutput,
+    fetcher: SourceFetcher,
+    backend: GeminiReviewerBackend,
+    context_mode: ContextMode = "rule",
+) -> tuple[AuditOutput, ReviewerResult]:
+    if not review_unit_eligible(output, pc.case.old_text, pc.case.new_text):
+        return output, ReviewerResult([], "skipped", 0, 0.0, 0, "no value change")
+    flags = [
+        _review_flag(pc, output, index) for index in range(len(output.flagged_spans))
+    ]
+    borderline = _borderline_candidate(pc, output)
+    reviewed = await review_candidates(
+        page_title=pc.case.page_title,
+        language=pc.case.lang,
+        flags=flags,
+        borderline=[borderline] if borderline is not None else [],
+        fetcher=fetcher,
+        backend=backend,
+        context_mode=context_mode,
+    )
+    if reviewed.status == "skipped":
+        return output, reviewed
+    by_id = {flag.id: flag for flag in reviewed.flags}
+    replacements = [by_id.get(flag.id, flag).reason for flag in flags]
+    spans = [
+        span.model_copy(update={"explanation": reason})
+        for span, reason in zip(output.flagged_spans, replacements, strict=True)
+    ]
+    existing_tiers = [by_id.get(flag.id, flag).tier for flag in flags]
+    if flags:
+        return (
+            output.model_copy(
+                update={
+                    "confidence": (
+                        0.65
+                        if existing_tiers
+                        and all(tier == "review" for tier in existing_tiers)
+                        else output.confidence
+                    ),
+                    "flagged_spans": spans,
+                }
+            ),
+            reviewed,
+        )
+    raised = next(
+        (flag for flag in reviewed.flags if flag.id.startswith("review-")), None
+    )
+    if raised is None:
+        return output, reviewed
+    return (
+        AuditOutput(
+            verdict=Verdict.FLAG_G2_FRAMING,
+            confidence=0.65,
+            expand_direction=ExpandDirection.NONE,
+            atomic_propositions=output.atomic_propositions,
+            flagged_spans=[
+                FlaggedSpan(
+                    exact_substring=raised.anchor_text,
+                    guideline_violated=Guideline.G2_FRAMING,
+                    explanation=raised.reason,
+                )
+            ],
+            neutral_rewrite=None,
+        ),
+        reviewed,
+    )
+
+
 async def _judge_with_gemini(
-    backend: GeminiJudgeBackend, prepared: list[PreparedCase], run_dir: Path
+    backend: GeminiJudgeBackend,
+    prepared: list[PreparedCase],
+    run_dir: Path,
+    fetcher: SourceFetcher,
+    reviewer_backend: GeminiReviewerBackend | None,
+    context_mode: ContextMode,
+    followup: bool,
 ) -> None:
     """Judge inline and write results in the file-exchange format ingest reads."""
     judged, latencies = await judge_with_latencies(
         backend, [pc for pc in prepared if not pc.stage0.clean]
     )
+    if followup:
+        followup_latencies = await _followup_with_gemini(
+            backend, prepared, judged, fetcher, context_mode
+        )
+        latencies.update(followup_latencies)
+    reviewer_rows: list[dict[str, object]] = []
+    if reviewer_backend is not None:
+        for pc in prepared:
+            outcome = judged.get(pc.case.case_id)
+            if not isinstance(outcome, AuditOutput):
+                continue
+            reviewed_output, reviewer = await _review_output(
+                pc,
+                apply_value_swap_rule(outcome, pc.case.old_text, pc.case.new_text),
+                fetcher,
+                reviewer_backend,
+                context_mode,
+            )
+            judged[pc.case.case_id] = reviewed_output
+            reviewer_rows.append(
+                {
+                    "case_id": pc.case.case_id,
+                    "status": reviewer.status,
+                    "calls": reviewer.calls,
+                    "latency_ms": reviewer.latency_ms,
+                    "tokens": reviewer.tokens,
+                    "error": reviewer.error,
+                }
+            )
     lines: list[str] = []
     for case_id, outcome in judged.items():
         row: dict[str, object] = {
@@ -229,6 +429,57 @@ async def _judge_with_gemini(
     path = run_dir / "results" / backend.model / "batch_001.jsonl"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    if reviewer_backend is not None:
+        (run_dir / "reviewer.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in reviewer_rows)
+            + ("\n" if reviewer_rows else ""),
+            encoding="utf-8",
+        )
+
+
+async def _followup_with_gemini(
+    backend: GeminiJudgeBackend,
+    prepared: list[PreparedCase],
+    judged: dict[str, AuditOutput | str],
+    fetcher: SourceFetcher,
+    context_mode: ContextMode,
+) -> dict[str, float]:
+    """Re-judge only candidates whose policy-approved whole-source query found text."""
+    retry: list[PreparedCase] = []
+    for pc in prepared:
+        outcome = judged.get(pc.case.case_id)
+        if (
+            not isinstance(outcome, AuditOutput)
+            or pc.window is None
+            or pc.window.url is None
+        ):
+            continue
+        started = time.perf_counter()
+        read = await read_more(
+            candidate_for_output(
+                outcome, pc.case.new_text, pc.case.changed_ref_urls or pc.case.ref_urls
+            ),
+            fetcher,
+            ContextReadBudget(),
+            context_mode,
+        )
+        pc.window = append_highlights(pc.window, read.passages).model_copy(
+            update={
+                "latency_ms": pc.window.latency_ms
+                + (time.perf_counter() - started) * 1000,
+                "whole_source_checked": read.checked,
+                "whole_source_passages": read.passages,
+                "whole_source_classification": read.classification,
+                "whole_source_supports_claim": read.supports_claim,
+            }
+        )
+        if read.passages:
+            retry.append(pc)
+    if not retry:
+        return {}
+    retried, latencies = await judge_with_latencies(backend, retry)
+    judged.update(retried)
+    return latencies
 
 
 def _stage0_clean_output() -> AuditOutput:

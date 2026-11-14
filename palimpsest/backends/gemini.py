@@ -16,6 +16,12 @@ from palimpsest.judge import (
     PreparedCase,
     render_case_payload,
 )
+from palimpsest.reviewer import (
+    REVIEWER_SYSTEM,
+    ReviewerAnswers,
+    ReviewerCandidate,
+    render_reviewer_payload,
+)
 from palimpsest.schema import AuditOutput
 from palimpsest.stealth.models import HiddenFinding
 from palimpsest.stealth.triage import (
@@ -25,6 +31,7 @@ from palimpsest.stealth.triage import (
 )
 
 DEFAULT_JUDGE_MODEL: Final = "gemini-4-hydrogen"
+DEFAULT_REVIEWER_MODEL: Final = "gemini-4-argon"
 # g03: LOW and HIGH gave identical flag decisions on 124 edits; LOW is 2.4x cheaper in thinking tokens and p95 latency.
 DEFAULT_JUDGE_THINKING: Final = "LOW"
 # TODO: the Decisions API may expose its own endpoint/SDK surface. Until that is
@@ -261,6 +268,37 @@ class GeminiJudgeBackend:
         results, latencies = await self.judge_timed(cases)
         self.latencies_ms.update(latencies)
         return results
+
+
+class GeminiReviewerBackend:
+    """One edit-level, low-thinking Argon second opinion."""
+
+    name = "gemini_reviewer"
+
+    def __init__(
+        self,
+        client: GeminiClient | None = None,
+        backoff_seconds: float = DEFAULT_BACKOFF_SECONDS,
+    ) -> None:
+        self.model = os.environ.get("GEMINI_REVIEWER_MODEL") or DEFAULT_REVIEWER_MODEL
+        self._caller = _GeminiCaller(self.model, client, backoff_seconds)
+        # Reviewer latency is a hard product budget, independent of judge settings.
+        self._caller.timeout = 12.0
+        self._caller.thinking = types.ThinkingConfig(
+            thinking_level=types.ThinkingLevel.LOW
+        )
+
+    @property
+    def usage(self) -> dict[str, int]:
+        return self._caller.usage
+
+    async def review(
+        self, page_title: str, language: str, candidates: list[ReviewerCandidate]
+    ) -> tuple[ReviewerAnswers | str, float]:
+        payload = await asyncio.to_thread(
+            render_reviewer_payload, page_title, language, candidates
+        )
+        return await self._caller.generate(REVIEWER_SYSTEM, payload, ReviewerAnswers)
 
 
 class GeminiTriageBackend:

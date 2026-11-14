@@ -11,8 +11,9 @@ from palimpsest.guided import GuidedAnswers, guided_to_audit
 from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
 from palimpsest.stage0 import Stage0Result
 from palimpsest.stealth.models import ScanResult, VectorType
+from palimpsest.value_check import ValueCheckReport
 
-PROMPT_VERSION: Final = "stage2_v7"
+PROMPT_VERSION: Final = "stage2_v8"
 PROMPTS_DIR: Final = Path(__file__).parent / "prompts"
 # Trusted pipeline status, rendered OUTSIDE the untrusted window field (a
 # judge must not read it as data). Wording follows the rubric: no source text
@@ -44,6 +45,7 @@ class PreparedCase(BaseModel):
     diff_scan: ScanResult | None = None
     ref_scan: ScanResult | None = None
     stealth_ms: float = 0.0
+    value_check: ValueCheckReport | None = None
 
 
 class _ResultLine(BaseModel):

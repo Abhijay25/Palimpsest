@@ -56,11 +56,12 @@ def test_prepare_statuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert (run / "batches" / "haiku" / "batch_001.md").exists()
     assert (run / "manifest.json").exists()
     assert json.loads((run / "manifest.json").read_text()) == {
-        "prompt_version": "stage2_v7",
+        "prompt_version": "stage2_v8",
         "models": ["haiku"],
         "case_files": [str(cases)],
         "source_mode": "highlights",
         "followup": False,
+        "context_mode": "rule",
     }
     assert len(load_cases(cases)) == 3
 

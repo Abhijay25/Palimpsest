@@ -14,3 +14,13 @@ Derived from the project owner's labels on 26 real Wording/Motive flags (eval/la
 - Mild intensifiers and descriptors that do not change the meaning ("fiercely", "sprawling", "prime examples", "exhaustive").
 - Informal register or style problems ("trash itself"): copy-editing, not bias.
 - The same problem already flagged elsewhere in the edit: one flag per problem.
+
+## Whole-source read rule
+
+Classify a candidate before requesting more source material: `ABSENCE` (an unsupported
+claim, cause, motive, or value) gets a bounded whole-document highlight query; `REMOVED_CONTEXT`
+gets one query for the deleted qualifier. `CONTRADICTION` (a validated opposing quote),
+`STYLE`, and `UNCITED` get no further source read. A supporting whole-source passage removes
+the concern or lowers an admin candidate to review; a checked absence with no support records
+that check in the evidence. The request cap is two highlight calls per candidate, six per
+request, and six seconds total.

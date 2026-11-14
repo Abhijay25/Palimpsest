@@ -106,6 +106,31 @@ _MONTH_INDEX.update(
         )
     }
 )
+_WEEKDAY_MESSAGE_NAMES: Final = (
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sun",
+    "mon",
+    "tue",
+    "wed",
+    "thu",
+    "fri",
+    "sat",
+)
+_WEEKDAY_INDEX: Final = {
+    name: index
+    for index, name in enumerate(
+        ("sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday")
+    )
+} | {
+    name: index
+    for index, name in enumerate(("sun", "mon", "tue", "wed", "thu", "fri", "sat"))
+}
 _ISO_DATE_RE: Final = re.compile(r"(?<!\d)(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)")
 _NUMERIC_DATE_RE: Final = re.compile(r"(?<!\d)(\d{1,2})[./](\d{1,2})[./](\d{4})(?!\d)")
 _IGNORED_TAGS: Final = frozenset({"script", "style"})
@@ -414,6 +439,42 @@ async def month_names(client: httpx.AsyncClient, lang: str) -> dict[str, int]:
     if cached is None:
         cached = await _month_names(client, lang)
         _MONTH_CACHE[lang] = cached
+    return cached
+
+
+async def _weekday_names(client: httpx.AsyncClient, lang: str) -> dict[str, int]:
+    response = await _api_get(
+        client,
+        lang,
+        {
+            "action": "query",
+            "meta": "allmessages",
+            "ammessages": "|".join(_WEEKDAY_MESSAGE_NAMES),
+            "format": "json",
+            "formatversion": "2",
+        },
+    )
+    parsed = _MessagesResponse.model_validate_json(response.content)
+    messages = parsed.query.allmessages if parsed.query is not None else []
+    names: dict[str, int] = {}
+    for message in messages:
+        weekday = _WEEKDAY_INDEX.get(message.name)
+        if message.content is not None and weekday is not None:
+            text = _message_text(message.content).casefold()
+            if text:
+                names[text] = weekday
+    return names
+
+
+_WEEKDAY_CACHE: dict[str, dict[str, int]] = {}
+
+
+async def weekday_names(client: httpx.AsyncClient, lang: str) -> dict[str, int]:
+    """Get localized weekday spellings using MediaWiki's allmessages endpoint."""
+    cached = _WEEKDAY_CACHE.get(lang)
+    if cached is None:
+        cached = await _weekday_names(client, lang)
+        _WEEKDAY_CACHE[lang] = cached
     return cached
 
 

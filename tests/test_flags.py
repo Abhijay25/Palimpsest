@@ -1,7 +1,13 @@
 from datetime import UTC, datetime
 
+from palimpsest.cherry_pick import CherryPickFinding
 from palimpsest.citation_dates import FutureDateFinding
-from palimpsest.flags import JudgeFlagInput, StealthFlagInput, build_flags
+from palimpsest.flags import (
+    JudgeFlagInput,
+    StealthFlagInput,
+    build_flags,
+    cherry_pick_flags,
+)
 from palimpsest.schema import AuditOutput, FlagEvidence, SourceWindow, Verdict
 from palimpsest.stealth.models import HiddenFinding, VectorType
 
@@ -139,6 +145,175 @@ def test_build_flags_covers_the_contract_kinds_and_anchors() -> None:
 
 def test_build_flags_is_empty_for_a_stage_zero_clean_edit() -> None:
     assert build_flags([], [], [], [], "unchanged", []) == []
+
+
+def test_span_types_choose_kinds_per_span_not_unit_verdict() -> None:
+    old = "The club said it acted for safety."
+    new = "The powerhouse said it acted to conceal fraud."
+    output = AuditOutput.model_validate(
+        {
+            "verdict": "FLAG_G1_FACT",
+            "confidence": 0.8,
+            "expand_direction": "NONE",
+            "atomic_propositions": [],
+            "flagged_spans": [
+                {
+                    "exact_substring": "powerhouse",
+                    "guideline_violated": "G1_FACT",
+                    "explanation": "Evaluative replacement.",
+                    "span_type": "EVALUATIVE_LABEL",
+                },
+                {
+                    "exact_substring": "to conceal fraud",
+                    "guideline_violated": "G1_FACT",
+                    "explanation": "Unsupported purpose.",
+                    "span_type": "MOTIVE_CAUSE",
+                },
+            ],
+            "neutral_rewrite": None,
+        }
+    )
+    flags = build_flags(
+        [
+            JudgeFlagInput(
+                unit_index=0,
+                output=output,
+                reason_code="CONTRADICTS_SOURCE",
+                tier="admin",
+                old_text=old,
+                new_text=new,
+                old_wikitext=old,
+                new_wikitext=new,
+                citations=[],
+                evidence=[],
+            )
+        ],
+        [],
+        [],
+        [],
+        new,
+        [],
+    )
+    assert [flag.kind for flag in flags] == ["FRAMING", "MOTIVE"]
+
+
+def test_all_suppressed_span_types_leave_the_unit_without_flags() -> None:
+    output = AuditOutput.model_validate(
+        {
+            "verdict": "FLAG_G2_FRAMING",
+            "confidence": 0.8,
+            "expand_direction": "NONE",
+            "atomic_propositions": [],
+            "flagged_spans": [
+                {
+                    "exact_substring": "very",
+                    "guideline_violated": "G2_FRAMING",
+                    "explanation": "Mild modifier.",
+                    "span_type": "INTENSIFIER",
+                },
+                {
+                    "exact_substring": "gonna",
+                    "guideline_violated": "G2_FRAMING",
+                    "explanation": "Informal style.",
+                    "span_type": "REGISTER",
+                },
+            ],
+            "neutral_rewrite": None,
+        }
+    )
+    assert (
+        build_flags(
+            [
+                JudgeFlagInput(
+                    unit_index=0,
+                    output=output,
+                    reason_code="LOADED_WORDING",
+                    tier="admin",
+                    old_text="They will go.",
+                    new_text="They are very gonna go.",
+                    old_wikitext="They will go.",
+                    new_wikitext="They are very gonna go.",
+                    citations=[],
+                    evidence=[],
+                )
+            ],
+            [],
+            [],
+            [],
+            "They are very gonna go.",
+            [],
+        )
+        == []
+    )
+
+
+def test_cherry_pick_flag_has_plain_reason_and_tier() -> None:
+    flags = cherry_pick_flags(
+        [
+            CherryPickFinding(
+                unit_index=0,
+                claim="The treatment works for everyone.",
+                source_passage="The study did not establish benefit for all patients.",
+                citations=["https://example.test/source"],
+                confidence=0.9,
+                tier="admin",
+            )
+        ],
+        "The treatment works for everyone.",
+    )
+    assert flags[0].kind == "CHERRY_PICK" and flags[0].check == "cherry_pick"
+    assert flags[0].tier == "admin"
+    assert "edit says" in flags[0].reason and "source says" in flags[0].reason
+
+
+def test_build_flags_collapses_identical_findings_at_the_first_anchor() -> None:
+    old = "Old text."
+    new = "First loaded statement. Second loaded statement."
+    repeated = build_flags(
+        [
+            JudgeFlagInput(
+                unit_index=index,
+                output=AuditOutput.model_validate(
+                    {
+                        "verdict": "FLAG_G2_FRAMING",
+                        "confidence": 0.8,
+                        "expand_direction": "NONE",
+                        "atomic_propositions": [],
+                        "flagged_spans": [
+                            {
+                                "exact_substring": anchor,
+                                "guideline_violated": "G2_FRAMING",
+                                "explanation": (
+                                    "Repeated concern."
+                                    if anchor == "First"
+                                    else "  repeated   concern. "
+                                ),
+                            }
+                        ],
+                        "neutral_rewrite": None,
+                    }
+                ),
+                reason_code="LOADED_WORDING",
+                tier="review",
+                old_text=old,
+                new_text=new,
+                old_wikitext=old,
+                new_wikitext=new,
+                citations=[],
+                evidence=[],
+            )
+            for index, anchor in enumerate(("First", "Second"))
+        ],
+        [],
+        [],
+        [],
+        new,
+        [],
+    )
+    assert len(repeated) == 1
+    assert repeated[0].anchor_text == "First"
+    assert repeated[0].occurrences == 2
+    assert repeated[0].reason == "Repeated concern. (2 places)"
 
 
 def test_judge_evidence_uses_the_cited_highlight_not_window_boilerplate() -> None:

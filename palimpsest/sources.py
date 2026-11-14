@@ -425,6 +425,13 @@ class SourceFetcher:
             key, lambda: self._fetch_highlights_and_cache(url, query)
         )
 
+    async def source_text(self, url: str) -> str | None:
+        """Return cached or fetched source text for checks requiring exact quotations."""
+        text = self._read_cache(url)
+        if text is not None or self._recently_failed(url):
+            return text
+        return await self._shared_fetch(url, lambda: self._fetch_and_cache(url))
+
     async def window(self, url: str, claim: str, radius: int = 3) -> SourceWindow:
         return (await self.window_scored(url, claim, radius))[0]
 

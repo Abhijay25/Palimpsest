@@ -5,20 +5,59 @@ import contextlib
 import os
 import re
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import date, datetime
 from functools import cache
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, cast
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import AfterValidator, BaseModel, Field
 
-from palimpsest.backends.gemini import GeminiJudgeBackend, gemini_enabled
+from palimpsest.backends.gemini import (
+    GeminiJudgeBackend,
+    GeminiReviewerBackend,
+    gemini_enabled,
+)
 from palimpsest.cascade import CascadeJudgeBackend
+from palimpsest.cherry_pick import (
+    CherryPickCandidate,
+    CherryPickScan,
+    gemini_cherry_pick_judge,
+    scan_cherry_picks,
+)
 from palimpsest.citation_dates import CitationDateScan, scan_changed_citation_dates
-from palimpsest.crosslingual import CrossLingualReport, cross_lingual_fanout
-from palimpsest.flags import JudgeFlagInput, StealthFlagInput, build_flags
+from palimpsest.citation_lifecycle import (
+    CitationDriftReport,
+    GeminiEmbedder,
+    HashingEmbedder,
+    wayback_baseline,
+)
+from palimpsest.consistency import (
+    check_page_consistency,
+    gemini_consistency_judge,
+)
+from palimpsest.context_reads import (
+    ContextMode,
+    ContextReadBudget,
+    append_highlights,
+    candidate_for_output,
+    read_more,
+)
+from palimpsest.crosslingual import (
+    MEDIAWIKI_USER_AGENT,
+    CrossLingualReport,
+    cross_lingual_fanout,
+)
+from palimpsest.flags import (
+    JudgeFlagInput,
+    StealthFlagInput,
+    build_flags,
+    cherry_pick_flags,
+    consistency_flags,
+)
 from palimpsest.judge import (
     PROMPT_VERSION,
     AsyncJudge,
@@ -43,6 +82,12 @@ from palimpsest.render_service import (
     shared_auditor,
     summarize_render,
 )
+from palimpsest.reviewer import (
+    ReviewerCandidate,
+    ReviewerResult,
+    review_candidates,
+    review_unit_eligible,
+)
 from palimpsest.schema import (
     AtomicProposition,
     AuditOutput,
@@ -54,13 +99,12 @@ from palimpsest.schema import (
     FlagEvidence,
     FlagTier,
     LangCode,
-    SourceWindow,
     Verdict,
 )
 from palimpsest.scoring import ADMIN_FLAG_STATUSES, FLAGS, Route, route
 from palimpsest.segment import EditUnit, changed_chars, split_edit
 from palimpsest.sources import DailyCallCap, SourceFetcher, load_exa_api_key
-from palimpsest.stage0 import prefilter, refs_for_changed_sentences
+from palimpsest.stage0 import extract_ref_urls, prefilter, refs_for_changed_sentences
 from palimpsest.stealth.models import ScanResult, StealthStatus
 from palimpsest.stealth.scanner import (
     TargetType,
@@ -68,6 +112,14 @@ from palimpsest.stealth.scanner import (
     scan,
     worst_status,
 )
+from palimpsest.value_check import (
+    ValueCheck,
+    ValueCheckReport,
+    check_values,
+    suppress_supported_value_reviews,
+    value_check_flags,
+)
+from palimpsest.value_swaps import swaps
 
 MAX_TEXT_CHARS: Final = 200_000
 MAX_REF_URLS: Final = 50
@@ -85,7 +137,14 @@ TRUST_DELTA_BY_VERDICT: Final = {
 }
 TRUST_DELTA_STEALTH_ADMIN: Final = -0.20
 CITATION_DATES_TIMEOUT_S: Final = 5.0
+CITATION_LIFECYCLE_TIMEOUT_S: Final = 8.0
+CHERRY_PICK_TIMEOUT_S: Final = 8.0
+MAX_CITATION_LIFECYCLE_URLS: Final = 4
 _CITATION_WIKITEXT_RE: Final = re.compile(r"{{|<ref\b", re.IGNORECASE)
+_REF_TAG_RE: Final = re.compile(r"<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE)
+_CITATION_PARAM_RE: Final = re.compile(
+    r"\|\s*(access[ _-]?date|date)\s*=\s*([^|}\n]+)", re.IGNORECASE
+)
 _CHANGED_VALUE_RE: Final = re.compile(
     r"\b(?:\d[\d,.%]*|[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*)\b"
 )
@@ -132,6 +191,17 @@ def get_judge_backend() -> AsyncJudge | None:
             GeminiJudgeBackend(model=first_model, prompt_version=prompt_version), main
         )
     return main
+
+
+def reviewer_enabled() -> bool:
+    """The API uses the reviewer unless explicitly disabled for an incident."""
+    return os.environ.get("PALIMPSEST_REVIEWER", "1") == "1"
+
+
+@cache
+def get_reviewer_backend() -> GeminiReviewerBackend | None:
+    """Argon is optional: an unavailable reviewer never blocks Hydrogen's result."""
+    return GeminiReviewerBackend() if reviewer_enabled() and gemini_enabled() else None
 
 
 def _http_url(url: str) -> str:
@@ -194,6 +264,7 @@ class LatencyMs(BaseModel):
     stage1: float
     stage2: float
     render: float
+    reviewer: float = 0.0
     total: float
 
 
@@ -223,10 +294,28 @@ class AuditDiffResponse(BaseModel):
     stealth: StealthSummary
     render: RenderSummary
     citation_dates: CitationDateScan
+    citation_lifecycle: "CitationLifecycleScan"
+    value_checks: list[ValueCheck]
+    cherry_pick: CherryPickScan
+    reviewer: "ReviewerSummary"
     latency_ms: LatencyMs
     exa_budget_exhausted: bool
     units: list[UnitSummary]
     partial: bool
+
+
+class CitationLifecycleScan(BaseModel):
+    status: Literal["ok", "skipped", "unavailable"]
+    findings: list[CitationDriftReport] = Field(default_factory=list)
+    error: str | None = None
+
+
+class ReviewerSummary(BaseModel):
+    status: Literal["ok", "skipped"]
+    calls: int
+    latency_ms: float
+    tokens: int
+    error: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -454,6 +543,78 @@ async def _await_completed_citation_dates(
         )
 
 
+async def _await_completed_citation_lifecycle(
+    task: "asyncio.Task[CitationLifecycleScan]",
+    started_at: float,
+) -> CitationLifecycleScan:
+    """Await the lifecycle scan only for the remainder of its fixed deadline."""
+    remaining = started_at + CITATION_LIFECYCLE_TIMEOUT_S - time.monotonic()
+    if remaining <= 0 and not task.done():
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return CitationLifecycleScan(status="unavailable", error="TimeoutError")
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=max(remaining, 0))
+    except TimeoutError:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return CitationLifecycleScan(status="unavailable", error="TimeoutError")
+    except Exception as exc:  # noqa: BLE001 - deterministic check is escalation-only
+        return CitationLifecycleScan(
+            status="unavailable", error=f"{type(exc).__name__}: {exc}"
+        )
+
+
+async def _await_cherry_pick(
+    task: "asyncio.Task[CherryPickScan]",
+) -> CherryPickScan:
+    """Bound B2's optional model work without failing or delaying the core audit."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.shield(task), timeout=CHERRY_PICK_TIMEOUT_S
+        )
+    except TimeoutError:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        return CherryPickScan(status="unavailable", error="TimeoutError")
+    except Exception as exc:  # noqa: BLE001 - B2 is best-effort isolation
+        return CherryPickScan(
+            status="unavailable", error=f"{type(exc).__name__}: {exc}"
+        )
+
+
+def _cherry_pick_candidates(
+    outcomes: list["_UnitOutcome"], refs_by_unit: dict[int, list[str] | None]
+) -> list[CherryPickCandidate]:
+    """Only changed sentences with a newly/changed attached ref reach B2."""
+    candidates: list[CherryPickCandidate] = []
+    for outcome in outcomes:
+        window = outcome.pc.window
+        changed_refs = refs_by_unit[outcome.unit.index]
+        if (
+            not outcome.unit.new_wikitext
+            or not changed_refs
+            or window is None
+            or window.status != "ok"
+            or window.url is None
+            or window.url not in changed_refs
+        ):
+            continue
+        candidates.append(
+            CherryPickCandidate(
+                unit_index=outcome.unit.index,
+                claim=outcome.unit.new_text,
+                url=window.url,
+                source_window=window.text,
+                citations=changed_refs,
+            )
+        )
+    return candidates
+
+
 def _citation_wikitexts(units: list[EditUnit]) -> list[str]:
     return [
         wikitext
@@ -472,6 +633,137 @@ async def _scan_citation_dates(
     """Mark the deadline when this task, rather than its creator, starts."""
     started.set_result(time.monotonic())
     return await scan_changed_citation_dates(lang_code, page_title, wikitexts)
+
+
+def _access_date(value: str) -> date | None:
+    """Parse the common unambiguous dates accepted by cite-web parameters."""
+    value = value.strip().replace("&nbsp;", " ")
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        pass
+    for pattern in ("%d %B %Y", "%B %d, %Y", "%B %d %Y"):
+        try:
+            return datetime.strptime(value, pattern).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _citation_lifecycle_candidates(
+    units: list[EditUnit], refs_by_unit: dict[int, list[str] | None]
+) -> list[tuple[str, date, str]]:
+    """Changed-reference URLs paired with their citation date and local claim text."""
+    candidates: list[tuple[str, date, str]] = []
+    seen: set[str] = set()
+    for unit in units:
+        changed = refs_by_unit[unit.index]
+        if not changed:
+            continue
+        wikitext = unit.new_wikitext or unit.new_text
+        for ref in _REF_TAG_RE.findall(wikitext):
+            urls = [url for url in extract_ref_urls(ref) if url in changed]
+            if not urls:
+                continue
+            match = _CITATION_PARAM_RE.search(ref)
+            access_date = _access_date(match.group(2)) if match else None
+            if access_date is None:
+                continue
+            for url in urls:
+                if url not in seen:
+                    candidates.append((url, access_date, unit.new_text))
+                    seen.add(url)
+                    if len(candidates) == MAX_CITATION_LIFECYCLE_URLS:
+                        return candidates
+    return candidates
+
+
+def _lifecycle_embedder() -> HashingEmbedder | GeminiEmbedder:
+    if os.environ.get("PALIMPSEST_A1_EMBED") == "gemini":
+        return GeminiEmbedder()
+    return HashingEmbedder()
+
+
+async def scan_citation_lifecycle(
+    candidates: list[tuple[str, date, str]],
+    *,
+    client: httpx.AsyncClient | None = None,
+    public_url_checker: Callable[[str], Awaitable[bool]] | None = None,
+    tls_issuer_resolver: Callable[[str], Awaitable[str | None]] | None = None,
+) -> CitationLifecycleScan:
+    """Compare at most four cited pages; one bad URL never prevents the others."""
+    if not candidates:
+        return CitationLifecycleScan(status="skipped")
+    own_client = client is None
+    lifecycle_client = client or httpx.AsyncClient(
+        headers={"User-Agent": MEDIAWIKI_USER_AGENT},
+        timeout=CITATION_LIFECYCLE_TIMEOUT_S,
+    )
+    findings: list[CitationDriftReport] = []
+    errors: list[str] = []
+    try:
+        for url, access_date, claim_anchor in candidates[:MAX_CITATION_LIFECYCLE_URLS]:
+            try:
+                embedder = _lifecycle_embedder()
+                baseline = (
+                    await wayback_baseline(
+                        url,
+                        access_date,
+                        claim_anchor,
+                        embedder,
+                        client=lifecycle_client,
+                        tls_issuer_resolver=tls_issuer_resolver,
+                    )
+                    if public_url_checker is None
+                    else await wayback_baseline(
+                        url,
+                        access_date,
+                        claim_anchor,
+                        embedder,
+                        client=lifecycle_client,
+                        public_url_checker=public_url_checker,
+                        tls_issuer_resolver=tls_issuer_resolver,
+                    )
+                )
+                if baseline is not None:
+                    _, report = baseline
+                    if report.drift_status != "CLEAN_STABLE":
+                        findings.append(report)
+            except httpx.ConnectError as exc:
+                request = exc.request
+                if request.url.host not in {"archive.org", "web.archive.org"}:
+                    findings.append(
+                        CitationDriftReport(
+                            url=url,
+                            drift_status="HARD_LINK_ROT",
+                            semantic_drift_score=1.0,
+                            still_entails_original_claim=None,
+                            baseline_excerpt="An archived baseline was requested.",
+                            live_excerpt="The cited site could not be reached.",
+                            diff_summary=f"The cited site could not be reached: {exc}",
+                        )
+                    )
+                else:
+                    errors.append(f"{url}: {type(exc).__name__}: {exc}")
+            except Exception as exc:  # noqa: BLE001 - each URL is isolated
+                errors.append(f"{url}: {type(exc).__name__}: {exc}")
+    finally:
+        if own_client:
+            await lifecycle_client.aclose()
+    if len(errors) == len(candidates):
+        return CitationLifecycleScan(status="unavailable", error="; ".join(errors))
+    return CitationLifecycleScan(
+        status="ok", findings=findings, error="; ".join(errors) or None
+    )
+
+
+async def _scan_citation_lifecycle(
+    candidates: list[tuple[str, date, str]],
+    started: "asyncio.Future[float]",
+) -> CitationLifecycleScan:
+    """Mark the deadline when the lifecycle task itself starts running."""
+    started.set_result(time.monotonic())
+    return await scan_citation_lifecycle(candidates)
 
 
 class _UnitOutcome(BaseModel):
@@ -498,7 +790,12 @@ class JudgeUnavailableError(Exception):
 
 def _unit_changed_refs(unit: EditUnit) -> list[str] | None:
     if unit.old_wikitext and unit.new_wikitext:
-        return refs_for_changed_sentences(unit.old_wikitext, unit.new_wikitext)
+        changed = refs_for_changed_sentences(unit.old_wikitext, unit.new_wikitext)
+        old_urls = set(extract_ref_urls(unit.old_wikitext))
+        for url in extract_ref_urls(unit.new_wikitext):
+            if url not in old_urls and url not in changed:
+                changed.append(url)
+        return changed
     return None
 
 
@@ -510,6 +807,12 @@ def _verdict_rank(output: AuditOutput) -> int:
 
 def _followup_enabled() -> bool:
     return os.environ.get("PALIMPSEST_FOLLOWUP", "1") not in {"0", "false", "False"}
+
+
+def context_mode() -> ContextMode:
+    """The live default uses the bounded evidence-basis rule."""
+    value = os.environ.get("PALIMPSEST_CONTEXT_MODE", "rule")
+    return cast(ContextMode, value) if value in {"never", "rule", "always"} else "rule"
 
 
 def _followup_query(unit: EditUnit) -> str | None:
@@ -528,45 +831,38 @@ def _needs_followup(output: AuditOutput) -> bool:
     )
 
 
-def _append_highlights(window: SourceWindow, highlights: list[str]) -> SourceWindow:
-    existing = window.text.rstrip()
-    first_index = existing.count("[Highlight ") + 1
-    extra = "\n\n".join(
-        f"[Highlight {index}]\n{highlight.strip()}"
-        for index, highlight in enumerate(highlights, start=first_index)
-        if highlight.strip() and highlight.strip() not in existing
-    )
-    if not extra:
-        return window
-    return window.model_copy(update={"text": f"{existing}\n\n{extra}"})
-
-
 async def _maybe_followup_judge(
     fetcher: SourceFetcher,
     backend: AsyncJudge,
     pc: PreparedCase,
     unit: EditUnit,
     outcome: AuditOutput,
+    context_budget: ContextReadBudget | None = None,
 ) -> tuple[AuditOutput, float]:
-    """Append one targeted highlights view and re-judge at most once."""
-    if (
-        not _followup_enabled()
-        or not _needs_followup(outcome)
-        or pc.window is None
-        or pc.window.url is None
-        or (query := _followup_query(unit)) is None
-    ):
+    """Append policy-approved whole-source highlights and re-judge at most once."""
+    if not _followup_enabled() or pc.window is None or pc.window.url is None:
         return outcome, 0.0
+    candidate = candidate_for_output(
+        outcome,
+        unit.new_text,
+        pc.case.changed_ref_urls or pc.case.ref_urls,
+    )
+    budget = context_budget or ContextReadBudget()
     followup_started = time.perf_counter()
-    highlights = await fetcher.highlights(pc.window.url, query)
-    pc.window = _append_highlights(pc.window, highlights or [])
+    read = await read_more(candidate, fetcher, budget, context_mode())
+    pc.window = append_highlights(pc.window, read.passages)
     pc.window = pc.window.model_copy(
         update={
-            "latency_ms": pc.window.latency_ms
-            + (time.perf_counter() - followup_started) * 1000
+            "latency_ms": (
+                pc.window.latency_ms + (time.perf_counter() - followup_started) * 1000
+            ),
+            "whole_source_checked": read.checked,
+            "whole_source_passages": read.passages,
+            "whole_source_classification": read.classification,
+            "whole_source_supports_claim": read.supports_claim,
         }
     )
-    if not highlights:
+    if not read.passages:
         return outcome, 0.0
     judged, latencies = await judge_with_latencies(backend, [pc])
     result = judged.get(pc.case.case_id, "no result for this case")
@@ -583,6 +879,7 @@ async def _judge_unit(
     fetcher: SourceFetcher,
     backend: AsyncJudge | None,
     semaphore: asyncio.Semaphore,
+    context_budget: ContextReadBudget,
 ) -> _UnitOutcome:
     async with semaphore:
         started = time.perf_counter()
@@ -622,7 +919,7 @@ async def _judge_unit(
                     status_code=502, detail=f"Judge backend failed: {outcome}"
                 )
             outcome, followup_ms = await _maybe_followup_judge(
-                fetcher, backend, pc, unit, outcome
+                fetcher, backend, pc, unit, outcome, context_budget
             )
             stage2_ms += followup_ms
             judged[case.case_id] = outcome
@@ -654,8 +951,16 @@ async def audit_diff_logic(
     process_fetcher: SourceFetcher,
     backend: AsyncJudge | None,
     auditor_provider: AuditorProvider,
+    reviewer_backend: GeminiReviewerBackend | None = None,
 ) -> AuditDiffResponse:
     started = time.perf_counter()
+    # A test or integration backend must opt into review explicitly; production's
+    # Gemini/Cascade backend receives the API-default Argon reviewer dependency.
+    active_reviewer = reviewer_backend
+    if isinstance(reviewer_backend, GeminiReviewerBackend) and not isinstance(
+        backend, (GeminiJudgeBackend, CascadeJudgeBackend)
+    ):
+        active_reviewer = None
     diff_scan, old_scan, new_scan, all_units = await run_in_threadpool(
         _scan_request, req
     )
@@ -670,6 +975,7 @@ async def audit_diff_logic(
     fetcher = process_fetcher.for_request(
         max_calls=min(EXA_CALLS_PER_UNIT * len(units), MAX_REQUEST_EXA_CALLS)
     )
+    context_budget = ContextReadBudget()
     unit_regions = _unit_regions(new_scan, units)
     refs_by_unit = {u.index: _unit_changed_refs(u) for u in units}
     # Edit-relative: render only refs the edit touched. Without wikitext the
@@ -701,6 +1007,42 @@ async def audit_diff_logic(
             )
         )
         await citation_dates_started
+    lifecycle_candidates = _citation_lifecycle_candidates(units, refs_by_unit)
+    citation_lifecycle_task: asyncio.Task[CitationLifecycleScan] | None = None
+    citation_lifecycle_started: asyncio.Future[float] | None = None
+    if lifecycle_candidates:
+        citation_lifecycle_started = asyncio.get_running_loop().create_future()
+        citation_lifecycle_task = asyncio.create_task(
+            _scan_citation_lifecycle(lifecycle_candidates, citation_lifecycle_started)
+        )
+        await citation_lifecycle_started
+    value_tasks: list[asyncio.Task[ValueCheckReport]] = [
+        asyncio.create_task(
+            check_values(
+                lang=req.lang_code,
+                title=req.page_title,
+                old_text=unit.old_text,
+                new_text=unit.new_text,
+                ref_urls=(
+                    refs_by_unit[unit.index]
+                    if refs_by_unit[unit.index] is not None
+                    else req.ref_urls
+                ),
+                fetcher=fetcher,
+            )
+        )
+        for unit in units
+        if swaps(unit.old_text, unit.new_text)
+    ]
+    consistency_task = asyncio.create_task(
+        check_page_consistency(
+            req.old_wikitext or req.old_text,
+            req.new_wikitext or req.new_text,
+            units,
+            req.lang_code,
+            judge=gemini_consistency_judge(backend),
+        )
+    )
     semaphore = asyncio.Semaphore(UNIT_CONCURRENCY)
     unit_tasks = [
         asyncio.create_task(
@@ -712,6 +1054,7 @@ async def audit_diff_logic(
                 fetcher,
                 backend,
                 semaphore,
+                context_budget,
             )
         )
         for unit in units
@@ -728,6 +1071,21 @@ async def audit_diff_logic(
         except BaseException:
             await _cancel_all(unit_tasks)
             raise
+        value_reports = list(await asyncio.gather(*value_tasks))
+        value_checks = [check for report in value_reports for check in report.checks]
+        try:
+            consistency_findings = await consistency_task
+        except Exception:  # noqa: BLE001 - page consistency is a non-blocking side check
+            consistency_findings = []
+        cherry_pick = await _await_cherry_pick(
+            asyncio.create_task(
+                scan_cherry_picks(
+                    _cherry_pick_candidates(outcomes, refs_by_unit),
+                    fetcher,
+                    gemini_cherry_pick_judge(backend),
+                )
+            )
+        )
         top_outcome = max(
             outcomes,
             key=lambda o: (
@@ -748,14 +1106,29 @@ async def audit_diff_logic(
                 citation_dates_task,
                 citation_dates_started.result(),
             )
+        if citation_lifecycle_task is None:
+            citation_lifecycle = CitationLifecycleScan(status="skipped")
+        else:
+            assert citation_lifecycle_started is not None
+            citation_lifecycle = await _await_completed_citation_lifecycle(
+                citation_lifecycle_task,
+                citation_lifecycle_started.result(),
+            )
         unit_routes: list[Route] = [route(o.result) for o in outcomes]
         top_route = max(unit_routes, key=ROUTE_RANK.__getitem__)
-        if render.escalate:
+        if render.escalate or any(
+            finding.drift_status == "DELAYED_STEALTH_INJECTION"
+            for finding in citation_lifecycle.findings
+        ):
             top_route = "admin"
         elif partial and top_route == "none":
             top_route = "review"
-        if citation_dates.findings and top_route == "none":
+        if (
+            citation_dates.findings or citation_lifecycle.findings
+        ) and top_route == "none":
             top_route = "review"
+        if any(check.outcome == "SUPPORTS_OLD" for check in value_checks):
+            top_route = "admin"
         contributing = [o for o in outcomes if o.output.verdict in FLAGS] or [
             top_outcome
         ]
@@ -836,7 +1209,106 @@ async def audit_diff_logic(
             render.findings,
             new_wikitext,
             union_refs or req.ref_urls,
+            citation_lifecycle.findings,
         )
+        unit_routes = [
+            (
+                "admin"
+                if any(
+                    flag.id.startswith(f"u{outcome.unit.index}-")
+                    and flag.tier == "admin"
+                    for flag in response_flags
+                )
+                else "review"
+                if any(
+                    flag.id.startswith(f"u{outcome.unit.index}-")
+                    for flag in response_flags
+                )
+                else "none"
+            )
+            for outcome in outcomes
+        ]
+        response_flags = suppress_supported_value_reviews(response_flags, value_checks)
+        response_flags.extend(value_check_flags(value_checks, req.new_text))
+        response_flags.extend(
+            consistency_flags(
+                consistency_findings, req.lang_code, req.page_title, new_wikitext
+            )
+        )
+        response_flags.extend(cherry_pick_flags(cherry_pick.findings, new_wikitext))
+        borderline = [
+            ReviewerCandidate(
+                candidate_id=f"u{o.unit.index}-borderline",
+                kind="FACT",
+                edit_text=o.pc.case.new_text,
+                old_text=o.pc.case.old_text,
+                source_excerpts=([o.pc.window.text] if o.pc.window else []),
+                title="Changed claim needs review",
+                reason="The changed claim was not clearly supported by the source excerpt.",
+                is_value_change=True,
+            )
+            for o in outcomes
+            if o.output.verdict == Verdict.CLEAN_PASS
+            and bool(swaps(o.pc.case.old_text, o.pc.case.new_text))
+        ]
+        reviewable_unit_ids = {
+            outcome.unit.index
+            for outcome in outcomes
+            if review_unit_eligible(
+                outcome.output, outcome.pc.case.old_text, outcome.pc.case.new_text
+            )
+        }
+        reviewable_flags = [
+            flag
+            for flag in response_flags
+            if any(flag.id.startswith(f"u{index}-") for index in reviewable_unit_ids)
+        ]
+        reviewable_flag_ids = {flag.id for flag in reviewable_flags}
+        nonreviewable_flags = [
+            flag for flag in response_flags if flag.id not in reviewable_flag_ids
+        ]
+        reviewer_result: ReviewerResult
+        if reviewer_enabled() and (reviewable_flags or borderline):
+            reviewer_result = await review_candidates(
+                page_title=req.page_title,
+                language=req.lang_code,
+                flags=reviewable_flags,
+                borderline=borderline,
+                fetcher=fetcher,
+                backend=active_reviewer,
+                context_mode=context_mode(),
+                context_budget=context_budget,
+            )
+            response_flags = nonreviewable_flags + reviewer_result.flags
+        else:
+            reviewer_result = ReviewerResult(
+                response_flags,
+                "skipped",
+                0,
+                0.0,
+                0,
+                "reviewer disabled" if not reviewer_enabled() else "no value change",
+            )
+        # A reviewer may lower ordinary candidates to review, but hard source-security
+        # signals retain their existing escalation path above.
+        candidate_route: Route = (
+            "admin"
+            if any(flag.tier == "admin" for flag in response_flags)
+            else "review"
+            if response_flags
+            else "none"
+        )
+        # An audit cut short at MAX_UNITS must never look clean.
+        if partial and candidate_route == "none":
+            candidate_route = "review"
+        if not (
+            render.escalate
+            or any(
+                finding.drift_status == "DELAYED_STEALTH_INJECTION"
+                for finding in citation_lifecycle.findings
+            )
+        ):
+            top_route = candidate_route
         return AuditDiffResponse(
             verdict=output.verdict,
             confidence=output.confidence,
@@ -871,6 +1343,16 @@ async def audit_diff_logic(
             ),
             render=render,
             citation_dates=citation_dates,
+            citation_lifecycle=citation_lifecycle,
+            value_checks=value_checks,
+            cherry_pick=cherry_pick,
+            reviewer=ReviewerSummary(
+                status=reviewer_result.status,
+                calls=reviewer_result.calls,
+                latency_ms=reviewer_result.latency_ms,
+                tokens=reviewer_result.tokens,
+                error=reviewer_result.error,
+            ),
             latency_ms=LatencyMs(
                 stealth=stealth_ms + ref_scan_ms,
                 stage0=max(o.pc.stage0.latency_ms for o in outcomes),
@@ -879,6 +1361,7 @@ async def audit_diff_logic(
                 ),
                 stage2=max(o.stage2_ms for o in outcomes),
                 render=render.latency_ms,
+                reviewer=reviewer_result.latency_ms,
                 total=(time.perf_counter() - started) * 1000,
             ),
             exa_budget_exhausted=fetcher.budget_exhausted,
@@ -905,6 +1388,15 @@ async def audit_diff_logic(
             citation_dates_task.cancel()
             with contextlib.suppress(BaseException):
                 await citation_dates_task
+        if citation_lifecycle_task is not None:
+            citation_lifecycle_task.cancel()
+            with contextlib.suppress(BaseException):
+                await citation_lifecycle_task
+        for task in value_tasks:
+            task.cancel()
+        for task in value_tasks:
+            with contextlib.suppress(BaseException):
+                await task
         raise
 
 
@@ -913,10 +1405,15 @@ async def audit_diff(
     req: AuditDiffRequest,
     process_fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
     backend: Annotated[AsyncJudge | None, Depends(get_judge_backend)],
+    reviewer_backend: Annotated[
+        GeminiReviewerBackend | None, Depends(get_reviewer_backend)
+    ],
     auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
 ) -> AuditDiffResponse:
     try:
-        return await audit_diff_logic(req, process_fetcher, backend, auditor_provider)
+        return await audit_diff_logic(
+            req, process_fetcher, backend, auditor_provider, reviewer_backend
+        )
     except JudgeUnavailableError as exc:
         raise HTTPException(
             status_code=503,

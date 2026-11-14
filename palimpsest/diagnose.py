@@ -33,6 +33,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--case-id", help="case_id to select from --case")
     parser.add_argument("--old", help="old edit text")
     parser.add_argument("--new", help="new edit text")
+    parser.add_argument("--old-wikitext", help="old edit wikitext")
+    parser.add_argument("--new-wikitext", help="new edit wikitext")
     parser.add_argument("--lang", help="Wikipedia language code")
     parser.add_argument("--title", help="page title")
     parser.add_argument("--ref", action="append", default=[], help="reference URL")
@@ -83,6 +85,8 @@ def _request_from_inline(args: argparse.Namespace) -> AuditDiffRequest:
         old_text=args.old,
         new_text=args.new,
         ref_urls=args.ref,
+        old_wikitext=args.old_wikitext,
+        new_wikitext=args.new_wikitext,
     )
 
 
@@ -120,6 +124,27 @@ def _response_rows(response: AuditDiffResponse) -> list[tuple[str, str]]:
                 f"{finding.code} date={finding.rendered_date} "
                 f"revision={finding.revision_timestamp.isoformat()} url={finding.url}"
                 for finding in response.citation_dates.findings
+            )
+            or "none",
+        ),
+        ("citation lifecycle", response.citation_lifecycle.status),
+        ("citation lifecycle error", response.citation_lifecycle.error or "none"),
+        ("cherry pick", response.cherry_pick.status),
+        ("cherry pick error", response.cherry_pick.error or "none"),
+        (
+            "cherry pick findings",
+            "; ".join(
+                f"{finding.tier} edit={finding.claim!r} source={finding.source_passage!r}"
+                for finding in response.cherry_pick.findings
+            )
+            or "none",
+        ),
+        (
+            "citation lifecycle findings",
+            "; ".join(
+                f"{finding.drift_status} url={finding.url} "
+                f"archive={finding.wayback_fallback_url or 'none'}"
+                for finding in response.citation_lifecycle.findings
             )
             or "none",
         ),

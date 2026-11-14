@@ -1,11 +1,15 @@
 """Build UI flags from audit results without performing further audit work."""
 
+import os
 import re
 from dataclasses import dataclass
 
 from palimpsest import display_text
+from palimpsest.cherry_pick import CherryPickFinding
 from palimpsest.citation_dates import CitationDateFinding
-from palimpsest.reasons import ReasonCode
+from palimpsest.citation_lifecycle import CitationDriftReport
+from palimpsest.consistency import ConsistencyFinding, article_url
+from palimpsest.reasons import ReasonCode, span_policy
 from palimpsest.schema import (
     AuditOutput,
     DisplayFlaggedSpan,
@@ -92,6 +96,8 @@ def _judge_title(kind: FlagKind) -> str:
         "HIDDEN_TEXT": "Hidden text detected",
         "CITATION_DATE": "Citation date needs review",
         "CITED_PAGE": "Cited page hidden text detected",
+        "CHERRY_PICK": "Citation omits source context",
+        "OUT_OF_SYNC": "Out of sync with the page",
     }[kind]
 
 
@@ -171,10 +177,184 @@ def _readable(flag: Flag) -> Flag:
     return flag.model_copy(update={"evidence": evidence})
 
 
+def _normalised_reason(reason: str) -> str:
+    return " ".join(reason.casefold().split())
+
+
+def _collapse(flags: list[Flag]) -> list[Flag]:
+    """Merge repeated findings while keeping the first diff anchor."""
+    collapsed: list[Flag] = []
+    positions: dict[tuple[str, str, str, str], int] = {}
+    for flag in flags:
+        key = (flag.kind, flag.tier, flag.check, _normalised_reason(flag.reason))
+        index = positions.get(key)
+        if index is None:
+            positions[key] = len(collapsed)
+            collapsed.append(flag)
+            continue
+        first = collapsed[index]
+        occurrences = first.occurrences + 1
+        collapsed[index] = first.model_copy(
+            update={
+                "occurrences": occurrences,
+                "reason": f"{re.sub(r' \(\d+ places\)$', '', first.reason)} ({occurrences} places)",
+            }
+        )
+    return collapsed
+
+
 def _citation_title(code: str) -> str:
     if code == "FUTURE_DATE":
         return "Future citation date"
     return "Citation revision date mismatch"
+
+
+_NOISY_DRIFT = frozenset({"SEMANTIC_RUGPULL", "DOMAIN_HIJACK_SUSPECTED"})
+
+
+def citation_lifecycle_flags(
+    findings: list[CitationDriftReport], new_wikitext: str
+) -> list[Flag]:
+    """Map archived-versus-live citation drift into the stable UI flag contract."""
+    messages = {
+        "HARD_LINK_ROT": "Cited page is no longer available",
+        "SOFT_404_REDIRECT": "Cited page now redirects to an unrelated page",
+        "DOMAIN_HIJACK_SUSPECTED": "Cited site changed hands since it was cited",
+        "SEMANTIC_RUGPULL": "Cited page changed substantially since it was cited",
+        "DELAYED_STEALTH_INJECTION": (
+            "Cited page gained hidden text since it was cited"
+        ),
+    }
+    flags: list[Flag] = []
+    for index, finding in enumerate(findings):
+        reason = messages.get(finding.drift_status)
+        if reason is None:
+            continue
+        # Whole-page drift from the offline embedder flagged stable pages in live tests
+        # (PLAN.md, A1); only hard signals reach the admin unless explicitly enabled.
+        if (
+            finding.drift_status in _NOISY_DRIFT
+            and os.environ.get("PALIMPSEST_A1_DRIFT") != "1"
+        ):
+            continue
+        anchor = _wikitext_anchor(new_wikitext, [finding.url])
+        start, end = _offsets(new_wikitext, anchor)
+        flags.append(
+            Flag(
+                id=f"l{index}",
+                kind="CITED_PAGE",
+                tier=(
+                    "admin"
+                    if finding.drift_status == "DELAYED_STEALTH_INJECTION"
+                    else "review"
+                ),
+                title=reason,
+                reason=reason,
+                confidence=1.0,
+                side="new",
+                anchor_text=anchor,
+                anchor_start=start,
+                anchor_end=end,
+                context_sentence=reason,
+                evidence=[
+                    FlagEvidence(
+                        source="cited",
+                        quote=(
+                            f"Baseline: {finding.baseline_excerpt}\n"
+                            f"Live: {finding.live_excerpt}"
+                        ),
+                        url=finding.wayback_fallback_url,
+                    )
+                ],
+                citations=[finding.url],
+                neutral_rewrite=None,
+                check="citation_lifecycle",
+            )
+        )
+    return flags
+
+
+def cherry_pick_flags(
+    findings: list[CherryPickFinding], new_wikitext: str
+) -> list[Flag]:
+    """Map B2 findings into the same stable flag record as the other checks."""
+    flags: list[Flag] = []
+    for index, finding in enumerate(findings):
+        anchor = finding.claim if finding.claim in new_wikitext else ""
+        start, end = _offsets(new_wikitext, anchor)
+        reason = f"The edit says “{finding.claim}”; the cited source says “{finding.source_passage}”."
+        flags.append(
+            Flag(
+                id=f"b{index}",
+                kind="CHERRY_PICK",
+                tier=finding.tier,
+                title=_titled(_judge_title("CHERRY_PICK"), anchor),
+                reason=reason,
+                confidence=finding.confidence,
+                side="new",
+                anchor_text=anchor,
+                anchor_start=start,
+                anchor_end=end,
+                context_sentence=_context(new_wikitext, anchor, finding.claim),
+                evidence=[
+                    FlagEvidence(
+                        source="cited",
+                        quote=finding.source_passage,
+                        url=finding.citations[0] if finding.citations else None,
+                    )
+                ],
+                citations=finding.citations,
+                neutral_rewrite=finding.balanced_rewrite,
+                check="cherry_pick",
+            )
+        )
+    return flags
+
+
+def consistency_flags(
+    findings: list[ConsistencyFinding], lang: str, title: str, new_wikitext: str
+) -> list[Flag]:
+    """Map page-internal contradictions into stable, directly jumpable UI flags."""
+    flags: list[Flag] = []
+    for index, finding in enumerate(findings):
+        anchor = _wikitext_anchor(
+            new_wikitext, [finding.new_value, finding.changed_sentence]
+        )
+        start, end = _offsets(new_wikitext, anchor)
+        flags.append(
+            Flag(
+                id=f"o{finding.unit_index}-{index}",
+                kind="OUT_OF_SYNC",
+                tier="admin" if finding.method == "deterministic" else "review",
+                title=(
+                    f"Out of sync with the page: "
+                    f"{finding.new_value} vs {finding.old_value}"
+                )[:_TITLE_MAX],
+                reason=(
+                    f"This edit says {finding.changed_sentence}; the section "
+                    f"'{finding.section}' still says '{finding.quote}'."
+                ),
+                confidence=1.0 if finding.method == "deterministic" else 0.7,
+                side="new",
+                anchor_text=anchor,
+                anchor_start=start,
+                anchor_end=end,
+                context_sentence=finding.changed_sentence,
+                evidence=[
+                    FlagEvidence(
+                        source="page",
+                        quote=finding.quote,
+                        section=finding.section,
+                        url=article_url(lang, title, finding.section),
+                    )
+                ],
+                citations=[],
+                neutral_rewrite=None,
+                check="consistency",
+                related_anchor_text=finding.quote if finding.quote_in_diff else None,
+            )
+        )
+    return flags
 
 
 def _highlight_excerpts(text: str) -> list[str]:
@@ -204,9 +384,22 @@ def _judge_evidence(judge_input: JudgeFlagInput) -> list[FlagEvidence]:
         if any(quote in excerpt or excerpt in quote for quote in cited)
     ]
     quotes = selected or [excerpts[0]]
-    return [
+    evidence = [
         FlagEvidence(source="cited", quote=quote, url=window.url) for quote in quotes
     ]
+    if window.whole_source_checked:
+        evidence.append(
+            FlagEvidence(
+                source="cited",
+                quote=(
+                    window.whole_source_passages[0]
+                    if window.whole_source_passages
+                    else "Checked the whole cited source; no supporting passage found."
+                ),
+                url=window.url,
+            )
+        )
+    return evidence
 
 
 def build_flags(
@@ -216,12 +409,16 @@ def build_flags(
     render_findings: list[HiddenFinding],
     new_wikitext: str,
     render_citations: list[str],
+    citation_lifecycle_findings: list[CitationDriftReport] | None = None,
 ) -> list[Flag]:
     """Build the complete response flag list from already-computed audit data."""
     flags: list[Flag] = []
     for judge_input in judge_inputs:
-        kind = _judge_kind(judge_input.reason_code, judge_input.output.verdict)
         for span_index, span in enumerate(judge_input.output.flagged_spans):
+            policy = span_policy(span, judge_input.tier, judge_input.window)
+            if policy.kind is None or policy.tier is None or policy.title is None:
+                continue
+            kind = policy.kind
             anchor = _REMOVAL_MARK.sub("", span.exact_substring)
             # The side is wherever the flagged words are: a deletion can be judged as a
             # fact or framing problem, not only as REMOVED_CONTEXT.
@@ -240,8 +437,8 @@ def build_flags(
                 Flag(
                     id=f"u{judge_input.unit_index}-s{span_index}",
                     kind=kind,
-                    tier=judge_input.tier,
-                    title=_titled(_judge_title(kind), anchor),
+                    tier=policy.tier,
+                    title=_titled(policy.title, anchor),
                     reason=span.explanation,
                     confidence=judge_input.output.confidence,
                     side=side,
@@ -369,4 +566,7 @@ def build_flags(
                 check="render",
             )
         )
-    return [_readable(flag) for flag in flags]
+    flags.extend(
+        citation_lifecycle_flags(citation_lifecycle_findings or [], new_wikitext)
+    )
+    return _collapse([_readable(flag) for flag in flags])

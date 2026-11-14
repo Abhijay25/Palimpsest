@@ -1,6 +1,6 @@
 import asyncio
 import threading
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from palimpsest import api
+from palimpsest.cherry_pick import CherryPickAnalysis, CherryPickScan
 from palimpsest.citation_dates import CitationDateScan, scan_changed_citation_dates
 from palimpsest.judge import PreparedCase
 from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
@@ -87,6 +88,19 @@ class _FollowupFetcher(FakeFetcher):
         return ["The source gives the requested number and name."]
 
 
+class _CherryPickFetcher(FakeFetcher):
+    source = "The final audit found the allegation unsupported."
+
+    def cached_text(self, _: str) -> str | None:
+        return self.source
+
+    async def source_text(self, _: str) -> str | None:
+        return self.source
+
+    async def highlights(self, _: str, __: str) -> list[str] | None:
+        return [self.source]
+
+
 class _FollowupBackend(FakeBackend):
     def __init__(self, outputs: list[AuditOutput]) -> None:
         super().__init__(outputs[0])
@@ -139,6 +153,13 @@ def _expand_context() -> AuditOutput:
 
 async def _no_auditor() -> None:
     return None
+
+
+async def _direct_threadpool[**P, T](
+    func: Callable[P, T], *args: P.args, **kwargs: P.kwargs
+) -> T:
+    """Avoid the restricted runner's stalled AnyIO worker pool in HTTP tests."""
+    return func(*args, **kwargs)
 
 
 def _render_audit(hidden: str | None) -> RenderAudit:
@@ -284,6 +305,103 @@ def test_audit_diff_stage0_clean(client: TestClient) -> None:
     assert body["flags"] == []
     assert body["flagged_spans"] == []
     assert set(body["latency_ms"]) >= {"stealth", "stage0", "stage1", "stage2", "total"}
+
+
+def test_cherry_pick_gates_units_without_an_available_source(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+
+    async def judge(_: str) -> CherryPickAnalysis:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("uncited edit must not reach B2")
+
+    monkeypatch.setattr(api, "gemini_cherry_pick_judge", lambda _: judge)
+    monkeypatch.setattr(api, "run_in_threadpool", _direct_threadpool)
+    backend = FakeBackend(_output("CLEAN_PASS", 0.9))
+
+    async def fetcher() -> FakeFetcher:
+        return FakeFetcher()
+
+    async def get_backend() -> FakeBackend:
+        return backend
+
+    async def auditor_provider() -> Callable[[], Awaitable[None]]:
+        return _no_auditor
+
+    api.app.dependency_overrides[api.get_fetcher] = fetcher
+    api.app.dependency_overrides[api.get_judge_backend] = get_backend
+    api.app.dependency_overrides[api.get_auditor_provider] = auditor_provider
+    response = client.post(
+        "/api/v1/audit-diff",
+        json={**CLEAN_BODY, "new_text": "The town has 501 people."},
+    )
+    assert response.status_code == 200
+    assert response.json()["cherry_pick"]["status"] == "skipped"
+    assert calls == 0
+
+
+def test_audit_diff_returns_cherry_pick_flag_from_mocked_backend(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def judge(_: str) -> CherryPickAnalysis:
+        return CherryPickAnalysis(
+            is_cherry_picked=True,
+            cherry_pick_confidence=0.92,
+            cited_chunk_id="c0",
+            contradicting_chunk_ids=["c0"],
+            source_overarching_conclusion="The allegation was unsupported.",
+            omitted_qualifiers_summary="",
+            contradicting_passages=[_CherryPickFetcher.source],
+        )
+
+    monkeypatch.setattr(api, "gemini_cherry_pick_judge", lambda _: judge)
+    monkeypatch.setattr(api, "run_in_threadpool", _direct_threadpool)
+    backend = FakeBackend(_output("CLEAN_PASS", 0.9))
+
+    async def fetcher() -> _CherryPickFetcher:
+        return _CherryPickFetcher()
+
+    async def get_backend() -> FakeBackend:
+        return backend
+
+    async def auditor_provider() -> Callable[[], Awaitable[None]]:
+        return _no_auditor
+
+    api.app.dependency_overrides[api.get_fetcher] = fetcher
+    api.app.dependency_overrides[api.get_judge_backend] = get_backend
+    api.app.dependency_overrides[api.get_auditor_provider] = auditor_provider
+    url = "https://example.test/source"
+    response = client.post(
+        "/api/v1/audit-diff",
+        json={
+            **CLEAN_BODY,
+            "old_text": "Earlier wording.",
+            "new_text": "The allegation was proven.",
+            "ref_urls": [url],
+            "old_wikitext": "Earlier wording.",
+            "new_wikitext": (
+                "The allegation was proven.<ref>{{cite web|url=https://example.test/source}}</ref>"
+            ),
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["cherry_pick"]["findings"][0]["tier"] == "admin"
+    assert body["flags"][-1]["kind"] == "CHERRY_PICK"
+
+
+def test_cherry_pick_deadline_is_nonblocking(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def stalled() -> CherryPickScan:
+        await asyncio.Event().wait()
+        return CherryPickScan(status="ok")
+
+    async def run() -> CherryPickScan:
+        return await api._await_cherry_pick(asyncio.create_task(stalled()))
+
+    monkeypatch.setattr(api, "CHERRY_PICK_TIMEOUT_S", 0.01)
+    assert asyncio.run(run()).error == "TimeoutError"
 
 
 def test_audit_diff_routes_rendered_future_citation_date_to_review(

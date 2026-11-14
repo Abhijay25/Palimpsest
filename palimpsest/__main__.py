@@ -7,6 +7,9 @@ from pathlib import Path
 
 from palimpsest.judge import PROMPT_VERSION
 from palimpsest.pipeline import ingest, prepare
+from palimpsest.schema import load_cases
+from palimpsest.sources import SourceFetcher, load_exa_api_key
+from palimpsest.value_check import check_case
 
 
 def main() -> None:
@@ -38,6 +41,23 @@ def main() -> None:
         help="record follow-up context as enabled for this eval run",
     )
     prep.add_argument(
+        "--context-mode",
+        choices=["never", "rule", "always"],
+        default="rule",
+        help="when bounded whole-source Exa highlights may supplement an excerpt",
+    )
+    prep.add_argument(
+        "--value-check",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="record deterministic value-check evidence (default: enabled)",
+    )
+    prep.add_argument(
+        "--reviewer",
+        action="store_true",
+        help="run one Argon second opinion per flagged or borderline edit (Gemini only)",
+    )
+    prep.add_argument(
         "--backend",
         choices=["file", "gemini"],
         default="file",
@@ -48,6 +68,8 @@ def main() -> None:
     ing.add_argument("--compare", type=Path, default=None)
     sub.add_parser("diagnose", help="Run one edit through audit-diff in-process")
     sub.add_parser("audit-page", help="Audit the current version of a Wikipedia page")
+    values = sub.add_parser("value-check", help="Run deterministic value checks only")
+    values.add_argument("--cases", type=Path, required=True)
     args = parser.parse_args()
     if args.command == "prepare":
         asyncio.run(
@@ -60,10 +82,31 @@ def main() -> None:
                 args.backend,
                 source_mode=args.source_mode,
                 followup=args.followup,
+                context_mode=args.context_mode,
+                value_check=args.value_check,
+                reviewer=args.reviewer,
             )
         )
     elif args.command == "ingest":
         ingest(args.run, args.compare)
+    elif args.command == "value-check":
+
+        async def run_value_check() -> None:
+            fetcher = SourceFetcher(load_exa_api_key(), Path("cache/exa")).for_request(
+                60
+            )
+            reports = await asyncio.gather(
+                *(check_case(case, fetcher) for case in load_cases(args.cases))
+            )
+            counts = {
+                key: 0 for key in ("SUPPORTS_OLD", "SUPPORTS_NEW", "BOTH", "NEITHER")
+            }
+            for report in reports:
+                for check in report.checks:
+                    counts[check.outcome] += 1
+            print(" ".join(f"{key}={value}" for key, value in counts.items()))
+
+        asyncio.run(run_value_check())
 
 
 if __name__ == "__main__":

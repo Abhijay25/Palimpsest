@@ -44,7 +44,7 @@ scope here, but the flag record format below is designed so it can be listed the
 ```json
 {
   "id": "u0-s1",                       // stable within one response
-  "kind": "FACT | FRAMING | MOTIVE | REMOVED_CONTEXT | HIDDEN_TEXT | CITATION_DATE | CITED_PAGE",
+  "kind": "FACT | FRAMING | MOTIVE | REMOVED_CONTEXT | HIDDEN_TEXT | CITATION_DATE | CITED_PAGE | CHERRY_PICK | OUT_OF_SYNC",
   "tier": "admin | review",            // severity: admin = strong evidence, review = worth a look
   "title": "Number changed from 900 to 1,200",   // <= 80 chars, plain language
   "reason": "The cited source gives 900; the edit replaces it with 1,200.",
@@ -53,10 +53,10 @@ scope here, but the flag record format below is designed so it can be listed the
   "anchor_text": "1,200",              // exact text to highlight
   "anchor_start": 512, "anchor_end": 517,        // offsets into that side's submitted wikitext, or null
   "context_sentence": "…sentence containing the anchor…",
-  "evidence": [{"source": "cited | old | new", "quote": "…", "url": "https://…"}],
+  "evidence": [{"source": "cited | old | new | page", "quote": "…", "section": "…", "url": "https://…"}],
   "citations": ["https://…"],
   "neutral_rewrite": "…" ,             // or null
-  "check": "judge | stealth | citation_dates | render"
+  "check": "judge | stealth | citation_dates | citation_lifecycle | render | cherry_pick"
 }
 ```
 
@@ -64,9 +64,13 @@ scope here, but the flag record format below is designed so it can be listed the
   escalating render finding becomes one flag. `REMOVED_CONTEXT` anchors on the old side.
 - Offsets are into the wikitext that was submitted for that side; the UI falls back to text
   search when they are null or do not match the rendered diff cell.
+- `OUT_OF_SYNC` is a page-internal consistency finding. It anchors the changed value and
+  provides a `page` evidence quote, section and article-fragment URL. Deterministic matches
+  are admin-tier; model-confirmed matches are review-tier.
 - Colours by kind (fixed, accessible in light and dark): FACT red, MOTIVE purple, FRAMING
   amber, REMOVED_CONTEXT orange, HIDDEN_TEXT near-black with a red outline, CITATION_DATE
-  blue, CITED_PAGE teal. Tier `admin` = solid chip, `review` = outlined chip.
+  blue, CITED_PAGE teal, CHERRY_PICK magenta, OUT_OF_SYNC teal-blue (#0b6e99 / #6cc4ee).
+  Tier `admin` = solid chip, `review` = outlined chip.
 
 ## Cost and latency
 

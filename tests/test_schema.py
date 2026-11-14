@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from pydantic import ValidationError
 
@@ -38,6 +40,10 @@ def test_audit_output_rejects_unknown_verdict() -> None:
     bad = EXAMPLE.replace('FLAG_G3_MOTIVE"', 'MAYBE_BIASED"', 1)
     with pytest.raises(ValidationError):
         AuditOutput.model_validate_json(bad)
+
+
+def test_audit_schema_has_no_additional_properties() -> None:
+    assert "additionalProperties" not in json.dumps(AuditOutput.model_json_schema())
 
 
 def test_display_span_context_uses_language_neutral_sentence_boundaries() -> None:
