@@ -88,7 +88,7 @@ def save_source(page: Page, root: str, title: str, content: str, summary: str) -
     expect(page.locator("body")).to_have_class(re.compile(r"(?:^|\s)skin-vector-2022(?:\s|$)"))
 
 
-def save_visual(page: Page, root: str, title: str, marker: str) -> None:
+def save_visual(page: Page, root: str, title: str, base_content: str, marker: str) -> None:
     page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&veaction=edit"), wait_until="domcontentloaded")
     welcome = page.get_by_role("dialog", name=re.compile("^Welcome to", re.I))
     expect(welcome).to_be_visible(timeout=30_000)
@@ -104,15 +104,32 @@ def save_visual(page: Page, root: str, title: str, marker: str) -> None:
     expect(surface).to_be_visible(timeout=60_000)
     expect(page.locator(".ve-ui-toolbar")).to_be_visible()
     surface.click()
-    page.keyboard.press("Control+End")
-    page.keyboard.press("Enter")
-    page.keyboard.type(marker)
+    # Fill through Playwright's contenteditable input path. Typing during
+    # Vector's post-onboarding activation can alter the rendered DOM before
+    # VisualEditor's model is ready to record a transaction.
+    surface.fill(f"{base_content}\n\n{marker}")
     expect(surface).to_contain_text(marker, timeout=30_000)
     save_button = page.locator(".ve-ui-toolbar").get_by_role(
         "button", name=re.compile(r"^Save(?: changes)?(?:…|\.\.\.)?$", re.I)
     )
     expect(save_button.last).to_be_visible()
-    expect(save_button.last).to_be_enabled(timeout=30_000)
+    try:
+        expect(save_button.last).to_be_enabled(timeout=30_000)
+    except AssertionError as error:
+        state = page.evaluate("""() => {
+            const root = document.querySelector('.ve-ce-rootNode[role="textbox"][contenteditable="true"]');
+            const save = document.querySelector('.ve-ui-toolbar-saveButton');
+            let modified = null;
+            try { modified = window.ve.init.target.getSurface().getModel().hasBeenModified(); } catch (_) {}
+            return {
+                focusedEditor: !!root && document.activeElement === root,
+                editorText: root?.innerText,
+                selection: window.getSelection()?.toString(),
+                saveDisabled: save?.getAttribute('aria-disabled'),
+                modelModified: modified,
+            };
+        }""")
+        raise AssertionError(f"VisualEditor Save stayed disabled after inserting marker; state={json.dumps(state)}") from error
     save_button.last.click()
     save_dialog = page.locator(".ve-ui-mwSaveDialog")
     expect(save_dialog).to_be_visible(timeout=30_000)
@@ -122,6 +139,7 @@ def save_visual(page: Page, root: str, title: str, marker: str) -> None:
     expect(page.locator(".ve-ui-toolbar")).to_have_count(0, timeout=60_000)
     page.reload(wait_until="domcontentloaded")
     expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=30_000)
+    expect(page.locator("#mw-content-text")).to_contain_text(base_content, timeout=30_000)
 
 
 def history_and_diff(page: Page, root: str, title: str) -> None:
@@ -252,7 +270,8 @@ def run_language(browser: Browser, language: str, runtime: dict) -> dict:
     login(page, root, users[0], password)
     first_body = f"Source editor acceptance {token}.\nInitial durable text."
     save_source(page, root, title, first_body, "Create source edit acceptance page")
-    save_visual(page, root, title, f"Visual editor acceptance marker {token}")
+    save_visual(page, root, title, first_body, f"Visual editor acceptance marker {token}")
+    search_page(page, root, title, "Initial durable text")
     history_and_diff(page, root, title)
     create_talk_post_and_reply(page, root, title, token)
     upload_and_render_image(page, root, title, token)
