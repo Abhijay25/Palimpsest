@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "date_language",
+  "kind": "parser_cases",
+  "timezone": "UTC",
+  "cases": [
+    {"query": "As of 15 March 2026", "valid": true, "mode": "asof", "lower_utc": "2026-03-15T23:59:59Z", "upper_utc": "2026-03-15T23:59:59Z"},
+    {"query": "Between 1 February and 31 March 2026", "valid": true, "mode": "range", "from_utc": "2026-02-01T00:00:00Z", "to_utc": "2026-03-31T23:59:59Z"},
+    {"query": "Latest version before 1 April 2026", "valid": true, "mode": "before", "bound_utc": "2026-04-01T00:00:00Z"},
+    {"query": "As of 29 February 2024", "valid": true, "mode": "asof", "upper_utc": "2024-02-29T23:59:59Z"},
+    {"query": "As of 29 February 2025", "valid": false, "reason": "invalid_calendar_date"},
+    {"query": "Between 31 March and 1 February 2026", "valid": false, "reason": "reversed_range"},
+    {"query": "As of 15 mars 2026", "valid": false, "reason": "unsupported_language"},
+    {"query": "Show changes in February 2026", "valid": false, "reason": "unsupported_or_ambiguous_pattern"}
+  ],
+  "manual_bounds": [
+    {"value": "2026-03-15T12:99:00Z", "valid": false, "reason": "invalid_utc_time"},
+    {"from": "2026-03-31T00:00:00Z", "to": "2026-02-01T23:59:59Z", "valid": false, "reason": "reversed_range"}
+  ],
+  "api_invalid_modes": [{"value": "nonsense", "valid": false, "reason": "unsupported_mode"}]
+}

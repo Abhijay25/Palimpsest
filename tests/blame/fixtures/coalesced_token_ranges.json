@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "id": "coalesced_token_ranges",
+  "kind": "ordinary_api_span",
+  "description": "Adjacent locally owned tokens are returned as one span with exact per-token UTF-16 ranges and complete lineage IDs.",
+  "source_text": "red fast.",
+  "revision_ids": {"r1": 101, "r2": 102},
+  "expected_segments": [
+    {"text": "fast", "revision": "r2", "start": 4, "end": 8}
+  ],
+  "result": {
+    "spans": [
+      {
+        "start": 0,
+        "end": 8,
+        "revision_id": 102,
+        "token_id": "102:0",
+        "lineage_ids": ["101:0", "102:0", "102:1"],
+        "token_ranges": [[0, 3, "102:0"], [4, 8, "102:1"]]
+      }
+    ]
+  },
+  "negative_cases": {
+    "bad_gap": {"token_ranges": [[0, 3, "102:0"], [5, 8, "102:1"]]},
+    "bad_bounds": {"token_ranges": [[0, 3, "102:0"], [4, 9, "102:1"]]},
+    "bad_id_owner": {"token_ranges": [[0, 3, "102:0"], [4, 8, "103:1"]]}
+  }
+}

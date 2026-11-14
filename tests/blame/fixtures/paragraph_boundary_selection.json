@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "id": "paragraph_boundary_selection",
+  "kind": "browser_case",
+  "description": "A native range crosses two rendered paragraphs; the complete exact Selection.toString is retained.",
+  "wikitext": "First paragraph ends.\n\nSecond begins.",
+  "selection_text": "First paragraph ends.\n\nSecond begins.",
+  "expected_source_ranges": [[0, 21], [23, 37]],
+  "expected_coverage": "complete",
+  "must_retain_exact_selection": true
+}
