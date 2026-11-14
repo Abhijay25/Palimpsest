@@ -22,6 +22,7 @@ from palimpsest.pipeline import (
     _window_for,
     _worst_scan,
 )
+from palimpsest.reasons import REASON_TEXT, ReasonCode, reason_code
 from palimpsest.render_service import (
     AuditorProvider,
     RenderSummary,
@@ -153,11 +154,14 @@ class UnitSummary(BaseModel):
     route: Route
     stage_reached: Literal[0, 1, 2]
     latency_ms: float
+    reason: ReasonCode | None = None
 
 
 class AuditDiffResponse(BaseModel):
     verdict: Verdict
     confidence: float
+    reason: ReasonCode | None
+    reason_text: str | None
     flagged_spans: list[SpanOut]
     atomic_propositions: list[AtomicProposition]
     neutral_rewrite: str | None
@@ -470,9 +474,16 @@ async def audit_diff(
             len(o.pc.ref_scan.hidden_findings) for o in outcomes if o.pc.ref_scan
         )
         ref_scan_ms = sum(o.pc.stealth_ms for o in outcomes)
+        reasons = [
+            reason_code(o.output, o.pc.case.old_text, o.pc.case.new_text)
+            for o in outcomes
+        ]
+        top_reason = reasons[outcomes.index(top_outcome)]
         return AuditDiffResponse(
             verdict=output.verdict,
             confidence=output.confidence,
+            reason=top_reason,
+            reason_text=REASON_TEXT[top_reason] if top_reason else None,
             flagged_spans=[
                 span
                 for o in contributing
@@ -513,8 +524,9 @@ async def audit_diff(
                     route=r,
                     stage_reached=o.result.stage_reached,
                     latency_ms=o.unit_ms,
+                    reason=reason,
                 )
-                for o, r in zip(outcomes, unit_routes, strict=True)
+                for o, r, reason in zip(outcomes, unit_routes, reasons, strict=True)
             ],
             partial=partial,
         )

@@ -182,6 +182,9 @@ def test_audit_diff_flag_g2_with_offsets(client: TestClient) -> None:
     assert body["route"] == "admin"
     assert body["editor_trust_delta"] == -0.05
     assert body["neutral_rewrite"] == "The mayor signed the bill."
+    assert body["reason"] == "LOADED_WORDING"
+    assert body["reason_text"]
+    assert body["units"][0]["reason"] == "LOADED_WORDING"
     start = FRAMING_TEXT.index("shamelessly")
     first, second = body["flagged_spans"]
     assert (first["start"], first["end"]) == (start, start + len("shamelessly"))
