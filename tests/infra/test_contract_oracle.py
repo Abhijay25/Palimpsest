@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import struct
 import unittest
+import zlib
 
 from tests.infra.fixtures import pipeline_fixture
 from tests.infra.oracle import audit_pipeline, runtime_is_ready, validate_corpus, validate_runtime, verify_release_assets
+from tests.infra.browser.png_fixture import png_bytes
 
 
 def runtime_fixture() -> dict:
@@ -51,6 +54,22 @@ class RuntimeManifestTests(unittest.TestCase):
 
 
 class CorpusAndPipelineTests(unittest.TestCase):
+    def test_upload_png_fixture_has_valid_chunk_checksums(self) -> None:
+        data = png_bytes()
+        self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
+        offset = 8
+        chunks = []
+        while offset < len(data):
+            size = struct.unpack(">I", data[offset:offset + 4])[0]
+            kind = data[offset + 4:offset + 8]
+            payload = data[offset + 8:offset + 8 + size]
+            expected_crc = struct.unpack(">I", data[offset + 8 + size:offset + 12 + size])[0]
+            self.assertEqual(zlib.crc32(kind + payload) & 0xFFFFFFFF, expected_crc, kind)
+            chunks.append((kind, payload))
+            offset += size + 12
+        self.assertEqual([kind for kind, _ in chunks], [b"IHDR", b"IDAT", b"IEND"])
+        self.assertEqual(struct.unpack(">II", chunks[0][1][:8]), (1, 1))
+
     def test_three_language_sample_reconciles_against_independent_source_inventory(self) -> None:
         corpus, expected, history, imports, report = pipeline_fixture()
         self.assertEqual(validate_corpus(corpus), [])

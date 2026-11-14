@@ -16,6 +16,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 import uuid
 
 from playwright.sync_api import Browser, BrowserContext, Page, expect, sync_playwright
+from png_fixture import png_bytes
 
 
 LANGUAGES = ("fi", "sv", "en")
@@ -195,11 +196,7 @@ def watch_and_check_second_user_edit(
 
 
 def upload_and_render_image(page: Page, root: str, title: str, token: str) -> None:
-    # A valid one-pixel PNG, generated in a private temp directory for this run.
-    png = bytes.fromhex(
-        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
-        "0000000b49444154789c636000020000050001a5f645400000000049454e44ae426082"
-    )
+    png = png_bytes()
     filename = f"InfraAcceptance{token}.png"
     with tempfile.TemporaryDirectory(prefix="palimpsest-c-upload-") as temp_dir:
         local_file = Path(temp_dir) / filename
