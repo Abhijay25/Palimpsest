@@ -31,6 +31,8 @@ Reuse the same options for later commands. `reset --confirm-project <name>` dele
 
 ## Dataset and original history
 
+Downloaded content retains the release README and its notices: Wikipedia text is CC BY-SA 4.0, with credit and original article links retained in the source manifests. Consult the fetched `dataset/raw/README.md` and the [release](https://github.com/MariaDB/mariadb-wikipedia-datasets/releases/tag/s-2026-10).
+
 The locked `s-2026-10` release contains 29,460 pages: 19,285 Finnish, 4,921 Swedish and 5,254 English. Its Markdown snapshots are research assets; they are not a MediaWiki SQL backup or the original edit histories.
 
 ```sh
