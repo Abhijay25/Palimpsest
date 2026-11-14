@@ -1,5 +1,9 @@
 # Existing research implementation
 
+## Unified article preview
+
+Article, Language differences and Flags share `templates/article_shell.html`. Preserve exact historical context and repeated language query values across views. Legacy reader/comparison routes remain compatible. `/article/<topic>` defaults to Article. Detector scans require an explicit button; `scan=1` links do not auto-scan. Historical reader mode shows source excerpts/links, never an unrelated snapshot. This is still a Flask preview; do not describe it as native MediaWiki.
+
 ## Latest delivery contract
 
 Main `/explore` uses `lab_explorer.html` and `static/lab-explorer.js/.css`: bare URL opens the centered article/language prompt; explicit topic opens a monthly histogram across the complete source range. Floating zoom controls change the date window, with yearly buckets only when a longer range requires them; month is the finest time unit. Clicking a bucket opens a searchable issue table, not a zoom transition. Counts are period UNIONs with exact selected-pair categories. Clicking an issue opens a wide side-by-side evidence dialog. The constellation view, its unused template/browser assets and its link are removed; legacy read APIs remain compatibility only. The historical notes below describe earlier iterations.

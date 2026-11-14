@@ -67,6 +67,16 @@ def database_error(error):
     app.logger.error('Database unavailable: %s',error)
     return render_template('error.html'),503
 
+@app.template_global()
+def article_view_url(topic, tab, language=None):
+    from urllib.parse import urlencode
+    args=request.args.copy()
+    args.poplist('tab');args.poplist('scan')
+    if language:args.setlist('lang',[language])
+    args.setlist('tab',[tab])
+    return '/article/'+topic+'?'+urlencode(list(args.items(multi=True)))
+
+
 @app.get('/')
 def home():
     return redirect('/explore')

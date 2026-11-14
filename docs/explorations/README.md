@@ -94,3 +94,11 @@ Final data preparation: the curated 20 EN/FI/SV articles all have published find
 Final user navigation replaces the prior click-year/month hierarchy: default monthly histogram over the full available history, zoom changes its date window and adapts to yearly buckets for longer ranges, clicking a bucket opens a searchable issue table, then selecting an issue opens evidence. Month is the finest timeline unit; the issue table has no large colored temporal bands. The latest presentation uses Wikipedia's white/gray/blue style and has no draft-editing controls.
 
 The popup comparison viewer and subsequent article-tracker navigation are intentionally provisional UX, backed by real cached evidence rather than fabricated examples. Their design/routing and the distinction between historical observations and current actionable issues will be iterated later; no finalized native MediaWiki lifecycle is implied.
+
+## Unified article preview
+
+The reader (`/wiki/<topic>`), snapshot/historical comparison (`/langcompare/<topic>`) and detector interface now share `article_shell.html` and one Article / Language differences / Flags navigation bar. `/article/<topic>?tab=article|language|flags` exposes the combined preview; existing routes remain compatible. Tab links retain repeated language selections, run, question, observation, exact occurrence, return context and selected detector revision. Changing revision in Flags updates the tab destinations. Opening a view does not trigger a detector scan, including old `scan=1` links.
+
+The Article view reads the existing dataset snapshot. For a historical evidence selection it shows exact archived excerpts and original revision links rather than substituting the snapshot. If a selected detector revision differs from the snapshot, the reader labels the difference. Full historical article rendering in this preview is not implemented. Snapshot language findings and historical findings keep their separate data scopes. Flags remain detector suggestions; unavailable cached audits are explicit.
+
+This is a consolidation of the Flask preview, not a native MediaWiki integration. Native wiki core remains in its pinned Docker image, with PalimpsestBlame and PalimpsestFlags extensions under `infra/wiki/extensions`; their code and databases are unchanged.

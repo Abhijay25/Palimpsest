@@ -255,10 +255,20 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
 def article(topic: str):
     if not (topic == "Q-demo" and fixture_enabled()) and not re.fullmatch(r"Q\d{1,15}", topic):
         abort(404)
+    tab = request.args.get("tab", "article")
+    if tab not in ("article", "language", "flags"):
+        abort(400, description="Choose Article, Language differences or Flags.")
+    historical = any(key in request.args for key in ("run", "group", "stamp", "occurrence"))
+    fixture = fixture_context(topic)
+    if tab == "article" and not historical:
+        from app import article_page
+        return article_page(topic)
+    if tab == "language" and fixture is None:
+        from app import topic_page
+        return topic_page(topic)
     context = tracker_or_fixture(topic)
-    tab = request.args.get("tab", "language")
-    if tab not in ("language", "flags"):
-        abort(400, description="Choose the Language or Flags tab.")
+    if tab == "article":
+        return render_template("historical_article.html", **context)
     refs = revision_rows(context)
     selected = request.args.get("revision", type=int) or (refs[0]["revision"] if refs else None)
     selected_ref = next((ref for ref in block_revisions(context) if ref.revision_id == selected), None)

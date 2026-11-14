@@ -1,4 +1,5 @@
-<nav class="page-tabs tab-control" role="tablist" aria-label="Article review">
-  <a id="language-tab" role="tab" aria-selected="{{ 'true' if article_tab != 'flags' else 'false' }}" {{ 'aria-current="page"'|safe if article_tab != 'flags' else '' }} href="/article/{{ topic }}?lang={{ tab_lang }}&amp;tab=language">Language</a>
-  <a id="flags-tab" role="tab" aria-selected="{{ 'true' if article_tab == 'flags' else 'false' }}" {{ 'aria-current="page"'|safe if article_tab == 'flags' else '' }} href="/article/{{ topic }}?lang={{ tab_lang }}&amp;tab=flags">Flags</a>
+<nav class="page-tabs article-workspace-tabs" aria-label="Article views">
+  {% for key,label in [('article','Article'),('language','Language differences'),('flags','Flags')] %}
+  <a id="{{ key }}-tab" {% if active_article_tab == key %}aria-current="page"{% endif %} href="{{ article_view_url(topic,key,tab_lang) }}">{{ label }}</a>
+  {% endfor %}
 </nav>
