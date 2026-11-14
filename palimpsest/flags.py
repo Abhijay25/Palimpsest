@@ -593,12 +593,7 @@ def build_flags(
                 check="citation_dates",
             )
         )
-    escalating = [
-        render_finding
-        for render_finding in render_findings
-        if has_strong_instruction(render_finding.decoded_hidden_text)
-    ]
-    for index, render_finding in enumerate(escalating):
+    for index, render_finding in enumerate(render_findings):
         anchor = _wikitext_anchor(
             new_wikitext, [render_finding.raw_snippet, *render_citations]
         )
@@ -607,7 +602,11 @@ def build_flags(
             Flag(
                 id=f"r{index}",
                 kind="CITED_PAGE",
-                tier="admin",
+                tier=(
+                    "admin"
+                    if has_strong_instruction(render_finding.decoded_hidden_text)
+                    else "review"
+                ),
                 title=_judge_title("CITED_PAGE"),
                 reason=render_finding.explanation,
                 confidence=render_finding.confidence,

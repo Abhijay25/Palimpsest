@@ -7,7 +7,11 @@ from pathlib import Path
 import pytest
 
 from palimpsest.stealth.models import VectorType
-from palimpsest.stealth.pillar3 import judged_drift, render_findings
+from palimpsest.stealth.pillar3 import (
+    fetched_html_findings,
+    judged_drift,
+    render_findings,
+)
 from palimpsest.stealth.render import (
     MAX_TILES,
     TILE_OVERLAP_PX,
@@ -119,6 +123,39 @@ def test_benign_matching_text_no_findings() -> None:
         "Paris is the capital of France. It is a major European city with many museums."
     )
     assert render_findings(make_audit(human_text=human), human) == []
+
+
+def test_fetched_html_catalogue_detects_hidden_channels() -> None:
+    """Fetched source markup is scanned even when no socket/browser is involved."""
+    from eval.security.poison_server import PAGE_CATALOG, page_html
+    from palimpsest.stealth.models import StealthStatus
+    from palimpsest.stealth.sanitizer import has_strong_instruction
+
+    for name, spec in PAGE_CATALOG.items():
+        html = page_html(name)
+        assert html is not None
+        findings = fetched_html_findings(html)
+        status = (
+            StealthStatus.CRITICAL_AI_POISONING
+            if any(has_strong_instruction(f.decoded_hidden_text) for f in findings)
+            else StealthStatus.CSS_CLOAKING_DETECTED
+            if findings
+            else StealthStatus.CLEAN
+        )
+        assert status == (
+            StealthStatus.CRITICAL_AI_POISONING
+            if spec.strong_instruction
+            else StealthStatus.CSS_CLOAKING_DETECTED
+        ), name
+
+
+def test_fetched_html_catalogue_benign_twins_are_clean() -> None:
+    from eval.security.poison_server import CLAIMS, page_html
+
+    for language in CLAIMS:
+        html = page_html(language)
+        assert html is not None
+        assert fetched_html_findings(html) == []
 
 
 # ---- render (browser) ----

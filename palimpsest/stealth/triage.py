@@ -187,3 +187,50 @@ def apply_triage(result: ScanResult, verdicts: dict[str, TriageVerdict]) -> Scan
     return result.model_copy(
         update={"stealth_status": _max_status(statuses), "hidden_findings": findings}
     )
+
+
+def apply_comment_triage(
+    result: ScanResult, verdicts: dict[str, TriageVerdict]
+) -> ScanResult:
+    """Apply only API comment-triage verdicts; leave other channels provisional.
+
+    The online audit intentionally triages only ordinary hidden comments.  Attribute
+    and template text may be reader-facing, so unresolved instances are not flags.
+    """
+    triaged = {
+        finding_id: finding
+        for finding_id, finding in triage_items(result)
+        if finding.vector_type == VectorType.HTML_COMMENT
+        and finding.classification == "BENIGN_EDITOR_NOTE_PROVISIONAL"
+    }
+    findings: list[HiddenFinding] = []
+    statuses: list[StealthStatus] = []
+    for index, finding in enumerate(result.hidden_findings):
+        finding_id = f"{result.scan_id}:{index}"
+        if finding_id not in triaged:
+            provisional = _PROVISIONAL_STATUS.get(finding.classification)
+            if provisional is not None:
+                statuses.append(provisional)
+            findings.append(finding)
+            continue
+        verdict = verdicts.get(finding_id)
+        if verdict is None:
+            statuses.append(StealthStatus.BENIGN_NOTES_ONLY)
+            findings.append(
+                finding.model_copy(update={"classification": "TRIAGE_MISSING"})
+            )
+            continue
+        status, classification = _final_for_triaged(finding, verdict)
+        statuses.append(status)
+        findings.append(
+            finding.model_copy(
+                update={
+                    "classification": classification,
+                    "confidence": verdict.confidence,
+                    "explanation": verdict.explanation,
+                }
+            )
+        )
+    return result.model_copy(
+        update={"stealth_status": _max_status(statuses), "hidden_findings": findings}
+    )

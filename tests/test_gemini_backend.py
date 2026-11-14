@@ -173,7 +173,7 @@ def test_triage_backend_parses_verdict() -> None:
         "confidence": 0.9,
         "explanation": "x",
     }
-    client = _FakeClient([json.dumps(verdict)])
+    client = _FakeClient([json.dumps([verdict])])
     backend = GeminiTriageBackend(
         client=cast(GeminiClient, client), backoff_seconds=0.0
     )

@@ -99,6 +99,9 @@ class RenderAudit(BaseModel):
     truncated: bool
     blocked_requests: int
     render_ms: float
+    # The fetched document before browser text collection. This retains channels
+    # such as comments and JSON-LD scripts that are absent from rendered text.
+    fetched_html: str | None = None
 
 
 _RouteHandler = Callable[[Route, Request], Awaitable[None]]
@@ -297,7 +300,12 @@ _OCCLUSION_JS = r"""
 
 
 async def check_public_url(url: str) -> bool:
-    """True only for http(s) URLs whose host resolves exclusively to public addresses."""
+    """True only for safe http(s) URLs.
+
+    Public addresses are required in normal operation.  ``PALIMPSEST_ALLOW_LOOPBACK=1``
+    is an explicit test-fixture escape hatch: it permits only localhost, ::1, and
+    127.0.0.0/8, never another private or link-local address.
+    """
     try:
         parts = urlsplit(url)
         host = parts.hostname
@@ -307,7 +315,7 @@ async def check_public_url(url: str) -> bool:
     if parts.scheme not in ("http", "https") or not host:
         return False
     try:
-        return _is_public_ip(ipaddress.ip_address(host))
+        return _is_allowed_ip(ipaddress.ip_address(host))
     except ValueError:
         pass
     try:
@@ -320,7 +328,7 @@ async def check_public_url(url: str) -> bool:
         return False
     for info in infos:
         try:
-            if not _is_public_ip(ipaddress.ip_address(str(info[4][0]).split("%")[0])):
+            if not _is_allowed_ip(ipaddress.ip_address(str(info[4][0]).split("%")[0])):
                 return False
         except ValueError:
             return False
@@ -339,6 +347,15 @@ def _is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
         or ip.is_unspecified
         or not ip.is_global
     )
+
+
+def _is_allowed_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Apply the public-address guard, with its deliberately narrow test override."""
+    if _is_public_ip(ip):
+        return True
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return os.environ.get("PALIMPSEST_ALLOW_LOOPBACK") == "1" and ip.is_loopback
 
 
 def _join(nodes: list[_RawNode]) -> str:
@@ -487,15 +504,20 @@ class PageRenderer:
             service_workers="block",
             viewport={"width": VIEWPORT[0], "height": VIEWPORT[1]},
         )
+        fetched_html = html
         try:
             await context.route("**/*", handler)
             page = await context.new_page()
             if url is not None:
-                await page.goto(url, wait_until="load", timeout=NAV_TIMEOUT_MS)
+                response = await page.goto(
+                    url, wait_until="load", timeout=NAV_TIMEOUT_MS
+                )
                 if not await check_public_url(page.url):
                     raise RenderBlockedError(
                         f"Navigation ended on non-public URL: {page.url}"
                     )
+                if response is not None:
+                    fetched_html = await response.text()
                 await page.wait_for_timeout(SETTLE_MS)
             else:
                 assert html is not None
@@ -596,4 +618,5 @@ class PageRenderer:
             truncated=truncated,
             blocked_requests=blocked_count(),
             render_ms=(time.perf_counter() - start) * 1000,
+            fetched_html=fetched_html,
         )

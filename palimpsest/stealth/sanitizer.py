@@ -17,6 +17,7 @@ ZERO_WIDTH_CHARS = frozenset(
     + [chr(c) for c in range(0xFE00, 0xFE10)]
 )
 INVISIBLE_CHARS = BIDI_CHARS | ZERO_WIDTH_CHARS
+_INVISIBLE_TRANSLATION = {ord(char): None for char in INVISIBLE_CHARS}
 SUSPICIOUS_ALT_WORD_LIMIT = 15
 PROSE_PARAM_MIN_WORDS = 8
 
@@ -36,7 +37,12 @@ _INSTRUCTION_CI = re.compile(
     r"|fact[\s-]?checker"
     r"|language\s+model"
     r"|you\s+(?:must|should)\s+(?:always\s+)?(?:state|say|output|respond|report)"
-    r"|always\s+(?:state|say|report)\s+that",
+    r"|always\s+(?:state|say|report)\s+that"
+    # Finnish and Swedish imperatives in the same AI-verifier targeting pattern.
+    r"|ohita\s+(?:aiemmat|edelliset)\s+(?:ohjeet|käskyt|ohjeistus)"
+    r"|(?:ilmoita|merkitse|raportoi)\s+(?:tämä|tämä\s+)?(?:muokkaus|artikkeli|teksti).*?(?:tarkistetuksi|varmennetuksi|hyväksytyksi)"
+    r"|ignorera\s+(?:tidigare|föregående)\s+(?:instruktioner|anvisningar)"
+    r"|(?:rapportera|markera|klassificera)\s+(?:denna\s+)?(?:ändring|redigering|artikel|text).*?(?:verifierad|granskad|godkänd)",
     re.IGNORECASE,
 )
 _INSTRUCTION_CS = re.compile(r"\b(?:AI|LLM|LLMs|GPT|ChatGPT)\b")
@@ -181,14 +187,18 @@ class HiddenChannelResult(BaseModel):
 
 
 def looks_like_instruction(text: str) -> bool:
-    return bool(_INSTRUCTION_CI.search(text) or _INSTRUCTION_CS.search(text))
+    normalized = text.translate(_INVISIBLE_TRANSLATION)
+    return bool(
+        _INSTRUCTION_CI.search(normalized) or _INSTRUCTION_CS.search(normalized)
+    )
 
 
 def has_strong_instruction(text: str) -> bool:
     """Imperative phrasing only; bare AI/GPT mentions and topic words are not enough."""
+    normalized = text.translate(_INVISIBLE_TRANSLATION)
     return any(
         not m.group().lower().startswith(("language", "fact"))
-        for m in _INSTRUCTION_CI.finditer(text)
+        for m in _INSTRUCTION_CI.finditer(normalized)
     )
 
 
@@ -785,12 +795,13 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
         if m.group(3) or m.group(1).lower() in {"script", "style"}:
             continue
         attrs = m.group(2)
+        aria_hidden = bool(_ARIA_HIDDEN.search(attrs))
         vector: VectorType | None = None
         style = _STYLE_ATTR.search(attrs)
         if style is not None:
             reason = is_visually_hidden(
                 parse_style(style.group(1) or style.group(2) or ""),
-                aria_hidden=bool(_ARIA_HIDDEN.search(attrs)),
+                aria_hidden=aria_hidden,
                 inherited_background=_context_background(text, masked, m),
             )
             vector = None if reason is None else _style_vector(reason)
@@ -798,12 +809,22 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
             vector = VectorType.COLLAPSED_BLOCK
         if vector is None and _HIDDEN_ATTR.search(_QUOTED.sub('""', attrs)):
             vector = VectorType.CSS_HIDDEN_ELEMENT
+        aria_hidden_only = vector is None and aria_hidden
+        if aria_hidden_only:
+            # This is visually present but intentionally absent from assistive
+            # technology. Treat its enclosed text as a hidden channel too.
+            vector = VectorType.CSS_HIDDEN_ELEMENT
         if vector is None:
             continue
         close = _find_close(masked, m.group(1), m.end())
         if close < 0:
             continue
         inner = _TAG_STRIP.sub("", text[m.end() : close]).rsplit("</", 1)[0]
+        if aria_hidden_only and (
+            len(_WORD.findall(inner)) < ATTRIBUTE_TEXT_MIN_WORDS
+            and not looks_like_instruction(inner)
+        ):
+            continue
         if inner.strip():
             items.append(_item(text, vector, m.start(), close, inner))
     for m in _WIKI_TABLE_START.finditer(masked):

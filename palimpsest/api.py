@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import hashlib
 import os
 import re
 import time
@@ -12,13 +13,14 @@ from typing import Annotated, Final, Literal, cast
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import AfterValidator, BaseModel, Field
 
 from palimpsest.backends.gemini import (
     GeminiJudgeBackend,
     GeminiReviewerBackend,
+    GeminiTriageBackend,
     gemini_enabled,
 )
 from palimpsest.cascade import CascadeJudgeBackend
@@ -46,6 +48,7 @@ from palimpsest.citation_lifecycle import (
     wayback_baseline,
 )
 from palimpsest.consistency import (
+    article_url,
     check_page_consistency,
     gemini_consistency_judge,
 )
@@ -75,6 +78,13 @@ from palimpsest.judge import (
     PreparedCase,
     judge_with_latencies,
 )
+from palimpsest.page_consistency import (
+    CandidateGroup,
+    GeminiPageConsistencyJudge,
+    PageConsistencyDecision,
+    PageConsistencyJudge,
+    adjudicate_page,
+)
 from palimpsest.pipeline import (
     CACHE_DIR,
     _case_result,
@@ -93,6 +103,7 @@ from palimpsest.render_service import (
     shared_auditor,
     summarize_render,
 )
+from palimpsest.result_cache import read_result, write_result
 from palimpsest.reviewer import (
     ReviewerCandidate,
     ReviewerResult,
@@ -116,12 +127,18 @@ from palimpsest.scoring import ADMIN_FLAG_STATUSES, FLAGS, Route, route
 from palimpsest.segment import EditUnit, changed_chars, split_edit
 from palimpsest.sources import DailyCallCap, SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import extract_ref_urls, prefilter, refs_for_changed_sentences
-from palimpsest.stealth.models import ScanResult, StealthStatus
+from palimpsest.stealth.models import HiddenFinding, ScanResult, StealthStatus
 from palimpsest.stealth.scanner import (
     TargetType,
     reportable_findings,
     scan,
     worst_status,
+)
+from palimpsest.stealth.triage import (
+    TriageVerdict,
+    apply_comment_triage,
+    finding_text,
+    triage_items,
 )
 from palimpsest.value_check import (
     ValueCheck,
@@ -153,6 +170,7 @@ CHERRY_PICK_TIMEOUT_S: Final = 8.0
 MAX_CITATION_LIFECYCLE_URLS: Final = 4
 LIVE_CITATION_CONCURRENCY: Final = 25
 LIVE_CITATION_TIMEOUT_S: Final = 4.0
+TRIAGE_TIMEOUT_S: Final = 6.0
 _CITATION_WIKITEXT_RE: Final = re.compile(r"{{|<ref\b", re.IGNORECASE)
 _REF_TAG_RE: Final = re.compile(r"<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE)
 # These are wiki configuration template parameter names, not prose date labels.
@@ -219,6 +237,74 @@ def get_reviewer_backend() -> GeminiReviewerBackend | None:
     return GeminiReviewerBackend() if reviewer_enabled() and gemini_enabled() else None
 
 
+@cache
+def get_triage_backend() -> GeminiTriageBackend | None:
+    """Optional low-thinking classifier for provisional hidden comments only."""
+    return GeminiTriageBackend() if gemini_enabled() else None
+
+
+@cache
+def get_page_consistency_judge() -> PageConsistencyJudge | None:
+    """The page endpoint has its own bounded Hydrogen call, if Gemini is enabled."""
+    return GeminiPageConsistencyJudge() if gemini_enabled() else None
+
+
+_triage_cache: dict[str, TriageVerdict] = {}
+
+
+async def _triage_provisional_comments(scans: list[ScanResult]) -> list[ScanResult]:
+    """Best-effort, one-call comment triage with per-text in-process caching.
+
+    Any unavailable, timed-out, malformed, or missing result stays a review finding;
+    it must never make an audit fail.  Other provisional channel types intentionally
+    remain neutral until their dedicated workflow handles them.
+    """
+    requested: list[tuple[ScanResult, str, str]] = []
+    uncached: list[tuple[str, HiddenFinding]] = []
+    seen_hashes: set[str] = set()
+    for result in scans:
+        for finding_id, finding in triage_items(result):
+            if (
+                finding.vector_type.value != "HTML_COMMENT"
+                or finding.classification != "BENIGN_EDITOR_NOTE_PROVISIONAL"
+            ):
+                continue
+            text_hash = hashlib.sha256(
+                finding_text(finding).encode("utf-8")
+            ).hexdigest()
+            requested.append((result, finding_id, text_hash))
+            if text_hash not in _triage_cache and text_hash not in seen_hashes:
+                uncached.append((finding_id, finding))
+                seen_hashes.add(text_hash)
+    if uncached:
+        backend = get_triage_backend()
+        if backend is not None:
+            try:
+                answers = await asyncio.wait_for(
+                    backend.triage(uncached), TRIAGE_TIMEOUT_S
+                )
+            except Exception:  # noqa: BLE001 - triage is an isolated best-effort check
+                answers = {}
+            for finding_id, finding in uncached:
+                answer = answers.get(finding_id)
+                if isinstance(answer, TriageVerdict):
+                    text_hash = hashlib.sha256(
+                        finding_text(finding).encode("utf-8")
+                    ).hexdigest()
+                    _triage_cache[text_hash] = answer
+    verdicts_by_scan: dict[str, dict[str, TriageVerdict]] = {}
+    for result, finding_id, text_hash in requested:
+        cached = _triage_cache.get(text_hash)
+        if cached is not None:
+            verdicts_by_scan.setdefault(result.scan_id, {})[finding_id] = (
+                cached.model_copy(update={"finding_id": finding_id})
+            )
+    return [
+        apply_comment_triage(result, verdicts_by_scan.get(result.scan_id, {}))
+        for result in scans
+    ]
+
+
 def _http_url(url: str) -> str:
     if not url.lower().startswith(("http://", "https://")):
         raise ValueError("ref_urls entries must be http(s) URLs")
@@ -248,6 +334,14 @@ class AuditDiffRequest(BaseModel):
     )
     old_wikitext: Text | None = None
     new_wikitext: Text | None = None
+
+
+class AuditPageRequest(BaseModel):
+    lang_code: LangCode
+    page_title: str = Field(min_length=1, max_length=512)
+    revision_id: int = Field(ge=0)
+    # The endpoint itself truncates this deliberately, returning an explicit note.
+    wikitext: str = Field(min_length=1)
 
 
 class CrossLingualRequest(BaseModel):
@@ -317,6 +411,15 @@ class AuditDiffResponse(BaseModel):
     exa_budget_exhausted: bool
     units: list[UnitSummary]
     partial: bool
+    cached: bool = False
+
+
+class AuditPageResponse(BaseModel):
+    status: Literal["ok", "error"]
+    flags: list[Flag]
+    latency_ms: float
+    error: str | None = None
+    cached: bool = False
 
 
 class CitationLifecycleScan(BaseModel):
@@ -349,8 +452,13 @@ def _flag_tier(unit_route: Route) -> FlagTier:
     return "admin" if unit_route == "admin" else "review"
 
 
-def _stealth_flag_tier(status: StealthStatus) -> FlagTier:
-    return "admin" if status in ADMIN_FLAG_STATUSES else "review"
+def _stealth_flag_tier(finding: HiddenFinding) -> FlagTier:
+    """Only explicit hidden AI instructions bypass the review queue."""
+    return (
+        "admin"
+        if finding.classification == "FLAG_STEALTH_PROMPT_INJECTION"
+        else "review"
+    )
 
 
 def _raw_index_map(raw_length: int, removed: list[tuple[int, int]]) -> list[int]:
@@ -452,6 +560,102 @@ def healthz(
 @app.post("/api/v1/stealth-scan", response_model=ScanResult)
 def stealth_scan(req: StealthScanRequest) -> ScanResult:
     return scan(req.text, req.target_type, old_text=req.old_text)
+
+
+def _page_consistency_flags(
+    groups: list[CandidateGroup],
+    decisions: list[PageConsistencyDecision],
+    lang_code: str,
+    page_title: str,
+) -> list[Flag]:
+    """Map adjudicated page pairs to the existing stable flag contract."""
+    decisions_by_id = {decision.group_id: decision for decision in decisions}
+    flags: list[Flag] = []
+    for group in groups:
+        decision = decisions_by_id[group.group_id]
+        if not decision.conflict:
+            continue
+        flags.append(
+            Flag(
+                id=f"page-{group.group_id}",
+                kind="OUT_OF_SYNC",
+                check="consistency",
+                side="new",
+                tier="admin" if decision.confidence >= 0.7 else "review",
+                title="Internal page conflict",
+                reason=decision.reason,
+                confidence=decision.confidence,
+                anchor_text=group.first.text,
+                anchor_start=group.first.position,
+                anchor_end=group.first.position + len(group.first.text),
+                related_anchor_text=group.second.text,
+                context_sentence=group.first.text,
+                evidence=[
+                    FlagEvidence(
+                        source="page",
+                        quote=group.second.text,
+                        section=group.second.section,
+                        url=article_url(lang_code, page_title, group.second.section),
+                    )
+                ],
+                citations=[],
+                neutral_rewrite=None,
+            )
+        )
+    return sorted(flags, key=lambda flag: (flag.anchor_start or -1, flag.kind))[:20]
+
+
+@app.post("/api/v1/audit-page", response_model=AuditPageResponse)
+async def audit_page(
+    req: AuditPageRequest,
+    judge: Annotated[PageConsistencyJudge | None, Depends(get_page_consistency_judge)],
+    fresh: Annotated[str | None, Header(alias="X-Palimpsest-Fresh")] = None,
+) -> AuditPageResponse:
+    """Audit one page's own claims without fetching pages or changing wiki state."""
+    if fresh != "1":
+        cached = read_result("audit-page", req)
+        if cached is not None:
+            try:
+                return AuditPageResponse.model_validate(cached).model_copy(
+                    update={"cached": True}
+                )
+            except ValueError:
+                pass
+    started = time.perf_counter()
+    truncated = len(req.wikitext) > MAX_TEXT_CHARS
+    wikitext = req.wikitext[:MAX_TEXT_CHARS]
+    note = (
+        f"Wikitext truncated to {MAX_TEXT_CHARS} characters; later page content was not audited."
+        if truncated
+        else None
+    )
+    if judge is None:
+        return AuditPageResponse(
+            status="error",
+            flags=[],
+            latency_ms=(time.perf_counter() - started) * 1000,
+            error="Gemini page-consistency judge is unavailable.",
+        )
+    try:
+        groups, decisions = await adjudicate_page(wikitext, judge)
+        response = AuditPageResponse(
+            status="ok",
+            flags=_page_consistency_flags(
+                groups, decisions, req.lang_code, req.page_title
+            ),
+            latency_ms=(time.perf_counter() - started) * 1000,
+            error=note,
+        )
+    except Exception as exc:  # noqa: BLE001 - preserve a useful audit response
+        response = AuditPageResponse(
+            status="error",
+            flags=[],
+            latency_ms=(time.perf_counter() - started) * 1000,
+            error=f"Page consistency adjudication failed: {type(exc).__name__}: {exc}",
+        )
+    if response.status == "ok" and not truncated:
+        write_result("audit-page", req, response)
+    return response
 
 
 @app.post("/api/v1/cross-lingual", response_model=CrossLingualReport)
@@ -1210,6 +1414,19 @@ async def audit_diff_logic(
                 )
             )
         )
+        scans_to_triage = [diff_scan] + [
+            outcome.pc.ref_scan
+            for outcome in outcomes
+            if outcome.pc.ref_scan is not None
+        ]
+        triaged_scans = await _triage_provisional_comments(scans_to_triage)
+        diff_scan = triaged_scans[0]
+        for outcome, ref_scan in zip(
+            (outcome for outcome in outcomes if outcome.pc.ref_scan is not None),
+            triaged_scans[1:],
+            strict=True,
+        ):
+            outcome.pc.ref_scan = ref_scan
         top_outcome = max(
             outcomes,
             key=lambda o: (
@@ -1305,7 +1522,7 @@ async def audit_diff_logic(
         stealth_inputs = [
             StealthFlagInput(
                 finding=finding,
-                tier=_stealth_flag_tier(diff_scan.stealth_status),
+                tier=_stealth_flag_tier(finding),
                 side_text=new_wikitext,
                 evidence_source="new",
             )
@@ -1317,7 +1534,7 @@ async def audit_diff_logic(
             stealth_inputs.extend(
                 StealthFlagInput(
                     finding=finding,
-                    tier=_stealth_flag_tier(outcome.pc.ref_scan.stealth_status),
+                    tier=_stealth_flag_tier(finding),
                     side_text=new_wikitext,
                     evidence_source="cited",
                     evidence_url=(
@@ -1534,11 +1751,24 @@ async def audit_diff(
         GeminiReviewerBackend | None, Depends(get_reviewer_backend)
     ],
     auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
+    fresh: Annotated[str | None, Header(alias="X-Palimpsest-Fresh")] = None,
 ) -> AuditDiffResponse:
+    if fresh != "1":
+        cached = read_result("audit-diff", req)
+        if cached is not None:
+            try:
+                return AuditDiffResponse.model_validate(cached).model_copy(
+                    update={"cached": True}
+                )
+            except ValueError:
+                pass
     try:
-        return await audit_diff_logic(
+        response = await audit_diff_logic(
             req, process_fetcher, backend, auditor_provider, reviewer_backend
         )
+        if not response.partial:
+            write_result("audit-diff", req, response)
+        return response
     except JudgeUnavailableError as exc:
         raise HTTPException(
             status_code=503,

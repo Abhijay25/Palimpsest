@@ -7,7 +7,7 @@ from typing import Final, Protocol, TypeVar
 
 from dotenv import load_dotenv
 from google.genai import Client, errors, types
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, RootModel, ValidationError
 
 from palimpsest.guided import GuidedAnswers, guided_to_audit
 from palimpsest.judge import (
@@ -44,7 +44,7 @@ DEFAULT_BACKOFF_SECONDS: Final = 2.0
 RETRYABLE_STATUS: Final = 429
 TRIAGE_DIRECT_SUFFIX: Final = (
     "\n\nDIRECT API MODE: ignore any instruction about writing files or replying "
-    "DONE. Classify the single item and return only its JSON object."
+    "DONE. Classify every item and return only a JSON array of its objects."
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -321,26 +321,37 @@ class GeminiTriageBackend:
     ) -> None:
         self.model = os.environ.get("GEMINI_TRIAGE_MODEL") or DEFAULT_TRIAGE_MODEL
         self._caller = _GeminiCaller(self.model, client, backoff_seconds)
+        # API triage is one bounded, inexpensive best-effort call per audit.
+        self._caller.timeout = 6.0
+        self._caller.thinking = types.ThinkingConfig(
+            thinking_level=types.ThinkingLevel("LOW")
+        )
         self.latencies_ms: dict[str, float] = {}
 
     async def triage(
         self, items: list[tuple[str, HiddenFinding]]
     ) -> dict[str, TriageVerdict | str]:
-        async def one(
-            item: tuple[str, HiddenFinding],
-        ) -> tuple[str, TriageVerdict | str]:
-            finding_id = item[0]
-            system = (
-                TRIAGE_PROMPT_PATH.read_text(encoding="utf-8").replace(
-                    "{RESULTS_PATH}", "(unused)"
-                )
-                + TRIAGE_DIRECT_SUFFIX
+        if not items:
+            return {}
+        system = (
+            TRIAGE_PROMPT_PATH.read_text(encoding="utf-8").replace(
+                "{RESULTS_PATH}", "(unused)"
             )
-            contents = render_triage_batch([item], TRIAGE_PROMPT_PATH).split(
-                "========== ITEMS ==========", 1
-            )[-1]
-            result, ms = await self._caller.generate(system, contents, TriageVerdict)
-            self.latencies_ms[finding_id] = ms
-            return finding_id, result
+            + TRIAGE_DIRECT_SUFFIX
+        )
+        contents = render_triage_batch(items, TRIAGE_PROMPT_PATH).split(
+            "========== ITEMS ==========", 1
+        )[-1]
+        result, ms = await self._caller.generate(system, contents, TriageVerdicts)
+        self.latencies_ms = {finding_id: ms for finding_id, _ in items}
+        if isinstance(result, str):
+            return {finding_id: result for finding_id, _ in items}
+        returned = {verdict.finding_id: verdict for verdict in result.root}
+        return {
+            finding_id: returned.get(finding_id, "MissingVerdict")
+            for finding_id, _ in items
+        }
 
-        return dict(await asyncio.gather(*(one(i) for i in items)))
+
+class TriageVerdicts(RootModel[list[TriageVerdict]]):
+    """The one-call direct API response for a bounded batch of comment findings."""

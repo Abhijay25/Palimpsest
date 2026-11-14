@@ -249,12 +249,9 @@ def test_route_boundaries() -> None:
 
 def test_route_stealth_override() -> None:
     clean = Verdict.CLEAN_PASS
-    for status in (
-        "CRITICAL_AI_POISONING",
-        "CSS_CLOAKING_DETECTED",
-        "HOMOGLYPH_SPOOFING",
-    ):
-        assert route(_conf_result("a", clean, 0.1, status)) == "admin"
+    assert route(_conf_result("a", clean, 0.1, "CRITICAL_AI_POISONING")) == "admin"
+    for status in ("CSS_CLOAKING_DETECTED", "HOMOGLYPH_SPOOFING"):
+        assert route(_conf_result("a", clean, 0.1, status)) == "review"
     assert route(_conf_result("a", clean, 0.1, "BENIGN_NOTES_ONLY")) == "none"
     assert route(_result("a", None, error="bad")) == "none"
 

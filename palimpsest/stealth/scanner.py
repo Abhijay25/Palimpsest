@@ -64,11 +64,30 @@ def worst_status(statuses: Iterable[StealthStatus]) -> StealthStatus:
 def reportable_findings(result: ScanResult) -> list[HiddenFinding]:
     """Findings to report to API/pipeline callers.
 
-    SCREEN_FOR_INJECTION items are unresolved screening requests for triage,
-    not findings; they stay in the ScanResult but are never counted or listed.
+    A clean or notes-only scan cannot create a hidden-text flag. Provisional
+    channels require an escalation; an unavailable triage may still leave a
+    cloaked (non-comment) channel for review.
     """
+    if result.stealth_status in {
+        StealthStatus.CLEAN,
+        StealthStatus.BENIGN_NOTES_ONLY,
+    }:
+        return []
     return [
-        f for f in result.hidden_findings if f.classification != SCREEN_CLASSIFICATION
+        f
+        for f in result.hidden_findings
+        if f.classification
+        not in {
+            SCREEN_CLASSIFICATION,
+            "BENIGN_EDITOR_NOTE_PROVISIONAL",
+            "BENIGN_EDITOR_NOTE",
+            "NEEDS_TRIAGE",
+            "TRIAGE_NO_FLAG",
+        }
+        and not (
+            f.classification == "TRIAGE_MISSING"
+            and f.vector_type == VectorType.HTML_COMMENT
+        )
     ]
 
 
@@ -137,10 +156,12 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
         )
 
     controls = scan_invisible_controls(text)
+    intra_word_runs = {match.span() for match in _INTRA_WORD_INVISIBLE.finditer(text)}
     for run in controls.runs:
         raw = text[run.span[0] : run.span[1]]
         if not is_new(raw):
             continue
+        intra_word = run.span in intra_word_runs
         add(
             HiddenFinding(
                 vector_type=VectorType.INVISIBLE_CONTROL_CHARS,
@@ -149,13 +170,21 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
                 char_span=run.span,
                 classification="FLAG_BIDI_OVERRIDE"
                 if run.is_bidi
+                else "FLAG_CSS_CLOAKING"
+                if intra_word
                 else "INFO_ZERO_WIDTH",
                 confidence=0.8 if run.is_bidi else 0.4,
                 explanation="Bidirectional override control characters present."
                 if run.is_bidi
+                else "Invisible characters split a visible word."
+                if intra_word
                 else "Zero-width characters present; stripped from human text.",
             ),
-            StealthStatus.HOMOGLYPH_SPOOFING if run.is_bidi else None,
+            StealthStatus.HOMOGLYPH_SPOOFING
+            if run.is_bidi
+            else StealthStatus.CSS_CLOAKING_DETECTED
+            if intra_word
+            else None,
         )
 
     for homoglyph in detect_homoglyphs(text):
@@ -195,19 +224,11 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
     for item in channels.quarantined_items:
         if not is_new(item.raw_snippet):
             continue
-        if item.vector_type in _TRIAGE_FIRST_VECTORS:
+        if item.vector_type in _TRIAGE_FIRST_VECTORS and not item.instruction_like:
             classification = "NEEDS_TRIAGE"
-            contributes = (
-                StealthStatus.CRITICAL_AI_POISONING
-                if item.instruction_like
-                else StealthStatus.BENIGN_NOTES_ONLY
-            )
+            contributes = StealthStatus.BENIGN_NOTES_ONLY
             confidence = 0.6
-            explanation = (
-                "Template parameter or attribute text that may not render"
-                + ("; instruction-like phrasing" if item.instruction_like else "")
-                + "; pending triage."
-            )
+            explanation = "Template parameter or attribute text that may not render; pending triage."
         elif item.instruction_like:
             classification = "FLAG_STEALTH_PROMPT_INJECTION"
             contributes = StealthStatus.CRITICAL_AI_POISONING

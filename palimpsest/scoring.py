@@ -14,8 +14,6 @@ MIN_VIOLATION_RECALL: Final = 0.80
 ADMIN_FLAG_STATUSES: Final = frozenset(
     {
         StealthStatus.CRITICAL_AI_POISONING,
-        StealthStatus.CSS_CLOAKING_DETECTED,
-        StealthStatus.HOMOGLYPH_SPOOFING,
     }
 )
 ADMIN_THRESHOLD: Final = 0.70
@@ -98,6 +96,11 @@ def route(result: CaseResult) -> Route:
     """Derived queue routing; the section 10 verdict itself is unchanged."""
     if result.stealth_status in {s.value for s in ADMIN_FLAG_STATUSES}:
         return "admin"
+    if result.stealth_status in {
+        StealthStatus.CSS_CLOAKING_DETECTED.value,
+        StealthStatus.HOMOGLYPH_SPOOFING.value,
+    }:
+        return "review"
     if result.output is None or result.output.verdict not in FLAGS:
         return "none"
     if result.output.confidence >= ADMIN_THRESHOLD:

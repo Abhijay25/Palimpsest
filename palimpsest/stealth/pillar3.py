@@ -3,6 +3,7 @@ import re
 from palimpsest.stealth.models import HiddenFinding, VectorType
 from palimpsest.stealth.render import HiddenReason, RenderAudit
 from palimpsest.stealth.sanitizer import looks_like_instruction
+from palimpsest.stealth.scanner import SCREEN_CLASSIFICATION, scan
 
 MIN_NODE_TOKENS = 4
 FED_TO_JUDGE_RATIO = 0.6
@@ -54,8 +55,54 @@ def judged_drift(audit: RenderAudit, judged_text: str) -> float:
     return absent / len(sentences)
 
 
-def render_findings(audit: RenderAudit, judged_text: str | None) -> list[HiddenFinding]:
+def fetched_html_findings(html: str) -> list[HiddenFinding]:
+    """Detect hidden channels retained only in a cited page's fetched HTML.
+
+    The same scanner used for edit wikitext sees comments, scripts, hidden
+    elements, invisible controls, and accessibility-hidden text. Plain comments
+    remain non-findings; a non-instruction hidden channel is reviewable here
+    because it was fetched from a cited page rather than authored in the edit.
+    """
     findings: list[HiddenFinding] = []
+    for finding in scan(html, "EXTERNAL_REF_PAGE").hidden_findings:
+        if finding.classification in {
+            SCREEN_CLASSIFICATION,
+            "BENIGN_EDITOR_NOTE_PROVISIONAL",
+            "INFO_ZERO_WIDTH",
+        }:
+            continue
+        if finding.classification == "NEEDS_TRIAGE":
+            if finding.vector_type == VectorType.HTML_COMMENT:
+                continue
+            findings.append(
+                finding.model_copy(
+                    update={
+                        "classification": "FLAG_CSS_CLOAKING",
+                        "confidence": max(finding.confidence, 0.6),
+                        "explanation": "Fetched cited page contains text hidden from readers.",
+                    }
+                )
+            )
+            continue
+        findings.append(finding)
+    return findings
+
+
+def _deduplicate(findings: list[HiddenFinding]) -> list[HiddenFinding]:
+    """Keep one finding when HTML and layout inspection observe the same text."""
+    seen: set[str] = set()
+    deduplicated: list[HiddenFinding] = []
+    for finding in findings:
+        key = _normalized(finding.decoded_hidden_text or finding.raw_snippet)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduplicated.append(finding)
+    return deduplicated
+
+
+def render_findings(audit: RenderAudit, judged_text: str | None) -> list[HiddenFinding]:
+    findings = fetched_html_findings(audit.fetched_html) if audit.fetched_html else []
     judged_tokens = set(_tokens(judged_text)) if judged_text is not None else None
     visible_normalized = _normalized(audit.human_text)
 
@@ -117,4 +164,4 @@ def render_findings(audit: RenderAudit, judged_text: str | None) -> list[HiddenF
                         explanation="Text given to the judge is not visible on the rendered page",
                     )
                 )
-    return findings
+    return _deduplicate(findings)

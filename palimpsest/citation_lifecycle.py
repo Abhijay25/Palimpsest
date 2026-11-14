@@ -87,7 +87,7 @@ class LiveHttpMeta(BaseModel):
 class LiveLinkCheck(BaseModel):
     """The bounded availability result used before optional archival comparison."""
 
-    outcome: Literal["ok", "hard", "soft", "unchecked"]
+    outcome: Literal["ok", "hard", "soft", "unchecked", "guarded"]
     final_url: str | None = None
     http_status: int | None = None
     detail: str = ""
@@ -551,13 +551,13 @@ async def check_live_link(
         return LiveLinkCheck(outcome="hard", detail=f"DNS: {host} does not resolve")
     if not await public_url_checker(url):
         return LiveLinkCheck(
-            outcome="unchecked", detail="URL failed the public-address guard"
+            outcome="guarded", detail="URL failed the public-address guard"
         )
     current_url = url
     for _ in range(11):
         if not await public_url_checker(current_url):
             return LiveLinkCheck(
-                outcome="unchecked", detail="Redirect failed the public-address guard"
+                outcome="guarded", detail="Redirect failed the public-address guard"
             )
         try:
             response = await client.head(current_url, follow_redirects=False)
@@ -596,7 +596,7 @@ async def check_live_link(
         final_url = str(response.url)
         if not await public_url_checker(final_url):
             return LiveLinkCheck(
-                outcome="unchecked", detail="Final URL failed the public-address guard"
+                outcome="guarded", detail="Final URL failed the public-address guard"
             )
         if response.status_code in {404, 410, 451} or response.status_code >= 500:
             # A second response distinguishes a persistent status from a transient outage.
