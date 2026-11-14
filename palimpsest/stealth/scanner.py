@@ -219,4 +219,5 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
         scan_latency_ms=(time.perf_counter() - started) * 1000,
         sanitized_human_text=sanitized,
         hidden_findings=findings,
+        removed_spans=removals,
     )

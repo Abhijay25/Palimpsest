@@ -101,6 +101,7 @@ class SpanOut(BaseModel):
     explanation: str
     start: int | None
     end: int | None
+    occurrences: int
 
 
 class StealthSummary(BaseModel):
@@ -142,18 +143,36 @@ def _trust_delta(output: AuditOutput, stealth_flagged: bool) -> float:
     return TRUST_DELTA_BY_VERDICT.get(output.verdict, 0.0)
 
 
-def _spans_with_offsets(output: AuditOutput, new_text: str) -> list[SpanOut]:
+def _raw_index_map(raw_length: int, removed: list[tuple[int, int]]) -> list[int]:
+    """Raw-text index of each character that survives removal of the given spans."""
+    kept: list[int] = []
+    cursor = 0
+    for start, end in sorted(removed):
+        kept.extend(range(cursor, max(cursor, start)))
+        cursor = max(cursor, end)
+    kept.extend(range(cursor, raw_length))
+    return kept
+
+
+def _spans_with_offsets(
+    output: AuditOutput, new_scan: ScanResult, raw: str
+) -> list[SpanOut]:
+    """First-match offsets into the raw text, found in the sanitized text the judge saw."""
+    sanitized = new_scan.sanitized_human_text
+    index_map = _raw_index_map(len(raw), new_scan.removed_spans)
     spans: list[SpanOut] = []
     for span in output.flagged_spans:
-        start = new_text.find(span.exact_substring) if span.exact_substring else -1
-        found = start >= 0
+        needle = span.exact_substring
+        start = sanitized.find(needle) if needle else -1
+        found = start >= 0 and len(index_map) == len(sanitized)
         spans.append(
             SpanOut(
-                exact_substring=span.exact_substring,
+                exact_substring=needle,
                 guideline_violated=span.guideline_violated.value,
                 explanation=span.explanation,
-                start=start if found else None,
-                end=start + len(span.exact_substring) if found else None,
+                start=index_map[start] if found else None,
+                end=index_map[start + len(needle) - 1] + 1 if found else None,
+                occurrences=sanitized.count(needle) if needle else 0,
             )
         )
     return spans
@@ -261,7 +280,7 @@ async def audit_diff(
     return AuditDiffResponse(
         verdict=output.verdict,
         confidence=output.confidence,
-        flagged_spans=_spans_with_offsets(output, req.new_text),
+        flagged_spans=_spans_with_offsets(output, new_scan, req.new_text),
         atomic_propositions=output.atomic_propositions,
         neutral_rewrite=output.neutral_rewrite,
         editor_trust_delta=_trust_delta(output, stealth_flagged),

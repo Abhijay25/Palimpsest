@@ -209,3 +209,17 @@ def test_audit_diff_scans_run_off_the_event_loop(
     monkeypatch.setattr("palimpsest.api.scan", recording_scan)
     assert client.post("/api/v1/audit-diff", json=CLEAN_BODY).status_code == 200
     assert threads and all("AnyIO worker" in name for name in threads)
+
+
+def test_span_offsets_map_back_to_raw_text(client: TestClient) -> None:
+    api.app.dependency_overrides[api.get_judge_backend] = lambda: FakeBackend(
+        _flag_g2()
+    )
+    raw = "The\u200b\u200b mayor shame\u200blessly pushed it, shamelessly, through."
+    body = {**FRAMING_BODY, "new_text": raw}
+    resp = client.post("/api/v1/audit-diff", json=body)
+    assert resp.status_code == 200
+    first, second = resp.json()["flagged_spans"]
+    assert raw[first["start"] : first["end"]] == "shame\u200blessly"
+    assert first["occurrences"] == 2
+    assert second["start"] is None and second["occurrences"] == 0

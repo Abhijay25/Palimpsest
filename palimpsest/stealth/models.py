@@ -1,7 +1,7 @@
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class StealthStatus(StrEnum):
@@ -45,3 +45,4 @@ class ScanResult(BaseModel):
     scan_latency_ms: float
     sanitized_human_text: str
     hidden_findings: list[HiddenFinding]
+    removed_spans: list[tuple[int, int]] = Field(default_factory=list, exclude=True)
