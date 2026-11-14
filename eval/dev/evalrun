@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # evalrun RUN PROMPT SOURCE_MODE [extra prepare args...] : Hydrogen LOW over the 125-case g03 set.
-cd /home/abhijay/repos/Palimpsest || exit 1
+cd "$(dirname "$0")/../.." || exit 1
 set -a; . ./.env; set +a
 export PALIMPSEST_USE_GEMINI=1 GEMINI_THINKING_LEVEL=LOW GEMINI_CONCURRENCY=8
 run=$1; prompt=$2; mode=$3; shift 3
