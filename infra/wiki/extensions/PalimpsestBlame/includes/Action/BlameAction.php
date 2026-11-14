@@ -12,7 +12,9 @@ final class BlameAction extends Action {
 	}
 
 	public function show(): void {
-		if ( !$this->getTitle()->exists() || !$this->getTitle()->userCan( 'read', $this->getUser() ) ) {
+		$title = $this->getTitle();
+		$permissionManager = \MediaWiki\MediaWikiServices::getInstance()->getPermissionManager();
+		if ( !$title->exists() || !$permissionManager->userCan( 'read', $this->getUser(), $title ) ) {
 			$this->getOutput()->addWikiMsg( 'noarticletext' );
 			return;
 		}

@@ -101,6 +101,11 @@ $normalizedLinks = ( new ParsoidLinkNormalizer() )->normalize(
 );
 check( str_contains( $normalizedLinks, 'href="/wiki/Finnish_Rally_Championship?action=edit&amp;redlink=1#History"' ), 'relative internal link becomes a working local title URL and preserves query and fragment' );
 check( str_contains( $normalizedLinks, 'href="https://example.org/"' ), 'external links remain unchanged' );
+$queryStyleLink = ( new ParsoidLinkNormalizer() )->normalize(
+	'<a href="./Finnish_Rally_Championship?action=edit&amp;redlink=1#History">missing page</a>',
+	static fn ( string $text ): string => '/index.php?title=' . rawurlencode( str_replace( ' ', '_', $text ) )
+);
+check( str_contains( $queryStyleLink, 'href="/index.php?title=Finnish_Rally_Championship&amp;action=edit&amp;redlink=1#History"' ), 'query-style local URLs append Parsoid parameters with ampersand and preserve redlink navigation' );
 
 $generatedSource = 'before {{T}}';
 $generatedTokens = $engine->analyze( [ [ 'id' => 61, 'text' => $generatedSource ] ] )['tokens'];
@@ -129,4 +134,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 13 isolated attribution, DSR, and link fixtures\n";
+echo "PASS: 14 isolated attribution, DSR, and link fixtures\n";

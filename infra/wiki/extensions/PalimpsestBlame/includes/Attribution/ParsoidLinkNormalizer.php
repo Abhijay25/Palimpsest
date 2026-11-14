@@ -31,7 +31,7 @@ final class ParsoidLinkNormalizer {
 			if ( $titleText === '' ) { continue; }
 			$localUrl = $localUrlForTitle( str_replace( '_', ' ', $titleText ) );
 			if ( $localUrl === null ) { continue; }
-			$query = isset( $parts['query'] ) ? '?' . $parts['query'] : '';
+			$query = isset( $parts['query'] ) ? ( str_contains( $localUrl, '?' ) ? '&' : '?' ) . $parts['query'] : '';
 			$fragment = isset( $parts['fragment'] ) ? '#' . $parts['fragment'] : '';
 			$link->setAttribute( 'href', $localUrl . $query . $fragment );
 		}

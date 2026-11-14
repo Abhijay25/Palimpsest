@@ -22,6 +22,7 @@ use MediaWiki\Extension\PalimpsestBlame\Attribution\SourceTokenizer;
 use MediaWiki\Extension\PalimpsestBlame\Job\BlameBuildJob;
 use Throwable;
 use Wikimedia\ParamValidator\ParamValidator;
+use Wikimedia\ParamValidator\TypeDef\NumericDef;
 
 final class BlameApi extends ApiBase {
 	private const MAX_REVISIONS = 200;
@@ -78,11 +79,11 @@ final class BlameApi extends ApiBase {
 		return [
 			'op' => [ ParamValidator::PARAM_TYPE => [ 'analyze', 'versions', 'build', 'status' ], ParamValidator::PARAM_DEFAULT => 'analyze' ],
 			'title' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_REQUIRED => true ],
-			'revision' => [ ParamValidator::PARAM_TYPE => 'integer', ParamValidator::PARAM_MIN => 0, ParamValidator::PARAM_DEFAULT => 0 ],
+			'revision' => [ ParamValidator::PARAM_TYPE => 'integer', NumericDef::PARAM_MIN => 0, ParamValidator::PARAM_DEFAULT => 0 ],
 			'mode' => [ ParamValidator::PARAM_TYPE => [ 'asof', 'before', 'range' ], ParamValidator::PARAM_DEFAULT => 'asof' ],
 			'from' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '' ],
 			'to' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '' ],
-			'limit' => [ ParamValidator::PARAM_TYPE => 'integer', ParamValidator::PARAM_MIN => 1, ParamValidator::PARAM_MAX => 100, ParamValidator::PARAM_DEFAULT => 100 ],
+			'limit' => [ ParamValidator::PARAM_TYPE => 'integer', NumericDef::PARAM_MIN => 1, NumericDef::PARAM_MAX => 100, ParamValidator::PARAM_DEFAULT => 100 ],
 			'jobid' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '' ],
 			'cursor' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '' ],
 			'ranges' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '' ],
