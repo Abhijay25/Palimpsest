@@ -215,17 +215,34 @@ def create_talk_post_and_reply(page: Page, root: str, title: str, token: str) ->
     page.keyboard.type(marker, delay=50)
     typed_reply = reply_input.evaluate("element => element.value ?? element.innerText ?? element.textContent ?? ''")
     assert marker in typed_reply, f"DiscussionTools composer did not retain the full reply text: {typed_reply!r}"
+    page.wait_for_function("""marker => {
+        const input = document.querySelector('.ext-discussiontools-ui-replyWidget [role="textbox"][contenteditable="true"]');
+        const view = input && window.jQuery ? window.jQuery(input).data('view') : null;
+        const model = view?.getModel?.();
+        const data = model?.getDocument?.().getData?.();
+        const text = Array.isArray(data) ? data.map(item =>
+            typeof item === 'string' ? item : Array.isArray(item) ? item[0] : ''
+        ).join('') : '';
+        return !!model && model.hasBeenModified() && text.includes(marker);
+    }""", arg=marker, timeout=30_000)
     submit_reply = page.get_by_role("button", name="Reply", exact=True)
     try:
         expect(submit_reply.last).to_be_enabled(timeout=30_000)
     except AssertionError as error:
         state = page.evaluate("""() => ({
+            modelData: (() => {
+                const input=document.querySelector('.ext-discussiontools-ui-replyWidget [role="textbox"][contenteditable="true"]');
+                const model=input && window.jQuery ? window.jQuery(input).data('view')?.getModel?.() : null;
+                return model?.getDocument?.().getData?.();
+            })(),
             widgets: [...document.querySelectorAll('.ext-discussiontools-ui-replyWidget')].map(node => ({className: node.className, text: node.innerText})),
             textboxes: [...document.querySelectorAll('[role="textbox"]')].map(node => ({tag: node.tagName, className: node.className, value: node.value, text: node.innerText, label: node.getAttribute('aria-label')})),
             replyButtons: [...document.querySelectorAll('[role="button"]')].filter(node => node.innerText.trim() === 'Reply').map(node => ({disabled: node.getAttribute('aria-disabled'), className: node.className, title: node.title})),
         })""")
         raise AssertionError(f"DiscussionTools Reply stayed disabled after full text input: {json.dumps(state)}") from error
     submit_reply.last.click()
+    reply_widget = page.locator(".ext-discussiontools-ui-replyWidget")
+    expect(reply_widget).to_have_count(0, timeout=60_000)
     expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=60_000)
     page.reload(wait_until="domcontentloaded")
     expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=30_000)

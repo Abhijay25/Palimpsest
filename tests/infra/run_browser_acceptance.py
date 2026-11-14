@@ -110,7 +110,8 @@ def main() -> int:
         run(["docker", "build", "--pull", "-t", image, "-f", "tests/infra/browser/Dockerfile", "tests/infra/browser"], env=env, timeout=1800)
         image_built = True
         base_run = browser_container_args(manifest, browser_state, image, system)
-        run(base_run, env=env, timeout=1800)
+        browser_result = run(base_run, env=env, timeout=1800)
+        print(browser_result.stdout, end="", flush=True)
         state = json.loads(browser_state.read_text(encoding="utf-8"))
         if {record.get("language") for record in state} != {"fi", "sv", "en"}:
             raise RuntimeError("browser suite did not produce isolated persistence evidence for fi, sv and en")
@@ -119,7 +120,8 @@ def main() -> int:
         configure_browser_host(data_root, json.loads(manifest.read_text(encoding="utf-8")), test_host)
         run([*common, "down"], env=env, timeout=300)
         run([*common, "up"], env=env, timeout=300)
-        run([*base_run, "--verify-state", "/test-data/browser-state.json"], env=env, timeout=1800)
+        persistence_result = run([*base_run, "--verify-state", "/test-data/browser-state.json"], env=env, timeout=1800)
+        print(persistence_result.stdout, end="", flush=True)
     finally:
         if setup_attempted:
             # This names only the disposable project created above. Down preserves
