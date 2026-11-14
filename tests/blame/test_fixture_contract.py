@@ -141,6 +141,16 @@ class FixtureContractTests(unittest.TestCase):
         self.assertEqual(len("\U0001f603".encode("utf-16-le")) // 2, 2)
         for part in expected["last_change_segments"]:
             self.assertIn(part["text"], final)
+        revisions = {revision["alias"]: revision["text"] for revision in doc["revisions"]}
+        for event in expected["events"]:
+            parent = f"r{int(event['revision'][1:]) - 1}"
+            self.assertEqual(utf16_slice(revisions[parent], *event["before_range"]), event["before"])
+            self.assertEqual(utf16_slice(revisions[event["revision"]], *event["after_range"]), event["after"])
+        global_events = {(event["revision"], event["before"], event["after"]) for event in expected["events"]}
+        selection_events = {(event["revision"], event["before"], event["after"]) for event in selection["events"]}
+        self.assertTrue(selection_events.issubset(global_events))
+        self.assertEqual(selection_events, {("r2", "😀", "😃")})
+        self.assertEqual(expected["excluded_from_selection_timeline"], ["r3"])
 
     def test_date_expectations_match_utc_inclusivity_and_tie_order(self) -> None:
         doc = load_fixture("date_boundaries")

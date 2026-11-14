@@ -11,13 +11,26 @@
   ],
   "expected": {
     "snapshot": "r3",
-    "selection": {"start": 4, "end": 9, "text": "q́ 😃", "contributors": ["r1", "r2"], "complete": true},
+    "selection": {
+      "start": 4,
+      "end": 9,
+      "text": "q́ 😃",
+      "contributors": ["r1", "r2"],
+      "complete": true,
+      "events": [
+        {"revision": "r2", "before": "😀", "after": "😃", "before_range": [7, 9], "after_range": [7, 9], "kind": "replacement", "ambiguous": false}
+      ]
+    },
     "last_change_segments": [
       {"text": "Cafeq́", "revision": "r1", "start": 0, "end": 6},
       {"text": "😃", "revision": "r2", "start": 7, "end": 9},
       {"text": "大阪", "revision": "r3", "start": 12, "end": 14}
     ],
-    "events": [{"revision": "r3", "before": "東京", "after": "大阪", "kind": "replacement", "ambiguous": false}],
+    "events": [
+      {"revision": "r2", "before": "😀", "after": "😃", "before_range": [7, 9], "after_range": [7, 9], "kind": "replacement", "ambiguous": false},
+      {"revision": "r3", "before": "東京", "after": "大阪", "before_range": [12, 14], "after_range": [12, 14], "kind": "replacement", "ambiguous": false}
+    ],
+    "excluded_from_selection_timeline": ["r3"],
     "must_preserve_codepoints": ["q́", "😃", "大阪"],
     "must_not_normalize_to": ["東京"]
   }

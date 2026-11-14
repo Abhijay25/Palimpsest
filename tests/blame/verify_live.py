@@ -220,7 +220,11 @@ def verify_history(api: WikiApi, page_state: dict, fixture_id: str) -> dict:
                 ids,
             )
         elif "events" in expected:
-            assert_expected_events(actual_selection.get("events", []), expected["events"], ids)
+            assert_expected_events(
+                actual_selection.get("events", []),
+                expected["selection"].get("events", expected["events"]),
+                ids,
+            )
         for excluded_alias in expected.get("excluded_from_selection_timeline", []):
             excluded_id = ids[excluded_alias]
             if any(event.get("revision_id") == excluded_id for event in actual_selection.get("events", [])):
