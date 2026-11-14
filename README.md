@@ -38,6 +38,12 @@ also get Stage 0 watch-list reasons, other languages only the language-neutral r
 `PALIMPSEST_USE_GEMINI=1`) and Stage 0 is not clean (no verdict is faked), 502 if a
 judge call fails.
 
+`POST /api/v1/cross-lingual` is an explicit cold-path endpoint. It accepts
+`lang_code`, `page_title`, `claim_text`, and `edit_verdict`, then returns local-citation
+audits for linked target wikis plus a divergence warning. It is never called by
+`audit-diff`; configure `PALIMPSEST_CROSSLINGUAL_LANGS` as a comma-separated target list
+to override its default `en,fi,de,fr,es` set.
+
 The edit is split into changed paragraphs (`units`), judged 4 at a time; more than 12
 changed paragraphs are capped (`partial: true`, route at least `review`). The top-level
 verdict is the most severe unit. `reason` / `reason_text` describe a flag

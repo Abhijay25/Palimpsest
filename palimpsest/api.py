@@ -15,6 +15,7 @@ from pydantic import AfterValidator, BaseModel, Field
 
 from palimpsest.backends.gemini import GeminiJudgeBackend, gemini_enabled
 from palimpsest.cascade import CascadeJudgeBackend
+from palimpsest.crosslingual import CrossLingualReport, cross_lingual_fanout
 from palimpsest.judge import AsyncJudge, PreparedCase, judge_with_latencies
 from palimpsest.pipeline import (
     CACHE_DIR,
@@ -140,6 +141,13 @@ class AuditDiffRequest(BaseModel):
     )
     old_wikitext: Text | None = None
     new_wikitext: Text | None = None
+
+
+class CrossLingualRequest(BaseModel):
+    lang_code: LangCode
+    page_title: str = Field(min_length=1, max_length=512)
+    claim_text: Text
+    edit_verdict: Verdict
 
 
 class SpanOut(BaseModel):
@@ -294,6 +302,28 @@ def healthz(
 @app.post("/api/v1/stealth-scan", response_model=ScanResult)
 def stealth_scan(req: StealthScanRequest) -> ScanResult:
     return scan(req.text, req.target_type, old_text=req.old_text)
+
+
+@app.post("/api/v1/cross-lingual", response_model=CrossLingualReport)
+async def cross_lingual(
+    req: CrossLingualRequest,
+    fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
+    backend: Annotated[AsyncJudge | None, Depends(get_judge_backend)],
+) -> CrossLingualReport:
+    """Run the explicit, slow cross-wiki audit; audit-diff never invokes this."""
+    if backend is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Judge backend unavailable: set GEMINI_API_KEY to enable Stage 2.",
+        )
+    return await cross_lingual_fanout(
+        req.lang_code,
+        req.page_title,
+        req.claim_text,
+        req.edit_verdict,
+        backend,
+        fetcher,
+    )
 
 
 def _scan_request(
