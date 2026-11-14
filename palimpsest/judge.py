@@ -7,7 +7,7 @@ from typing import Final, Protocol
 
 from pydantic import BaseModel, ValidationError
 
-from palimpsest.schema import AuditOutput, Case, SourceWindow
+from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
 from palimpsest.stage0 import Stage0Result
 from palimpsest.stealth.models import ScanResult, VectorType
 
@@ -87,6 +87,23 @@ def render_case_payload(pc: PreparedCase) -> str:
     )
 
 
+_EMPTY_WHEN_NOT_FLAGGED: Final[dict[str, object]] = {"flagged_spans": [], "neutral_rewrite": None}
+
+
+def normalize_non_flag_output(output: object) -> object:
+    """Fill fields that are empty by definition for CLEAN_PASS / EXPAND_CONTEXT.
+
+    Small judges sometimes omit them (r12: 9/100 Haiku outputs). Flag verdicts are
+    never filled in: a flag without its spans stays a parse error.
+    """
+    if isinstance(output, dict) and output.get("verdict") in (
+        Verdict.CLEAN_PASS,
+        Verdict.EXPAND_CONTEXT,
+    ):
+        return {**_EMPTY_WHEN_NOT_FLAGGED, **output}
+    return output
+
+
 class FileExchangeBackend:
     name = "file_exchange"
 
@@ -149,7 +166,9 @@ class FileExchangeBackend:
                     if isinstance(raw, dict) and "error" in raw:
                         results[case_id] = str(raw["error"])
                         continue
-                    results[case_id] = AuditOutput.model_validate(raw["output"])
+                    results[case_id] = AuditOutput.model_validate(
+                        normalize_non_flag_output(raw["output"])
+                    )
                 except (ValueError, KeyError, ValidationError) as exc:
                     results[case_id] = f"{type(exc).__name__}: {str(exc)[:200]}"
         return results

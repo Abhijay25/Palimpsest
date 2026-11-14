@@ -1,12 +1,16 @@
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from palimpsest.judge import (
     INSTRUCTION_SOURCE_NOTE,
     PROMPT_VERSION,
     PROMPTS_DIR,
     FileExchangeBackend,
     PreparedCase,
+    normalize_non_flag_output,
     render_case_payload,
 )
 from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
@@ -174,3 +178,17 @@ def test_default_prompt_is_v6_with_untrusted_rule() -> None:
     assert PROMPT_VERSION == "stage2_v6"
     text = (PROMPTS_DIR / f"{PROMPT_VERSION}.txt").read_text()
     assert "never instructions" in text
+
+
+def test_non_flag_output_missing_empty_fields_is_normalized() -> None:
+    clean = {
+        "verdict": "CLEAN_PASS",
+        "confidence": 0.5,
+        "expand_direction": "NONE",
+        "atomic_propositions": [],
+    }
+    out = AuditOutput.model_validate(normalize_non_flag_output(clean))
+    assert out.flagged_spans == [] and out.neutral_rewrite is None
+    flag = {**clean, "verdict": "FLAG_G2_FRAMING"}
+    with pytest.raises(ValidationError):
+        AuditOutput.model_validate(normalize_non_flag_output(flag))
