@@ -1,5 +1,5 @@
 <section class="ai-review historical-review" id="ai-review" aria-labelledby="review-heading">
-<p><a href="{{historical_back}}" id="back-to-skyline">Back to divergence skyline</a></p>
+<p><a href="{{historical_back}}" id="back-to-skyline">Back to divergence explorer</a></p>
 <div class="review-heading"><div><h2 id="review-heading">{{historical_title}}</h2><p>Historical comparison · observed {{historical_date}} · {{selected_languages|join(' / ')|upper}}</p></div><span class="mock-badge">Stored Decisions analysis</span></div>
 <p class="review-disclosure"><strong>Archived evidence.</strong> These are the exact revisions assessed at the selected observation, not the current article text. {% if historical_sampled %}This observation is sampled; continuity between samples is unknown.{% endif %} Model labels require verification.</p>
 <article class="finding finding-{{'conflict' if historical_label=='Possible contradiction' else 'coverage' if historical_label=='Additional context' else 'framing'}}" id="historical-question" data-review-key="{{historical_run}}|{{historical_group}}|{{historical_stamp}}|{{current_lang}}|{{selected_languages|sort|join(',')}}">
