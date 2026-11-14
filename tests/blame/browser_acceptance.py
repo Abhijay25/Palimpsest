@@ -407,7 +407,9 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
     expect(page.locator("#mw-content-text")).to_contain_text(mapped_fixture["citation_text"])
     ordinary_link.click()
     target = browser_pages["ordinary_link_target"]
-    expect(page).to_have_url(re.compile(r"[?&]title=" + re.escape(quote(target["title"], safe=":"))))
+    page_name = page.evaluate("window.mw?.config?.get('wgPageName')")
+    if page_name != target["title"].replace(" ", "_"):
+        raise AssertionError(f"ordinary article link opened {page_name!r}; expected canonical page {target['title']!r}")
     verify_article_snapshot(page, mapped_fixture["link_target_text"], target["revision_id"])
     if "action=blame" in page.url:
         raise AssertionError("ordinary article link was intercepted by the Blame selection UI")
@@ -417,9 +419,9 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
     page.goto(article_url(origin, generated["title"]) + "&action=blame", wait_until="domcontentloaded")
     expect(page.locator("#palimpsest-blame")).to_be_visible()
     verify_article_snapshot(page, "The mapped prefix UNMAPPED_SENTINEL mapped suffix.", generated["revision_id"])
-    quote = generated_fixture["selection_text_template"]
+    generated_selection_quote = generated_fixture["selection_text_template"]
     assert_no_partial_selection_analysis(
-        page, quote,
+        page, generated_selection_quote,
         re.compile(r"unmapped|no verified source|no partial analysis|cannot be mapped", re.I),
     )
     annotated = page.evaluate(
