@@ -43,6 +43,10 @@ def load_manifest(path: Path) -> dict:
     languages = data.get("languages") or {}
     if set(languages) != set(LANGS):
         raise ValueError("manifest must contain fi, sv and en")
+    for language, port in ports.items():
+        expected_url = f"http://127.0.0.1:{port}/api.php"
+        if not isinstance(languages[language], dict) or languages[language].get("api_url") != expected_url:
+            raise ValueError(f"manifest API endpoint for {language} must be exactly {expected_url}")
     return data
 
 

@@ -25,9 +25,11 @@ performance pass until the feature API handles it successfully.
 APIs after an explicit project confirmation. `--include-job-history` adds a
 205-revision page for `verify_jobs.py`; neither script changes runtime lifecycle
 or touches imported pages. `verify_live.py` checks attribution, date bounds,
-token lineage IDs, and cache invalidation. `browser_acceptance.py` checks the
-rendered article, selection UI, date navigation, and stale-DOM concurrency in
-all languages. It needs explicit browser-reachable origins; it never guesses
+token lineage IDs, and cache invalidation on its own synthetic control page.
+`browser_acceptance.py` checks the rendered article, selection UI, date
+navigation, and stale-DOM concurrency on a separate synthetic control page in
+all languages; the six history fixtures stay immutable across verifier order
+and reruns. It needs explicit browser-reachable origins; it never guesses
 Docker Desktop routing.
 
 When validating Python in the pinned container, the fixture mount is

@@ -5,11 +5,13 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
+import tempfile
 import unittest
 
 from mediawiki_api import MediaWikiApiError, WikiApi
 from verify_live import assert_spans, validate_analyze_schema
 from verify_jobs import request_status
+from seed_synthetic import DOCKER_PROJECT, load_manifest
 
 
 class Response:
@@ -54,6 +56,38 @@ def ordinary_response(source_text: str) -> dict:
 
 
 class LiveContractTests(unittest.TestCase):
+    @staticmethod
+    def runtime_manifest() -> dict:
+        ports = {"fi": 48081, "sv": 48082, "en": 48083}
+        return {
+            "schema_version": 1,
+            "project": DOCKER_PROJECT,
+            "ports": ports,
+            "languages": {lang: {"api_url": f"http://127.0.0.1:{port}/api.php"} for lang, port in ports.items()},
+        }
+
+    def test_runtime_manifest_accepts_exact_loopback_endpoints(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runtime.json"
+            path.write_text(json.dumps(self.runtime_manifest()), encoding="utf-8")
+            loaded = load_manifest(path)
+        self.assertEqual(loaded["project"], DOCKER_PROJECT)
+
+    def test_runtime_manifest_rejects_non_exact_api_endpoints(self) -> None:
+        for endpoint in (
+            "http://example.test:48082/api.php",
+            "https://127.0.0.1:48082/api.php",
+            "http://127.0.0.1:48081/api.php",
+            "http://127.0.0.1:48082/api.php?redirect=1",
+        ):
+            with self.subTest(endpoint=endpoint), tempfile.TemporaryDirectory() as directory:
+                manifest = self.runtime_manifest()
+                manifest["languages"]["sv"]["api_url"] = endpoint
+                path = Path(directory) / "runtime.json"
+                path.write_text(json.dumps(manifest), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "exactly http://127.0.0.1:48082/api.php"):
+                    load_manifest(path)
+
     def test_http_api_client_posts_form_fields_without_network(self) -> None:
         opener = QueueOpener({"edit": {"result": "Success", "newrevid": 73}})
         api = WikiApi("http://127.0.0.1:48081/api.php", opener=opener)

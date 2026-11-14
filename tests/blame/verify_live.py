@@ -305,19 +305,21 @@ def verify_dates(api: WikiApi, page_state: dict) -> None:
         raise AssertionError("invalid UTC bound was accepted or returned the wrong failure reason")
 
 
-def verify_cache_invalidation(api_url: str, page_state: dict, auth: dict, run_id: str) -> dict:
-    """Warm a synthetic result, make a real local edit, then prove cache refresh."""
-    title = page_state["title"]
-    old_id = page_state["revisions"][-1]["revision_id"]
+def verify_cache_invalidation(api_url: str, auth: dict, run_id: str) -> dict:
+    """Create an isolated synthetic page, warm it, edit it, then prove cache refresh."""
+    title = f"PalimpsestBlameSynthetic/{run_id}/cache_invalidation_probe"
+    before_text = f"cache invalidation synthetic baseline {run_id}"
+    editor = WikiApi(api_url)
+    editor.login(auth["username"], auth["password"])
+    old_id = editor.edit(title, before_text, f"[synthetic Blame cache baseline {run_id}]")
     before = extension_result(WikiApi(api_url), title, old_id)
     schema_errors = validate_analyze_schema(before)
     if schema_errors:
         raise AssertionError("ordinary page failed schema validation before cache invalidation: " + "; ".join(schema_errors))
-    before_text = before["source_text"]
+    if before["snapshot"].get("revision_id") != old_id or before["source_text"] != before_text:
+        raise AssertionError("new synthetic cache probe page did not resolve to its known starting revision/text")
     probe = f"cacheprobe{run_id}"
     new_text = before_text + " " + probe
-    editor = WikiApi(api_url)
-    editor.login(auth["username"], auth["password"])
     new_id = editor.edit(title, new_text, f"[synthetic Blame cache invalidation {run_id}]")
     refreshed = extension_result(WikiApi(api_url), title, new_id)
     errors = validate_analyze_schema(refreshed)
@@ -368,12 +370,7 @@ def main() -> int:
                     if fixture_id == "large_unique_anchor_history" else ""
                 )
                 results.append(f"PASS {language}/{fixture_id}{suffix}")
-            cache_state = verify_cache_invalidation(
-                language_state["api_url"],
-                language_state["pages"]["cross_contributor_deletion"],
-                auth["languages"][language],
-                state["run_id"],
-            )
+            cache_state = verify_cache_invalidation(language_state["api_url"], auth["languages"][language], state["run_id"])
             results.append(f"PASS {language}/local-edit-cache-invalidation {cache_state['previous_revision_id']}→{cache_state['new_revision_id']}")
         print("\n".join(results))
     except (OSError, ValueError, KeyError, TypeError, MediaWikiApiError, AssertionError) as exc:

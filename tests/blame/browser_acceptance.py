@@ -444,12 +444,13 @@ def verify_mouse_partial_selection(page: Page, origin: str, cross: dict) -> None
         raise AssertionError(f"partial-word analysis did not send exact source offsets 13..16: {requested_ranges}")
 
 
-def verify_concurrent_snapshot(page: Page, origin: str, language: str, language_state: dict, auth: dict, run_id: str) -> int:
-    page_state = language_state["pages"]["cross_contributor_deletion"]
-    fixture_doc = load_fixture("cross_contributor_deletion")
-    old_id = page_state["revisions"][-1]["revision_id"]
-    old_text = fixture_doc["revisions"][-1]["text"]
-    page.goto(article_url(origin, page_state["title"]) + "&action=blame", wait_until="domcontentloaded")
+def verify_concurrent_snapshot(page: Page, origin: str, language: str, auth: dict, run_id: str) -> int:
+    title = f"PalimpsestBlameSynthetic/{run_id}/browser_concurrency_{language}"
+    old_text = f"Reader sees the green marker before concurrent edit {run_id}."
+    editor = WikiApi(origin.rstrip("/") + "/api.php")
+    editor.login(auth["username"], auth["password"])
+    old_id = editor.edit(title, old_text, f"[synthetic Blame concurrency baseline {run_id}] {language}")
+    page.goto(article_url(origin, title) + "&action=blame", wait_until="domcontentloaded")
     verify_article_snapshot(page, old_text, old_id)
     requested_revisions = []
 
@@ -463,11 +464,9 @@ def verify_concurrent_snapshot(page: Page, origin: str, language: str, language_
 
     page.on("request", capture_api_request)
     new_text = old_text.replace("green", "black", 1) + f" concurrency{run_id}"
-    editor = WikiApi(origin.rstrip("/") + "/api.php")
-    editor.login(auth["username"], auth["password"])
-    new_id = editor.edit(page_state["title"], new_text, f"[synthetic Blame concurrency {run_id}]")
+    new_id = editor.edit(title, new_text, f"[synthetic Blame concurrency update {run_id}] {language}")
 
-    quote = load_fixture("cross_contributor_deletion")["expected"]["selection"]["text"]
+    quote = "green marker"
     select_text(page, quote)
     inspect_selected_text(page, mobile=False)
     verify_inline_panel(page, quote)
@@ -571,7 +570,7 @@ def run_language(browser, language: str, language_state: dict, origin: str, auth
     if labels.count() == 0:
         raise AssertionError(f"{language}: Blame panel has no screen-reader labels")
     keyboard_page.keyboard.press("Escape")
-    verify_concurrent_snapshot(keyboard_page, origin, language, language_state, auth, run_id)
+    verify_concurrent_snapshot(keyboard_page, origin, language, auth, run_id)
     if page_errors:
         raise AssertionError(f"{language}: browser page JavaScript errors: {page_errors}")
     context.close()
