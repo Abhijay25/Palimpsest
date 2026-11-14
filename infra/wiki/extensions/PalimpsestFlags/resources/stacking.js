@@ -21,11 +21,11 @@
 	// These small state helpers deliberately have no DOM dependency so the UI's filter
 	// and navigation behaviour can be tested without a browser.
 	function firstVisibleId( rows, filter ) {
-		var visible = rows.filter( function ( row ) { return !filter || row.flag.kind === filter; } );
+		var visible = rows.filter( function ( row ) { return !filter || !filter.size || filter.has( row.flag.kind ); } );
 		return visible.length ? visible[ 0 ].flag.id : null;
 	}
 	function stepperDisabled( rows, reviewed, filter ) {
-		return rows.filter( function ( row ) { return ( !filter || row.flag.kind === filter ) && !reviewed.has( row.flag.id ); } ).length <= 1;
+		return rows.filter( function ( row ) { return ( !filter || !filter.size || filter.has( row.flag.kind ) ) && !reviewed.has( row.flag.id ); } ).length <= 1;
 	}
 	return { computePositions: computePositions, firstVisibleId: firstVisibleId, stepperDisabled: stepperDisabled };
 } ) );

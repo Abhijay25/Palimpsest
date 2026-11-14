@@ -32,17 +32,20 @@ test( 'default placement orders by anchor, left edge, tier, then id', () => {
 	assert.deepEqual( result.items.map( item => item.id ), [ 'b', 'a', 'z' ] );
 } );
 
-test( 'filter selection starts at the first visible flag', () => {
+test( 'multi-select filter starts at the first matching flag', () => {
 	const rows = [ { flag: { id: 'fact', kind: 'FACT' } }, { flag: { id: 'wording', kind: 'FRAMING' } }, { flag: { id: 'wording-2', kind: 'FRAMING' } } ];
-	assert.equal( stacking.firstVisibleId( rows, 'FRAMING' ), 'wording' );
-	assert.equal( stacking.firstVisibleId( rows, 'MOTIVE' ), null );
+	assert.equal( stacking.firstVisibleId( rows, new Set( [ 'FRAMING', 'FACT' ] ) ), 'fact' );
+	assert.equal( stacking.firstVisibleId( rows, new Set( [ 'FRAMING' ] ) ), 'wording' );
+	assert.equal( stacking.firstVisibleId( rows, new Set( [ 'MOTIVE' ] ) ), null );
+	assert.equal( stacking.firstVisibleId( rows, new Set() ), 'fact', 'an empty set safely shows all types' );
 } );
 
-test( 'steppers are disabled when filtering leaves one actionable flag', () => {
+test( 'steppers follow the checked type set', () => {
 	const rows = [ { flag: { id: 'a', kind: 'FACT' } }, { flag: { id: 'b', kind: 'FRAMING' } } ];
-	assert.equal( stacking.stepperDisabled( rows, new Set(), 'FACT' ), true );
-	assert.equal( stacking.stepperDisabled( rows, new Set(), null ), false );
-	assert.equal( stacking.stepperDisabled( rows, new Set( [ 'a' ] ), null ), true );
+	assert.equal( stacking.stepperDisabled( rows, new Set(), new Set( [ 'FACT' ] ) ), true );
+	assert.equal( stacking.stepperDisabled( rows, new Set(), new Set( [ 'FACT', 'FRAMING' ] ) ), false );
+	assert.equal( stacking.stepperDisabled( rows, new Set(), new Set() ), false, 'an empty set shows all types' );
+	assert.equal( stacking.stepperDisabled( rows, new Set( [ 'a' ] ), new Set() ), true );
 } );
 
 test( 'approved palette combinations meet 4.5:1 contrast', () => {
