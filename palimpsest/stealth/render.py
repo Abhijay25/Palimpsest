@@ -36,6 +36,12 @@ Rect = tuple[float, float, float, float]
 VIEWPORT = (1280, 800)
 TILE_OVERLAP_PX = 64
 MAX_TILES = 12
+SCROLL_TOLERANCE_PX = 2
+# Read scrollY two frames later so scroll-reset listeners have run.
+_SCROLL_Y_AFTER_FRAMES_JS = (
+    "() => new Promise(r => requestAnimationFrame(() => "
+    "requestAnimationFrame(() => r(Math.round(window.scrollY)))))"
+)
 NAV_TIMEOUT_MS = 10000
 SETTLE_MS = 500
 
@@ -58,6 +64,9 @@ class RenderedTile(BaseModel):
     y_end: int
     png_path: str
     visible_text: str
+    # The page refused to scroll (e.g. a consent dialog locks the body), so the
+    # tile was captured from the full-page layout and occlusion was not checked.
+    scroll_locked: bool = False
 
 
 class RenderAudit(BaseModel):
@@ -470,17 +479,47 @@ class PageRenderer:
             page_height = raw.scroll_height
             starts, truncated = _tile_starts(page_height)
             png_paths: list[Path] = []
+            locked: set[int] = set()
+
+            async def capture_from_layout(png: Path, y_start: int) -> None:
+                await page.screenshot(
+                    path=str(png),
+                    full_page=True,
+                    clip={
+                        "x": 0,
+                        "y": y_start,
+                        "width": VIEWPORT[0],
+                        "height": min(VIEWPORT[1], page_height - y_start),
+                    },
+                )
+
+            def moved(scrolled: object, y_start: int) -> bool:
+                return abs(int(str(scrolled)) - y_start) > SCROLL_TOLERANCE_PX
+
             for index, y_start in enumerate(starts):
-                await page.evaluate("y => window.scrollTo(0, y)", y_start)
+                png = out_dir / f"tile_{index:02d}.png"
+                png_paths.append(png)
+                await page.evaluate(
+                    "y => window.scrollTo({top: y, left: 0, behavior: 'instant'})",
+                    y_start,
+                )
+                if moved(await page.evaluate(_SCROLL_Y_AFTER_FRAMES_JS), y_start):
+                    locked.add(index)
+                    await capture_from_layout(png, y_start)
+                    continue
                 candidates = [i for i, n in enumerate(raw.nodes) if n.reason is None]
                 occ = _RawOcclusion.model_validate(
                     await page.evaluate(_OCCLUSION_JS, candidates)
                 )
                 for i in occ.occluded:
                     raw.nodes[i].reason = "occluded"
-                png = out_dir / f"tile_{index:02d}.png"
                 await page.screenshot(path=str(png))
-                png_paths.append(png)
+                # A late scroll reset can land after the frames waited above.
+                if moved(
+                    await page.evaluate("() => Math.round(window.scrollY)"), y_start
+                ):
+                    locked.add(index)
+                    await capture_from_layout(png, y_start)
             await page.evaluate("() => window.scrollTo(0, 0)")
         finally:
             await context.close()
@@ -503,6 +542,7 @@ class PageRenderer:
                     y_end=y_end,
                     png_path=str(png_paths[index]),
                     visible_text=_join(in_tile),
+                    scroll_locked=index in locked,
                 )
             )
         return RenderAudit(

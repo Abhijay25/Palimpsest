@@ -238,6 +238,38 @@ def test_tall_page_tiles_cover_page(renderer: PageRenderer, tmp_path: Path) -> N
 
 
 @needs_browser
+def test_scroll_locked_page_still_tiles_every_region(
+    renderer: PageRenderer, tmp_path: Path
+) -> None:
+    html = (
+        "<html style='scroll-behavior:smooth'><body style='margin:0'>"
+        "<div style='height:2400px;background:linear-gradient(red,blue)'>top</div>"
+        "<script>addEventListener('scroll', () => scrollTo(0, 0))</script>"
+        "</body></html>"
+    )
+    a = run(renderer.audit_html(html, tmp_path))
+    assert len(a.tiles) >= 3
+    assert a.tiles[1].scroll_locked
+    pngs = [Path(t.png_path).read_bytes() for t in a.tiles]
+    assert len(set(pngs)) == len(pngs)
+
+
+@needs_browser
+def test_smooth_scrolling_page_tiles_without_waiting(
+    renderer: PageRenderer, tmp_path: Path
+) -> None:
+    html = (
+        "<html style='scroll-behavior:smooth'><body style='margin:0'>"
+        "<div style='height:2400px;background:linear-gradient(red,blue)'>top</div>"
+        "</body></html>"
+    )
+    a = run(renderer.audit_html(html, tmp_path))
+    assert not any(t.scroll_locked for t in a.tiles)
+    pngs = [Path(t.png_path).read_bytes() for t in a.tiles]
+    assert len(set(pngs)) == len(pngs)
+
+
+@needs_browser
 def test_huge_page_truncated(renderer: PageRenderer, tmp_path: Path) -> None:
     html = "<body style='margin:0'><div style='height:20000px'>x</div></body>"
     a = run(renderer.audit_html(html, tmp_path))
