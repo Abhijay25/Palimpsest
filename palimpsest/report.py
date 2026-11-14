@@ -16,6 +16,7 @@ from palimpsest.scoring import (
     route,
 )
 from palimpsest.stealth.models import StealthStatus
+from palimpsest.stealth.scanner import reportable_findings
 
 NO_LINK_BUCKET_MARKERS: Final = ("spec", "synthetic", "wnc")
 
@@ -176,7 +177,7 @@ def _stealth_html(pc: PreparedCase) -> str:
         findings = "".join(
             f"<li>{_e(f.vector_type.value)}: {_e(f.explanation)} "
             f"<code>{_e(f.decoded_hidden_text or f.raw_snippet)}</code></li>"
-            for f in s.hidden_findings
+            for f in reportable_findings(s)
         )
         parts.append(
             f'<div><span class="badge fail">STEALTH {_e(s.stealth_status.value)}</span> '

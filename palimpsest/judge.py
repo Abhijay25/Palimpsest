@@ -3,7 +3,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Final, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ValidationError
 
@@ -31,7 +31,7 @@ INSTRUCTION_SOURCE_NOTE: Final = (
 )
 _UNTRUSTED_TAG_RE: Final = re.compile(r"<(/?)\s*untrusted_field", re.IGNORECASE)
 _FIELD_MARKER_RE: Final = re.compile(
-    r"(OLD_TEXT|NEW_TEXT|CITATION_DISCOURSE_WINDOW|DOMAIN_TRUST_TIER):"
+    r"(OLD_TEXT|NEW_TEXT|CITATION_DISCOURSE_WINDOW|DOMAIN_TRUST_TIER|SOURCE_STATUS):"
 )
 _EQUALS_RUN_RE: Final = re.compile(r"={3,}")
 
@@ -63,6 +63,29 @@ class AsyncJudge(Protocol):
     async def judge(
         self, cases: list[PreparedCase]
     ) -> dict[str, AuditOutput | str]: ...
+
+
+@runtime_checkable
+class TimedJudge(Protocol):
+    """A judge that returns its latencies instead of sharing them on the instance."""
+
+    async def judge_timed(
+        self, cases: list[PreparedCase]
+    ) -> tuple[dict[str, AuditOutput | str], dict[str, float]]: ...
+
+
+async def judge_with_latencies(
+    backend: AsyncJudge, cases: list[PreparedCase]
+) -> tuple[dict[str, AuditOutput | str], dict[str, float]]:
+    """Judge cases and return per-case latencies without leaving state behind.
+
+    Backends with judge_timed keep no per-call state. For any other backend the
+    entries it wrote to latencies_ms are popped so the dict does not grow.
+    """
+    if isinstance(backend, TimedJudge):
+        return await backend.judge_timed(cases)
+    results = await backend.judge(cases)
+    return results, {cid: backend.latencies_ms.pop(cid, 0.0) for cid in results}
 
 
 def _neutralise(text: str) -> str:

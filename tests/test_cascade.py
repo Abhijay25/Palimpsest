@@ -84,3 +84,24 @@ def test_no_second_call_when_everything_is_clean() -> None:
     second = FakeJudge("big", {})
     asyncio.run(CascadeJudgeBackend(first, second).judge([_case("a")]))
     assert second.seen == []
+
+
+def test_cascade_judge_timed_keeps_per_call_state_local() -> None:
+    first = FakeJudge("small", {"flag": _output(Verdict.FLAG_G2_FRAMING, 0.8)})
+    second = FakeJudge("big", {"flag": _output(Verdict.CLEAN_PASS, 0.7)})
+    cascade = CascadeJudgeBackend(first, second)
+    results, latencies = asyncio.run(cascade.judge_timed([_case("flag")]))
+    assert isinstance(results["flag"], AuditOutput)
+    assert latencies == {"flag": 20.0}
+    assert cascade.latencies_ms == {} and cascade.decided_by == {}
+    # Sub-judge entries are consumed, so they do not accumulate either.
+    assert first.latencies_ms == {} and second.latencies_ms == {}
+
+
+def test_judge_with_latencies_pops_entries_of_plain_backends() -> None:
+    from palimpsest.judge import judge_with_latencies
+
+    judge = FakeJudge("small", {"a": _output(Verdict.CLEAN_PASS, 0.6)})
+    _, latencies = asyncio.run(judge_with_latencies(judge, [_case("a")]))
+    assert latencies == {"a": 10.0}
+    assert judge.latencies_ms == {}

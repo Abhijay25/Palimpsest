@@ -211,3 +211,19 @@ def test_gemini_requires_explicit_opt_in(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setenv("PALIMPSEST_USE_GEMINI", "1")
     assert gemini_enabled()
     assert load_gemini_api_key() == "set-but-not-approved"
+
+
+def test_judge_timed_returns_latencies_and_keeps_no_instance_state() -> None:
+    backend, _ = _backend([json.dumps(VALID_OUTPUT)] * 2)
+
+    async def run() -> list[tuple[object, dict[str, float]]]:
+        return list(
+            await asyncio.gather(
+                backend.judge_timed([_prepared("same")]),
+                backend.judge_timed([_prepared("same")]),
+            )
+        )
+
+    runs = asyncio.run(run())
+    assert all(set(latencies) == {"same"} for _, latencies in runs)
+    assert backend.latencies_ms == {}

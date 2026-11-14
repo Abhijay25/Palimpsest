@@ -193,15 +193,24 @@ class GeminiJudgeBackend:
         self._system = (PROMPTS_DIR / f"{prompt_version}.txt").read_text()
         self.latencies_ms: dict[str, float] = {}
 
-    async def judge(self, cases: list[PreparedCase]) -> dict[str, AuditOutput | str]:
-        async def one(pc: PreparedCase) -> tuple[str, AuditOutput | str]:
+    async def judge_timed(
+        self, cases: list[PreparedCase]
+    ) -> tuple[dict[str, AuditOutput | str], dict[str, float]]:
+        """Results plus latencies, with no per-call state kept on the instance."""
+
+        async def one(pc: PreparedCase) -> tuple[str, AuditOutput | str, float]:
             result, ms = await self._caller.generate(
                 self._system, render_case_payload(pc), AuditOutput
             )
-            self.latencies_ms[pc.case.case_id] = ms
-            return pc.case.case_id, result
+            return pc.case.case_id, result, ms
 
-        return dict(await asyncio.gather(*(one(pc) for pc in cases)))
+        rows = await asyncio.gather(*(one(pc) for pc in cases))
+        return {cid: r for cid, r, _ in rows}, {cid: ms for cid, _, ms in rows}
+
+    async def judge(self, cases: list[PreparedCase]) -> dict[str, AuditOutput | str]:
+        results, latencies = await self.judge_timed(cases)
+        self.latencies_ms.update(latencies)
+        return results
 
 
 class GeminiTriageBackend:
