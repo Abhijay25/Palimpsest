@@ -1,3 +1,4 @@
+import re
 import time
 import uuid
 from collections.abc import Iterable
@@ -10,12 +11,17 @@ from palimpsest.stealth.models import (
     VectorType,
 )
 from palimpsest.stealth.sanitizer import (
+    INVISIBLE_CHARS,
     decode_unicode_tags,
     detect_homoglyphs,
     extract_hidden_channels,
+    looks_like_instruction,
     remove_spans,
     scan_invisible_controls,
 )
+
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
+_INVISIBLE_TABLE = {ord(c): None for c in INVISIBLE_CHARS}
 
 TargetType = Literal["WIKIPEDIA_DIFF", "EXTERNAL_REF_PAGE"]
 
@@ -111,7 +117,19 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
     for item in channels.quarantined_items:
         if not is_new(item.raw_snippet):
             continue
-        if item.instruction_like:
+        if item.vector_type == VectorType.TEMPLATE_PARAM_TEXT:
+            classification = "NEEDS_TRIAGE"
+            contributes = (
+                StealthStatus.CRITICAL_AI_POISONING
+                if item.instruction_like
+                else StealthStatus.BENIGN_NOTES_ONLY
+            )
+            confidence = 0.6
+            explanation = (
+                "Template parameter text with instruction-like phrasing that "
+                "may not render; pending triage."
+            )
+        elif item.instruction_like:
             classification = "FLAG_STEALTH_PROMPT_INJECTION"
             contributes = StealthStatus.CRITICAL_AI_POISONING
             confidence = 0.95
@@ -145,6 +163,48 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
             ),
             contributes,
         )
+
+    visible = remove_spans(
+        text,
+        [p.span for p in tags.payloads] + [i.span for i in channels.quarantined_items],
+    )
+    old_stripped = old_text.translate(_INVISIBLE_TABLE) if old_text else None
+    for sentence in _SENTENCE_BREAK.split(visible):
+        clean = sentence.translate(_INVISIBLE_TABLE)
+        if not looks_like_instruction(clean):
+            continue
+        if old_stripped is not None and clean in old_stripped:
+            continue
+        start = max(text.find(sentence), 0)
+        span = (start, start + len(sentence))
+        if clean != sentence:
+            add(
+                HiddenFinding(
+                    vector_type=VectorType.INVISIBLE_CONTROL_CHARS,
+                    raw_snippet=sentence,
+                    decoded_hidden_text=clean,
+                    char_span=span,
+                    classification="FLAG_STEALTH_PROMPT_INJECTION",
+                    confidence=0.95,
+                    explanation="Invisible characters split an instruction inside "
+                    "visible text; de-obfuscated sentence shown.",
+                ),
+                StealthStatus.CRITICAL_AI_POISONING,
+            )
+        else:
+            add(
+                HiddenFinding(
+                    vector_type=VectorType.VISIBLE_INSTRUCTION,
+                    raw_snippet=sentence,
+                    decoded_hidden_text=clean,
+                    char_span=span,
+                    classification="NEEDS_TRIAGE",
+                    confidence=0.3,
+                    explanation="Visible added text contains instruction-like "
+                    "phrasing; pending triage.",
+                ),
+                StealthStatus.BENIGN_NOTES_ONLY,
+            )
 
     removals = [p.span for p in tags.payloads] + [r.span for r in controls.runs]
     removals.extend(i.span for i in channels.quarantined_items)

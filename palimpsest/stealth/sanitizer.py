@@ -75,6 +75,20 @@ _BACKGROUND = re.compile(
     r"(?<![\w-])background(?:-color)?\s*:\s*([^;\"']+)", re.IGNORECASE
 )
 _WHITE = frozenset({"white", "#fff", "#ffffff"})
+_RGB_WHITE = re.compile(r"rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)")
+_FONT_SIZE = re.compile(
+    r"(?<![\w-])font-size\s*:\s*(\d*\.?\d+)\s*(px|pt|em|rem|%)(?![\w.])",
+    re.IGNORECASE,
+)
+# Font sizes below these limits are unreadable, per unit.
+_TINY_FONT_LIMIT = {"px": 2.0, "pt": 1.5, "em": 0.1, "rem": 0.1, "%": 10.0}
+_HIDDEN_ATTR = re.compile(
+    r"(?:^|\s)hidden(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"']+))?(?=\s|$)"
+)
+_QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
+_TEMPLATE = re.compile(r"\{\{[^{}]*\}\}")
+_TEMPLATE_PARAM = re.compile(r"\|\s*[^|=\]}{\n]+?\s*=([^|\]}\n]*)")
+_INTERWIKI = re.compile(r"\[\[[a-z]{2,3}(?:-[a-z]+)*:[^\]\n]*\]\]")
 
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _OPEN_TAG = re.compile(r"<([a-zA-Z][a-zA-Z0-9]*)\b([^<>]*?)(/?)>")
@@ -137,6 +151,14 @@ class HiddenChannelResult(BaseModel):
 
 def looks_like_instruction(text: str) -> bool:
     return bool(_INSTRUCTION_CI.search(text) or _INSTRUCTION_CS.search(text))
+
+
+def has_strong_instruction(text: str) -> bool:
+    """Imperative phrasing only; bare AI/GPT mentions and topic words are not enough."""
+    return any(
+        not m.group().lower().startswith(("language", "fact"))
+        for m in _INSTRUCTION_CI.finditer(text)
+    )
 
 
 def remove_spans(text: str, spans: list[tuple[int, int]]) -> str:
@@ -205,9 +227,12 @@ def _script_of(char: str) -> str:
 
 def detect_homoglyphs(text: str) -> list[HomoglyphToken]:
     found: list[HomoglyphToken] = []
+    interwiki = [m.span() for m in _INTERWIKI.finditer(text)]
     for m in _WORD.finditer(text):
         token = m.group()
         if token.isascii():
+            continue
+        if any(start <= m.start() < end for start, end in interwiki):
             continue
         scripts = {_script_of(c) for c in token} - {""}
         if "LATIN" not in scripts:
@@ -226,20 +251,36 @@ def detect_homoglyphs(text: str) -> list[HomoglyphToken]:
     return found
 
 
+def _normalise_color(value: str) -> str:
+    value = value.replace("!important", "").strip().lower()
+    if _RGB_WHITE.fullmatch(value):
+        return "white"
+    return "white" if value in _WHITE else value
+
+
+def _tiny_font(style: str) -> bool:
+    return any(
+        float(m.group(1)) < _TINY_FONT_LIMIT[m.group(2).lower()]
+        for m in _FONT_SIZE.finditer(style)
+    )
+
+
 def _style_vector(style: str) -> VectorType | None:
     for vector, pattern in _STYLE_PATTERNS:
         if pattern.search(style):
             return vector
+    if _tiny_font(style):
+        return VectorType.CSS_ZERO_FONT
     color = _COLOR.search(style)
     if color is None:
         return None
-    color_value = color.group(1).strip().lower()
+    color_value = _normalise_color(color.group(1))
     background = _BACKGROUND.search(style)
     if background is None:
-        return VectorType.CSS_HIDDEN_ELEMENT if color_value in _WHITE else None
+        return VectorType.CSS_HIDDEN_ELEMENT if color_value == "white" else None
     return (
         VectorType.CSS_HIDDEN_ELEMENT
-        if background.group(1).strip().lower() == color_value
+        if _normalise_color(background.group(1)) == color_value
         else None
     )
 
@@ -305,6 +346,8 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
             vector = _style_vector(style.group(1) or style.group(2) or "")
         if vector is None and _COLLAPSED_CLASS.search(attrs):
             vector = VectorType.COLLAPSED_BLOCK
+        if vector is None and _HIDDEN_ATTR.search(_QUOTED.sub('""', attrs)):
+            vector = VectorType.CSS_HIDDEN_ELEMENT
         if vector is None:
             continue
         close = _find_close(masked, m.group(1), m.end())
@@ -328,12 +371,35 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
         _append_alt(items, text, m.start(), m.end(), m.group(1))
     for m in _HTML_ATTR.finditer(masked):
         _append_alt(items, text, m.start() + 1, m.end(), m.group(2) or m.group(3) or "")
+    for start, end, value in _template_params(masked):
+        if looks_like_instruction(value):
+            item = _item(text, VectorType.TEMPLATE_PARAM_TEXT, start, end, value)
+            items.append(
+                item.model_copy(
+                    update={"instruction_like": has_strong_instruction(value)}
+                )
+            )
 
     kept = _drop_nested(items)
     removals.extend(i.span for i in kept)
     return HiddenChannelResult(
         sanitized_human_text=remove_spans(text, removals), quarantined_items=kept
     )
+
+
+def _template_params(text: str) -> list[tuple[int, int, str]]:
+    """Return (start, end, value) of every named template parameter, innermost first."""
+    params: list[tuple[int, int, str]] = []
+    while True:
+        matches = list(_TEMPLATE.finditer(text))
+        if not matches:
+            return params
+        for m in matches:
+            params.extend(
+                (m.start() + p.start(), m.start() + p.end(), p.group(1))
+                for p in _TEMPLATE_PARAM.finditer(m.group())
+            )
+            text = text[: m.start()] + " " * len(m.group()) + text[m.end() :]
 
 
 def _append_alt(
