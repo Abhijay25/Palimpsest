@@ -184,7 +184,9 @@ def main():
         touch_page.set_content('<main><div id="mw-content-text"><div id="palimpsest-blame"></div></div></main>')
         touch_page.evaluate(
             """base => {
-                base.spans = [{ start: 0, end: 10, revision_id: 91, token_id: '91:0', token_ranges: [[0, 5, '91:0'], [6, 10, '91:1']], lineage_ids: ['shared:ancestor', '91:0', '91:1'], confidence: 'certain' }];
+                base.source_text = 'alphabeta';
+                base.html = '<p id="statement"><span data-pb-start="0" data-pb-end="5">alpha</span><span data-pb-start="5" data-pb-end="9">beta</span></p>';
+                base.spans = [{ start: 0, end: 9, revision_id: 91, token_id: '91:0', token_ranges: [[0, 5, '91:0'], [5, 9, '91:1']], lineage_ids: ['shared:ancestor', '91:0', '91:1'], confidence: 'certain' }];
                 base.events = [
                     { revision_id: 90, before: 'left-word-only event', after: 'alpha', token_ids: ['91:0'], ambiguous: false },
                     { revision_id: 91, before: 'right-word event', after: 'beta', token_ids: ['91:1'], ambiguous: false }
@@ -230,7 +232,7 @@ def main():
         touch_page.evaluate(
             """() => {
                 window.__selectionPending = true;
-                const text = document.querySelector('[data-pb-start="6"]').firstChild;
+                const text = document.querySelector('[data-pb-start="5"]').firstChild;
                 const range = document.createRange();
                 range.setStart(text, 1);
                 range.setEnd(text, 3);
@@ -249,7 +251,7 @@ def main():
         timeline = touch_page.locator(".pb-timeline").inner_text()
         assert "right-word event" in timeline, timeline
         assert "left-word-only event" not in timeline, "a partial selection in a coalesced span must exclude sibling token events"
-        assert touch_page.evaluate("window.__requests.filter(r => r.ranges).at(-1).ranges") == '[{"start":7,"end":9}]'
+        assert touch_page.evaluate("window.__requests.filter(r => r.ranges).at(-1).ranges") == '[{"start":6,"end":8}]'
         touch_page.close()
 
         conflict_page = browser.new_page()
@@ -269,6 +271,30 @@ def main():
         assert "pinned to revision 91" in conflict_page.get_by_role("alert").inner_text()
         assert conflict_page.evaluate("window.__requests") == 0, "conflicting action and page revisions must block API analysis"
         conflict_page.close()
+
+        malformed_fixture = dict(fixture)
+        malformed_fixture["spans"] = [{
+            "start": 0, "end": 5, "revision_id": 91, "token_id": "91:0",
+            "token_ranges": [[0, 2, "91:0"], [3, 5, "91:1"]],
+            "lineage_ids": ["91:0", "91:1"], "confidence": "certain"
+        }]
+        invalid_page = browser.new_page()
+        invalid_page.set_content('<main><div id="mw-content-text"><div id="palimpsest-blame" data-revision="91"></div></div></main>')
+        invalid_page.evaluate(
+            """response => {
+                window.mw = {
+                    config: { get: () => ({ wgPageName: 'Example', wgRevisionId: 91, wgArticleId: 42, wgCanonicalSpecialPageName: null }) },
+                    util: { wikiScript: () => 'https://example.test/api.php', getUrl: () => '/wiki/Example' }
+                };
+                window.fetch = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ palimpsestblame: response }) });
+            }""",
+            malformed_fixture,
+        )
+        invalid_page.add_script_tag(path=str(RESOURCE / "helpers.js"))
+        invalid_page.add_script_tag(path=str(RESOURCE / "ext.palimpsestBlame.js"))
+        assert "invalid coalesced UTF-16 token ranges" in invalid_page.get_by_role("alert").inner_text()
+        assert invalid_page.locator(".pb-date-query").count() == 0, "malformed token ranges must fail before rendering controls"
+        invalid_page.close()
         browser.close()
     print("UI smoke passed: real mouse partial drag, touch-enabled Inspect, pinned snapshot, filtered inline history, UTC cutoff warning, build gating, and guest-token job flow")
 

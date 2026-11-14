@@ -20,6 +20,16 @@ function validAnalyzeFixture() {
 	};
 }
 
+function validCoalescedAnalyzeFixture() {
+	const fixture = validAnalyzeFixture();
+	fixture.spans = [ {
+		start: 2, end: 8, revision_id: 91, token_id: '91:0',
+		token_ranges: [ [ 2, 5, '91:0' ], [ 5, 8, '91:1' ] ],
+		lineage_ids: [ '90:3', '91:0', '91:1' ], confidence: 'certain'
+	} ];
+	return fixture;
+}
+
 test( 'parses documented date expressions with explicit UTC boundaries', () => {
 	assert.deepEqual( helpers.interpretDateQuery( 'As of 15 March 2026' ), {
 		mode: 'asof', from: null, to: '2026-03-15T23:59:59Z',
@@ -64,6 +74,27 @@ test( 'accepts a contract-valid analyze fixture, then reports snapshot and schem
 	const badOffset = validAnalyzeFixture();
 	badOffset.spans[ 0 ].start = -1;
 	assert.match( helpers.validateAnalyzeResponse( badOffset, 91 ), /invalid UTF-16 source span/ );
+} );
+
+test( 'validates coalesced token ranges while preserving legacy spans', () => {
+	const coalesced = validCoalescedAnalyzeFixture();
+	assert.equal( helpers.validateAnalyzeResponse( coalesced, 91 ), null, 'ordinary coalesced fixture must pass the response contract first' );
+	assert.equal( helpers.validateAnalyzeResponse( validAnalyzeFixture(), 91 ), null, 'legacy spans without token_ranges remain valid' );
+
+	const malformed = [
+		[ 'noninteger offset', span => { span.token_ranges[ 0 ][ 0 ] = 2.5; } ],
+		[ 'gap', span => { span.token_ranges[ 1 ][ 0 ] = 6; } ],
+		[ 'overlap', span => { span.token_ranges[ 1 ][ 0 ] = 4; } ],
+		[ 'range outside parent span', span => { span.token_ranges[ 1 ][ 1 ] = 9; } ],
+		[ 'wrong owner prefix', span => { span.token_ranges[ 1 ][ 2 ] = '90:1'; span.lineage_ids.push( '90:1' ); } ],
+		[ 'missing own ID from lineage union', span => { span.lineage_ids = [ '90:3', '91:0' ]; } ],
+		[ 'incorrect first stable token ID', span => { span.token_id = '91:1'; } ]
+	];
+	for ( const [ name, damage ] of malformed ) {
+		const fixture = validCoalescedAnalyzeFixture();
+		damage( fixture.spans[ 0 ] );
+		assert.match( helpers.validateAnalyzeResponse( fixture, 91 ), /invalid coalesced UTF-16 token ranges/, name );
+	}
 } );
 
 test( 'safe URL filter rejects executable schemes and indexes local revision identities', () => {

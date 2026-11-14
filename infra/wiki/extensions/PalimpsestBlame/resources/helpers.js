@@ -226,6 +226,27 @@
 		return map;
 	}
 
+	function validCoalescedTokenRanges( span ) {
+		if ( !Array.isArray( span.token_ranges ) || !span.token_ranges.length || !Array.isArray( span.lineage_ids ) ) {
+			return false;
+		}
+		var ownerPrefix = String( span.revision_id ) + ':';
+		var ownIds = new Set();
+		var previousEnd = span.start;
+		for ( var i = 0; i < span.token_ranges.length; i++ ) {
+			var range = span.token_ranges[ i ];
+			if ( !Array.isArray( range ) || range.length !== 3 || !Number.isInteger( range[ 0 ] ) || !Number.isInteger( range[ 1 ] ) || range[ 0 ] !== previousEnd || range[ 1 ] <= range[ 0 ] || range[ 1 ] > span.end || typeof range[ 2 ] !== 'string' || !range[ 2 ].startsWith( ownerPrefix ) || ownIds.has( range[ 2 ] ) ) {
+				return false;
+			}
+			ownIds.add( range[ 2 ] );
+			previousEnd = range[ 1 ];
+		}
+		if ( previousEnd !== span.end || span.token_id !== span.token_ranges[ 0 ][ 2 ] ) {
+			return false;
+		}
+		return Array.from( ownIds ).every( function ( id ) { return span.lineage_ids.includes( id ); } );
+	}
+
 	function validateAnalyzeResponse( data, expectedRevision ) {
 		if ( !data || typeof data !== 'object' || data.status !== 'ready' ) {
 			return 'The Blame service did not return a ready analysis.';
@@ -245,6 +266,9 @@
 			var span = data.spans[ i ];
 			if ( !span || !Number.isInteger( span.start ) || !Number.isInteger( span.end ) || span.start < 0 || span.end <= span.start || span.end > data.source_text.length || !Number.isInteger( Number( span.revision_id ) ) || Number( span.revision_id ) <= 0 ) {
 				return 'The analysis contains an invalid UTF-16 source span.';
+			}
+			if ( Object.prototype.hasOwnProperty.call( span, 'token_ranges' ) && !validCoalescedTokenRanges( span ) ) {
+				return 'The analysis contains invalid coalesced UTF-16 token ranges.';
 			}
 		}
 		return null;
