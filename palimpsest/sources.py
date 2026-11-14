@@ -26,6 +26,8 @@ MIN_OVERLAP: Final = 2
 DEFAULT_MAX_EXA_CALLS: Final = 400
 DEFAULT_DAILY_MAX_EXA_CALLS: Final = 2000
 REQUEST_MAX_EXA_CALLS: Final = 3
+# Failed or stub fetches are not retried for this long (saves Exa calls and latency).
+NEGATIVE_CACHE_TTL_S: Final = 6 * 3600
 _SENTENCE_SPLIT: Final = re.compile(r"(?<=[.!?])\s+")
 _TOKEN: Final = re.compile(r"\w+")
 _HEADING: Final = re.compile(r"^#{1,6}\s")
@@ -33,6 +35,8 @@ _HEADING: Final = re.compile(r"^#{1,6}\s")
 
 class _CachedText(BaseModel):
     text: str
+    # Set on a negative entry: the fetch ran and failed or returned a stub.
+    failed_at: float | None = None
 
 
 class _ExaResult(BaseModel):
@@ -148,6 +152,7 @@ class SourceFetcher:
         self.budget_exhausted = False
         self.calls = 0
         self.cost_dollars = 0.0
+        self._last_failure_transient = False
 
     def for_request(self, max_calls: int = REQUEST_MAX_EXA_CALLS) -> "SourceFetcher":
         """Fresh per-request fetcher: own call budget, shared cache and daily cap."""
@@ -160,14 +165,32 @@ class SourceFetcher:
     def _cache_path(self, url: str) -> Path:
         return self._cache_dir / f"{hashlib.sha256(url.encode()).hexdigest()}.json"
 
-    def _read_cache(self, url: str) -> str | None:
+    def _read_entry(self, url: str) -> _CachedText | None:
         path = self._cache_path(url)
         if not path.exists():
             return None
         try:
-            return _CachedText.model_validate_json(path.read_text()).text
+            return _CachedText.model_validate_json(path.read_text())
         except (OSError, ValidationError):
             return None
+
+    def _read_cache(self, url: str) -> str | None:
+        entry = self._read_entry(url)
+        return None if entry is None or entry.failed_at is not None else entry.text
+
+    def _recently_failed(self, url: str) -> bool:
+        entry = self._read_entry(url)
+        return (
+            entry is not None
+            and entry.failed_at is not None
+            and time.time() - entry.failed_at < NEGATIVE_CACHE_TTL_S
+        )
+
+    def _write_failure(self, url: str) -> None:
+        self._cache_dir.mkdir(parents=True, exist_ok=True)
+        self._cache_path(url).write_text(
+            _CachedText(text="", failed_at=time.time()).model_dump_json()
+        )
 
     def cached_text(self, url: str) -> str | None:
         """Cached page text for url, or None; never calls the network."""
@@ -204,7 +227,12 @@ class SourceFetcher:
             )
             response.raise_for_status()
             parsed = _ExaResponse.model_validate_json(response.content)
-        except (httpx.HTTPError, ValidationError):
+        except (httpx.HTTPError, ValidationError) as exc:
+            # Timeouts, rate limits and 5xx may succeed on retry: never negative-cache.
+            self._last_failure_transient = isinstance(exc, httpx.TimeoutException) or (
+                isinstance(exc, httpx.HTTPStatusError)
+                and (exc.response.status_code >= 500 or exc.response.status_code == 429)
+            )
             return None
         finally:
             if self._client is None:
@@ -232,10 +260,14 @@ class SourceFetcher:
         """
         started = time.perf_counter()
         text = self._read_cache(url)
-        if text is None:
+        if text is None and not self._recently_failed(url):
+            calls_before = self.calls
+            self._last_failure_transient = False
             text = await self._fetch_text(url)
             if text is not None and len(text) >= MIN_TEXT_CHARS:
                 self._write_cache(url, text)
+            elif self.calls > calls_before and not self._last_failure_transient:
+                self._write_failure(url)
         if text is not None and on_text is not None:
             text = on_text(text)
         latency_ms = (time.perf_counter() - started) * 1000

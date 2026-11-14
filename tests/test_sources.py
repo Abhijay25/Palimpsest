@@ -1,12 +1,18 @@
 import asyncio
 import datetime
 import json
+import time
 from pathlib import Path
 
 import httpx
 import pytest
 
-from palimpsest.sources import DailyCallCap, SourceFetcher, discourse_window
+from palimpsest.sources import (
+    NEGATIVE_CACHE_TTL_S,
+    DailyCallCap,
+    SourceFetcher,
+    discourse_window,
+)
 
 SENTENCES = [
     f"Sentence number {i} talks about topic{i} in some detail here."
@@ -200,4 +206,55 @@ def test_daily_cap_blocks_across_requests_and_resets_at_utc_midnight(
     assert len(calls) == 2
     day[0] = datetime.date(2026, 11, 15)
     asyncio.run(shared.for_request().window("https://example.com/9", "topic6 detail"))
+    assert len(calls) == 3
+
+
+def test_failed_fetch_is_not_retried_within_ttl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(404, json={})
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    assert asyncio.run(fetcher.window(URL, "x")).status == "unavailable"
+    assert asyncio.run(fetcher.window(URL, "x")).status == "unavailable"
+    assert len(calls) == 1
+    assert fetcher.cached_text(URL) is None
+    later = time.time() + NEGATIVE_CACHE_TTL_S + 1
+    monkeypatch.setattr("palimpsest.sources.time.time", lambda: later)
+    asyncio.run(fetcher.window(URL, "x"))
+    assert len(calls) == 2
+
+
+def test_budget_block_is_not_cached_as_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EXA_MAX_CALLS", "0")
+    calls: list[httpx.Request] = []
+    blocked = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
+    assert asyncio.run(blocked.window(URL, "topic6 detail")).status == "unavailable"
+    monkeypatch.setenv("EXA_MAX_CALLS", "5")
+    fresh = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
+    assert asyncio.run(fresh.window(URL, "topic6 detail")).status == "ok"
+    assert len(calls) == 1
+
+
+def test_transient_failures_are_retried(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            raise httpx.ReadTimeout("slow")
+        if len(calls) == 2:
+            return httpx.Response(429, json={})
+        return httpx.Response(200, json={"results": [{"text": LONG_TEXT}]})
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    assert asyncio.run(fetcher.window(URL, "topic6 detail")).status == "unavailable"
+    assert asyncio.run(fetcher.window(URL, "topic6 detail")).status == "unavailable"
+    assert asyncio.run(fetcher.window(URL, "topic6 detail")).status == "ok"
     assert len(calls) == 3
