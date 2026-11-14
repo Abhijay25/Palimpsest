@@ -1,0 +1,194 @@
+name: ${PROJECT}
+
+x-wiki-common: &wiki-common
+  image: ${MEDIAWIKI_IMAGE}
+  entrypoint: ["/bin/sh", "/usr/local/bin/palimpsest-entrypoint.sh"]
+  command: ["apache2-foreground"]
+  restart: unless-stopped
+  depends_on:
+    db:
+      condition: service_healthy
+  environment: &wiki-environment
+    MW_PROJECT: ${PROJECT}
+    MW_DB_SERVER: db
+    MW_DB_TYPE: mysql
+    MW_PORT_FI: ${PORT_FI}
+    MW_PORT_SV: ${PORT_SV}
+    MW_PORT_EN: ${PORT_EN}
+    MW_JOB_RUN_RATE: "0"
+    TZ: UTC
+  networks: [wiki]
+
+x-job-common: &job-common
+  image: ${MEDIAWIKI_IMAGE}
+  restart: unless-stopped
+  entrypoint: ["/bin/sh", "/usr/local/bin/palimpsest-entrypoint.sh"]
+  command: ["php", "maintenance/run.php", "runJobs", "--wait", "--maxjobs=100", "--maxtime=60", "--memory-limit=256M"]
+  depends_on:
+    wiki-fi:
+      condition: service_healthy
+  networks: [wiki]
+
+services:
+  db:
+    image: ${MARIADB_IMAGE}
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db-root-password
+      TZ: UTC
+    secrets: [db-root-password]
+    volumes:
+      - ${DATA_ROOT}/db:/var/lib/mysql
+      - ${DATA_ROOT}/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    networks: [wiki]
+
+  wiki-fi:
+    <<: *wiki-common
+    environment:
+      <<: *wiki-environment
+      MW_LANG: fi
+    volumes:
+      - ${DATA_ROOT}/config/fi:/etc/palimpsest:ro
+      - ${DATA_ROOT}/uploads/fi:/var/www/html/images
+      - ${DATA_ROOT}/imports:/data/imports:ro
+      - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
+      - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+      - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
+    ports: ["127.0.0.1:${PORT_FI}:80"]
+    healthcheck:
+      test: ["CMD", "php", "/usr/local/bin/palimpsest-healthcheck.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  wiki-sv:
+    <<: *wiki-common
+    environment:
+      <<: *wiki-environment
+      MW_LANG: sv
+    volumes:
+      - ${DATA_ROOT}/config/sv:/etc/palimpsest:ro
+      - ${DATA_ROOT}/uploads/sv:/var/www/html/images
+      - ${DATA_ROOT}/imports:/data/imports:ro
+      - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
+      - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+      - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
+    ports: ["127.0.0.1:${PORT_SV}:80"]
+    healthcheck:
+      test: ["CMD", "php", "/usr/local/bin/palimpsest-healthcheck.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  wiki-en:
+    <<: *wiki-common
+    environment:
+      <<: *wiki-environment
+      MW_LANG: en
+    volumes:
+      - ${DATA_ROOT}/config/en:/etc/palimpsest:ro
+      - ${DATA_ROOT}/uploads/en:/var/www/html/images
+      - ${DATA_ROOT}/imports:/data/imports:ro
+      - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
+      - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+      - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
+    ports: ["127.0.0.1:${PORT_EN}:80"]
+    healthcheck:
+      test: ["CMD", "php", "/usr/local/bin/palimpsest-healthcheck.php"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 60s
+
+  jobs-fi:
+    <<: *job-common
+    environment:
+      MW_LANG: fi
+      MW_PROJECT: ${PROJECT}
+      MW_PORT_FI: ${PORT_FI}
+      MW_PORT_SV: ${PORT_SV}
+      MW_PORT_EN: ${PORT_EN}
+    volumes:
+      - ${DATA_ROOT}/config/fi:/etc/palimpsest:ro
+      - ${DATA_ROOT}/uploads/fi:/var/www/html/images
+      - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
+      - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+
+  jobs-sv:
+    <<: *job-common
+    depends_on:
+      wiki-sv:
+        condition: service_healthy
+    environment:
+      MW_LANG: sv
+      MW_PROJECT: ${PROJECT}
+      MW_PORT_FI: ${PORT_FI}
+      MW_PORT_SV: ${PORT_SV}
+      MW_PORT_EN: ${PORT_EN}
+    volumes:
+      - ${DATA_ROOT}/config/sv:/etc/palimpsest:ro
+      - ${DATA_ROOT}/uploads/sv:/var/www/html/images
+      - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
+      - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+
+  jobs-en:
+    <<: *job-common
+    depends_on:
+      wiki-en:
+        condition: service_healthy
+    environment:
+      MW_LANG: en
+      MW_PROJECT: ${PROJECT}
+      MW_PORT_FI: ${PORT_FI}
+      MW_PORT_SV: ${PORT_SV}
+      MW_PORT_EN: ${PORT_EN}
+    volumes:
+      - ${DATA_ROOT}/config/en:/etc/palimpsest:ro
+      - ${DATA_ROOT}/uploads/en:/var/www/html/images
+      - ./infra/wiki/extensions:/opt/palimpsest/extensions:ro
+      - ./infra/wiki/runtime/palimpsest-entrypoint.sh:/usr/local/bin/palimpsest-entrypoint.sh:ro
+      - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
+
+  installer:
+    image: ${MEDIAWIKI_IMAGE}
+    profiles: [setup]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      INSTALL_DB_NAME: ${INSTALL_DB_NAME}
+      INSTALL_DB_USER: ${INSTALL_DB_USER}
+      INSTALL_LANG: ${INSTALL_LANG}
+      INSTALL_SERVER: ${INSTALL_SERVER}
+    volumes:
+      - ${INSTALL_DIR}:/tmp/palimpsest-config:rw
+      - ${INSTALL_SECRET_DIR}/db-password:/run/secrets/install-db-password:ro
+      - ${INSTALL_SECRET_DIR}/admin-password:/run/secrets/install-admin-password:ro
+    networks: [wiki]
+
+secrets:
+  db-root-password:
+    file: ${DATA_ROOT}/secrets/db-root-password
+
+networks:
+  wiki:
+    name: ${PROJECT}-wiki
