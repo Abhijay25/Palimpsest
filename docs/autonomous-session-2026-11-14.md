@@ -39,3 +39,24 @@ You were away. These are the decisions I made on your behalf, and the questions 
 - **09:50 r07** — prompt **stage2_v4** (loaded labels + selective deletion) over all 97 cases: the label and deletion cases are caught; clean edits flagged Haiku 4%, Sonnet 2%; planted recall 22/22.
 - **09:53** — confidence-tiered routing (≥0.70 admin queue, 0.45–0.70 review queue). r07 admin-queue false alarms: Haiku 2%, Sonnet 0%. **[review]** The thresholds are a product decision, and they must be re-fit on Gemini's calibrated scores.
 - Exa spend so far: ~$0.09.
+- **09:55–10:15** — Gemini API backend (`prepare --backend gemini`, google-genai 3.3.0, no CVEs; the Decisions API endpoint is a marked TODO). FastAPI `POST /api/v1/audit-diff`, `POST /api/v1/stealth-scan`, `GET /healthz`, smoke-tested on a live server. A whole-package code review found 7 issues; 6 were fixed (judge failures now count in recall, ref-attribution fallback, untrusted-field delimiters with prompt **stage2_v5**, a per-request Exa budget, bounded template scanning that flags truncation, span offsets mapped back to the raw text) and 1 was documented as intended (a poisoned ref page routes to admin without an editor penalty).
+- **10:16 r08en** — **held-out** set of 44 new real English edits: Sonnet caught every revert containing visible POV wording (9/14; the rest are vandalism or neutral changes). Admin-queue false alarms on 30 controls: Sonnet 1 (3.3%), Haiku 2 (6.7%).
+- *(usage limit hit ~10:20; resumed 12:31)*
+- **12:36 r09ctl** — 46 more controls. **Combined 76 English controls, admin-queue false alarms: Sonnet 2.6%, Haiku 5.3%.** Most flagged "clean" edits are real citation mismatches that survived patrol (e.g. a sentence changed 2→3 years against its AP source, the Tito constitution 1963→1974 against its source).
+- **Total Exa spend: ~$0.22** (of the $5–10 budget).
+
+## Where things stand
+| Component | Status | Best number |
+|---|---|---|
+| Bias detector (stage2_v5, Sonnet judge) | working end-to-end on real edits | admin false alarms 2.6% on 76 real EN controls; every POV-worded revert caught |
+| Stealth scanner (Pillar 1 + Haiku triage) | working, wired before Stage 0 and on ref pages | blind held-out attack recall 92%, 0 false alarms on 42 real hidden-markup edits |
+| API | `/api/v1/audit-diff`, `/api/v1/stealth-scan`, `/healthz` | stealth works now; audit-diff needs `GEMINI_API_KEY` |
+| Gemini swap | `prepare --backend gemini` + API auto-detects the key | untested against the live API |
+
+## Questions for you (summary)
+1. Thresholds: admin ≥ 0.70, review 0.45–0.70. Keep them? They need re-fitting on Gemini's calibrated scores.
+2. Haiku-class as the cheap first pass and Sonnet/Hydrogen-class for the admin queue?
+3. Pillar 3 (render-based visibility via MediaWiki parse + headless browser): build it, or wait for Gemini?
+4. Raw-HTML fetch of ref pages (in addition to Exa text) to catch CSS-hidden lures on cited sites?
+5. Split "possible manipulation" from "citation mismatch / likely update" in the admin queue (r09ctl findings)?
+6. API `lang_code` is limited to en/fi (Stage 0 word lists exist only for those); Teammate 1 needs de/fr/es.
