@@ -229,7 +229,11 @@ final class BlameApi extends ApiBase {
 			}
 		}
 		if ( !$row ) {
-			$active = (int)$db->selectField( 'palimpsestblame_job', 'COUNT(*)', [ 'pbj_status' => [ 'pending', 'running' ] ], __METHOD__ );
+			$active = (int)$db->selectField( 'palimpsestblame_job', 'COUNT(*)', [
+				'pbj_algorithm' => AttributionEngine::VERSION,
+				'pbj_schema_version' => 1,
+				'pbj_status' => [ 'pending', 'running' ],
+			], __METHOD__ );
 			if ( $active >= 3 ) { throw new DomainException( 'job-concurrency-limit-reached' ); }
 			$count = (int)$db->selectField( 'palimpsestblame_job', 'COUNT(*)', [], __METHOD__ );
 			if ( $count >= 200 ) { $this->evictOldestJobs( $db, $count - 199 ); }

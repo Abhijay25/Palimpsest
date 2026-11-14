@@ -29,7 +29,10 @@ final class BlameBuildJob extends Job {
 		$db = $services->getConnectionProvider()->getPrimaryDatabase();
 		$id = (string)( $this->params['job_id'] ?? '' );
 		$row = $db->selectRow( 'palimpsestblame_job', '*', [ 'pbj_id' => $id ], __METHOD__ );
-		if ( !$row || !in_array( $row->pbj_status, [ 'pending', 'running' ], true ) ) { return true; }
+		if ( !$row || !in_array( $row->pbj_status, [ 'pending', 'running' ], true ) ||
+			$row->pbj_algorithm !== AttributionEngine::VERSION || (int)$row->pbj_schema_version !== 1 ) {
+			return true;
+		}
 		$now = wfTimestampNow();
 		$leaseTimestamp = $now;
 		$claimConditions = [ 'pbj_id' => $id, 'pbj_status' => $row->pbj_status ];
