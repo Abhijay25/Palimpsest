@@ -1,5 +1,6 @@
 """Stage 1: Exa-backed citation source windows with a JSON-file cache."""
 
+import asyncio
 import datetime
 import hashlib
 import os
@@ -37,6 +38,15 @@ class _CachedText(BaseModel):
     text: str
     # Set on a negative entry: the fetch ran and failed or returned a stub.
     failed_at: float | None = None
+
+
+class _FetchOutcome(BaseModel):
+    """Result of one Exa call; classification travels with the result, not the instance."""
+
+    text: str | None = None
+    # A successful HTTP 200 whose body had no results or only a stub: retrying
+    # soon will not help. Everything else (transport errors, 4xx/5xx) is transient.
+    permanent_failure: bool = False
 
 
 class _ExaResult(BaseModel):
@@ -152,7 +162,9 @@ class SourceFetcher:
         self.budget_exhausted = False
         self.calls = 0
         self.cost_dollars = 0.0
-        self._last_failure_transient = False
+        # url -> running fetch, shared with for_request children so concurrent
+        # requests for one URL cost a single Exa call.
+        self._inflight: dict[str, asyncio.Task[str | None]] = {}
 
     def for_request(self, max_calls: int = REQUEST_MAX_EXA_CALLS) -> "SourceFetcher":
         """Fresh per-request fetcher: own call budget, shared cache and daily cap."""
@@ -160,6 +172,7 @@ class SourceFetcher:
             self._api_key, self._cache_dir, self._client, self._daily_cap
         )
         child._max_calls = min(max_calls, self._max_calls)
+        child._inflight = self._inflight
         return child
 
     def _cache_path(self, url: str) -> Path:
@@ -200,10 +213,10 @@ class SourceFetcher:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._cache_path(url).write_text(_CachedText(text=text).model_dump_json())
 
-    async def _fetch_text(self, url: str) -> str | None:
-        """Return page text from Exa, or None on any failure."""
+    async def _fetch_text(self, url: str) -> _FetchOutcome:
+        """One Exa call for url; text is None on any failure."""
         if self._api_key is None:
-            return None
+            return _FetchOutcome()
         if self.calls >= self._max_calls or (
             self._daily_cap is not None and not self._daily_cap.try_acquire()
         ):
@@ -215,7 +228,7 @@ class SourceFetcher:
                     "further uncached sources are unavailable",
                     file=sys.stderr,
                 )
-            return None
+            return _FetchOutcome()
         self.calls += 1
         client = self._client or httpx.AsyncClient()
         try:
@@ -226,22 +239,48 @@ class SourceFetcher:
                 timeout=REQUEST_TIMEOUT_S,
             )
             response.raise_for_status()
+            if response.status_code != 200:
+                return _FetchOutcome()
             parsed = _ExaResponse.model_validate_json(response.content)
-        except (httpx.HTTPError, ValidationError) as exc:
-            # Timeouts, rate limits and 5xx may succeed on retry: never negative-cache.
-            self._last_failure_transient = isinstance(exc, httpx.TimeoutException) or (
-                isinstance(exc, httpx.HTTPStatusError)
-                and (exc.response.status_code >= 500 or exc.response.status_code == 429)
-            )
-            return None
+        except (httpx.HTTPError, ValidationError):
+            # Transport errors, 4xx/5xx (incl. 401/402/403/429) and malformed
+            # bodies may succeed on retry: never negative-cache.
+            return _FetchOutcome()
         finally:
             if self._client is None:
                 await client.aclose()
         if parsed.costDollars is not None:
             self.cost_dollars += parsed.costDollars.total
-        if not parsed.results:
-            return None
-        return parsed.results[0].text
+        text = parsed.results[0].text if parsed.results else None
+        return _FetchOutcome(
+            text=text, permanent_failure=text is None or len(text) < MIN_TEXT_CHARS
+        )
+
+    async def _fetch_and_cache(self, url: str) -> str | None:
+        outcome = await self._fetch_text(url)
+        if outcome.text is not None and len(outcome.text) >= MIN_TEXT_CHARS:
+            self._write_cache(url, outcome.text)
+        elif outcome.permanent_failure:
+            self._write_failure(url)
+        return outcome.text
+
+    async def _shared_fetch(self, url: str) -> str | None:
+        """Fetch url once however many callers ask at the same time.
+
+        Callers that join a running fetch spend no budget of their own.
+        """
+        task = self._inflight.get(url)
+        if task is None:
+            task = asyncio.create_task(self._fetch_and_cache(url))
+            self._inflight[url] = task
+
+            def forget(done: "asyncio.Task[str | None]") -> None:
+                if self._inflight.get(url) is done:
+                    del self._inflight[url]
+
+            task.add_done_callback(forget)
+        # Shielded: one waiter being cancelled must not cancel the shared fetch.
+        return await asyncio.shield(task)
 
     async def window(self, url: str, claim: str, radius: int = 3) -> SourceWindow:
         return (await self.window_scored(url, claim, radius))[0]
@@ -261,13 +300,7 @@ class SourceFetcher:
         started = time.perf_counter()
         text = self._read_cache(url)
         if text is None and not self._recently_failed(url):
-            calls_before = self.calls
-            self._last_failure_transient = False
-            text = await self._fetch_text(url)
-            if text is not None and len(text) >= MIN_TEXT_CHARS:
-                self._write_cache(url, text)
-            elif self.calls > calls_before and not self._last_failure_transient:
-                self._write_failure(url)
+            text = await self._shared_fetch(url)
         if text is not None and on_text is not None:
             text = on_text(text)
         latency_ms = (time.perf_counter() - started) * 1000

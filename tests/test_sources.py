@@ -216,7 +216,7 @@ def test_failed_fetch_is_not_retried_within_ttl(
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
-        return httpx.Response(404, json={})
+        return httpx.Response(200, json={"results": []})
 
     fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
     assert asyncio.run(fetcher.window(URL, "x")).status == "unavailable"
@@ -258,3 +258,74 @@ def test_transient_failures_are_retried(tmp_path: Path) -> None:
     assert asyncio.run(fetcher.window(URL, "topic6 detail")).status == "unavailable"
     assert asyncio.run(fetcher.window(URL, "topic6 detail")).status == "ok"
     assert len(calls) == 3
+
+
+@pytest.mark.parametrize("status", [401, 402, 403, 404, 429, 500, 503])
+def test_http_error_statuses_are_never_negative_cached(
+    tmp_path: Path, status: int
+) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(status, json={})
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    asyncio.run(fetcher.window(URL, "x"))
+    asyncio.run(fetcher.window(URL, "x"))
+    assert len(calls) == 2
+
+
+def test_connect_error_and_bad_body_are_never_negative_cached(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) == 1:
+            raise httpx.ConnectError("down")
+        return httpx.Response(200, json={"results": "not-a-list"})
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    for _ in range(3):
+        asyncio.run(fetcher.window(URL, "x"))
+    assert len(calls) == 3
+
+
+def test_stub_text_with_200_is_negative_cached(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"results": [{"text": "Too short."}]})
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    asyncio.run(fetcher.window(URL, "x"))
+    asyncio.run(fetcher.window(URL, "x"))
+    assert len(calls) == 1
+
+
+def test_concurrent_requests_for_one_url_share_one_fetch(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        await asyncio.sleep(0.05)
+        return httpx.Response(200, json={"results": [{"text": LONG_TEXT}]})
+
+    shared = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    first, second = shared.for_request(1), shared.for_request(1)
+
+    async def run() -> list[str]:
+        results = await asyncio.gather(
+            first.window(URL, "topic6 detail"),
+            second.window(URL, "topic6 detail"),
+            first.window(URL, "topic6 detail"),
+        )
+        return [r.status for r in results]
+
+    assert asyncio.run(run()) == ["ok", "ok", "ok"]
+    assert len(calls) == 1
+    # Only the fetcher that actually called Exa spent budget.
+    assert (first.calls, second.calls) == (1, 0)
+    assert not second.budget_exhausted
+    assert shared._inflight == {}
