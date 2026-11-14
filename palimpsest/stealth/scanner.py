@@ -23,6 +23,14 @@ from palimpsest.stealth.sanitizer import (
 _SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
 _INVISIBLE_TABLE = {ord(c): None for c in INVISIBLE_CHARS}
 
+_TRIAGE_FIRST_VECTORS = frozenset(
+    {
+        VectorType.TEMPLATE_PARAM_TEXT,
+        VectorType.A11Y_ALT_POISONING,
+        VectorType.ATTRIBUTE_TEXT,
+    }
+)
+
 TargetType = Literal["WIKIPEDIA_DIFF", "EXTERNAL_REF_PAGE"]
 
 # Higher rank wins: CRITICAL > CSS > HOMOGLYPH > BENIGN > CLEAN.
@@ -117,7 +125,7 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
     for item in channels.quarantined_items:
         if not is_new(item.raw_snippet):
             continue
-        if item.vector_type == VectorType.TEMPLATE_PARAM_TEXT:
+        if item.vector_type in _TRIAGE_FIRST_VECTORS:
             classification = "NEEDS_TRIAGE"
             contributes = (
                 StealthStatus.CRITICAL_AI_POISONING
@@ -126,8 +134,9 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
             )
             confidence = 0.6
             explanation = (
-                "Template parameter text with instruction-like phrasing that "
-                "may not render; pending triage."
+                "Template parameter or attribute text that may not render"
+                + ("; instruction-like phrasing" if item.instruction_like else "")
+                + "; pending triage."
             )
         elif item.instruction_like:
             classification = "FLAG_STEALTH_PROMPT_INJECTION"
@@ -139,13 +148,6 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
             contributes = StealthStatus.BENIGN_NOTES_ONLY
             confidence = 0.5
             explanation = "Hidden comment without instruction phrasing; provisional pending triage."
-        elif item.vector_type == VectorType.A11Y_ALT_POISONING:
-            classification = "NEEDS_TRIAGE"
-            contributes = StealthStatus.BENIGN_NOTES_ONLY
-            confidence = 0.4
-            explanation = (
-                "Long alt/aria text without instruction phrasing; pending triage."
-            )
         else:
             classification = "FLAG_CSS_CLOAKING"
             contributes = StealthStatus.CSS_CLOAKING_DETECTED

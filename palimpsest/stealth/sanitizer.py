@@ -39,55 +39,43 @@ _INSTRUCTION_CI = re.compile(
 )
 _INSTRUCTION_CS = re.compile(r"\b(?:AI|LLM|LLMs|GPT|ChatGPT)\b")
 
-_STYLE_PATTERNS: tuple[tuple[VectorType, re.Pattern[str]], ...] = (
-    (VectorType.CSS_DISPLAY_NONE, re.compile(r"display\s*:\s*none", re.IGNORECASE)),
-    (
-        VectorType.CSS_DISPLAY_NONE,
-        re.compile(r"visibility\s*:\s*hidden", re.IGNORECASE),
-    ),
-    (
-        VectorType.CSS_ZERO_FONT,
-        re.compile(r"font-size\s*:\s*0(?:px|pt|em|rem|%)?(?![\w.])", re.IGNORECASE),
-    ),
-    (
-        VectorType.CSS_HIDDEN_ELEMENT,
-        re.compile(r"opacity\s*:\s*0(?:\.0+)?(?![\w.])", re.IGNORECASE),
-    ),
-    (
-        VectorType.CSS_HIDDEN_ELEMENT,
-        re.compile(r"filter\s*:\s*opacity\(\s*0%?\s*\)", re.IGNORECASE),
-    ),
-    (
-        VectorType.CSS_HIDDEN_ELEMENT,
-        re.compile(r"line-height\s*:\s*0(?:px|pt|em|rem|%)?(?![\w.])", re.IGNORECASE),
-    ),
-    (
-        VectorType.CSS_HIDDEN_ELEMENT,
-        re.compile(r"(?:left|top|text-indent)\s*:\s*-\d{3,}px", re.IGNORECASE),
-    ),
-    (
-        VectorType.CSS_HIDDEN_ELEMENT,
-        re.compile(r"(?<![\w-])color\s*:\s*transparent", re.IGNORECASE),
-    ),
-)
-_COLOR = re.compile(r"(?<![\w-])color\s*:\s*([^;\"']+)", re.IGNORECASE)
-_BACKGROUND = re.compile(
-    r"(?<![\w-])background(?:-color)?\s*:\s*([^;\"']+)", re.IGNORECASE
-)
-_WHITE = frozenset({"white", "#fff", "#ffffff"})
-_RGB_WHITE = re.compile(r"rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)")
-_FONT_SIZE = re.compile(
-    r"(?<![\w-])font-size\s*:\s*(\d*\.?\d+)\s*(px|pt|em|rem|%)(?![\w.])",
-    re.IGNORECASE,
-)
+_OPACITY_LIMIT = 0.05
+_ALPHA_LIMIT = 0.05
+_FONT_SIZE = re.compile(r"(\d*\.?\d+)\s*(px|pt|em|rem|%)?")
+_LENGTH = re.compile(r"(-?\d*\.?\d+)\s*(px|pt|em|rem|%)?")
+_IMPORTANT = re.compile(r"\s*!\s*important\s*")
+_HEX_COLOR = re.compile(r"#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})")
+_FUNC_COLOR = re.compile(r"rgba?\(([^)]*)\)")
+_NAMED_COLORS: dict[str, tuple[int, int, int]] = {
+    "white": (255, 255, 255),
+    "black": (0, 0, 0),
+    "red": (255, 0, 0),
+    "lime": (0, 255, 0),
+    "green": (0, 128, 0),
+    "blue": (0, 0, 255),
+    "yellow": (255, 255, 0),
+    "cyan": (0, 255, 255),
+    "aqua": (0, 255, 255),
+    "magenta": (255, 0, 255),
+    "fuchsia": (255, 0, 255),
+    "gray": (128, 128, 128),
+    "grey": (128, 128, 128),
+    "silver": (192, 192, 192),
+    "maroon": (128, 0, 0),
+    "olive": (128, 128, 0),
+    "purple": (128, 0, 128),
+    "teal": (0, 128, 128),
+    "navy": (0, 0, 128),
+    "orange": (255, 165, 0),
+}
 # Font sizes below these limits are unreadable, per unit.
 _TINY_FONT_LIMIT = {"px": 2.0, "pt": 1.5, "em": 0.1, "rem": 0.1, "%": 10.0}
+_ARIA_HIDDEN = re.compile(r"aria-hidden\s*=\s*[\"']?\s*true", re.IGNORECASE)
 _HIDDEN_ATTR = re.compile(
     r"(?:^|\s)hidden(?:\s*=\s*(?:\"[^\"]*\"|'[^']*'|[^\s\"']+))?(?=\s|$)"
 )
 _QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
 _TEMPLATE = re.compile(r"\{\{[^{}]*\}\}")
-_TEMPLATE_PARAM = re.compile(r"\|\s*[^|=\]}{\n]+?\s*=([^|\]}\n]*)")
 _INTERWIKI = re.compile(r"\[\[[a-z]{2,3}(?:-[a-z]+)*:[^\]\n]*\]\]")
 
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -99,10 +87,16 @@ _COLLAPSED_CLASS = re.compile(
 _SCRIPT = re.compile(
     r"<(script|style)\b([^<>]*)>(.*?)</\1\s*>", re.DOTALL | re.IGNORECASE
 )
-_HTML_ATTR = re.compile(
-    r"""\s(alt|aria-label|title)\s*=\s*(?:"([^"]*)"|'([^']*)')""", re.IGNORECASE
-)
+_ATTR_PAIR = re.compile(r"""(?:^|\s)([a-zA-Z][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
 _WIKI_ALT = re.compile(r"\|\s*alt\s*=([^|\]}\n]*)")
+_MEDIA_LINK = re.compile(
+    r"\[\[\s*(?:file|image|tiedosto|kuva|bild|fichier|archivo)\s*:", re.IGNORECASE
+)
+_MEDIA_PARAMS = frozenset({"alt", "title", "caption", "description", "label"})
+_A11Y_ATTRS = frozenset({"alt", "aria-label", "aria-description"})
+_LEGACY_ATTRS = frozenset({"alt", "aria-label", "title"})
+_TEXT_ATTRS = frozenset({"title", "placeholder"})
+ATTRIBUTE_TEXT_MIN_WORDS = 4
 _WIKI_TABLE_START = re.compile(r"^\{\|[^\n]*mw-collapsed[^\n]*$", re.MULTILINE)
 _TABLE_MARKER = re.compile(r"^(\{\||\|\})", re.MULTILINE)
 _TAG_STRIP = re.compile(r"<[^>]*>")
@@ -251,38 +245,294 @@ def detect_homoglyphs(text: str) -> list[HomoglyphToken]:
     return found
 
 
-def _normalise_color(value: str) -> str:
-    value = value.replace("!important", "").strip().lower()
-    if _RGB_WHITE.fullmatch(value):
-        return "white"
-    return "white" if value in _WHITE else value
+def _split_top_level(text: str, separators: str) -> list[str]:
+    """Split on any of `separators`, ignoring any inside parentheses or quotes."""
+    parts: list[str] = []
+    depth = 0
+    quote = ""
+    current: list[str] = []
+    for char in text:
+        if quote:
+            if char == quote:
+                quote = ""
+        elif char in "\"'":
+            quote = char
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth = max(depth - 1, 0)
+        elif char in separators and depth == 0:
+            parts.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    parts.append("".join(current))
+    return parts
 
 
-def _tiny_font(style: str) -> bool:
-    return any(
-        float(m.group(1)) < _TINY_FONT_LIMIT[m.group(2).lower()]
-        for m in _FONT_SIZE.finditer(style)
-    )
+def parse_style(style: str) -> dict[str, str]:
+    """Parse an inline style attribute: lower-cased, !important stripped, last wins."""
+    props: dict[str, str] = {}
+    for declaration in _split_top_level(style, ";"):
+        name, colon, value = declaration.partition(":")
+        if not colon or not name.strip():
+            continue
+        props[name.strip().lower()] = _IMPORTANT.sub(" ", value).strip().lower()
+    return props
 
 
-def _style_vector(style: str) -> VectorType | None:
-    for vector, pattern in _STYLE_PATTERNS:
-        if pattern.search(style):
-            return vector
-    if _tiny_font(style):
-        return VectorType.CSS_ZERO_FONT
-    color = _COLOR.search(style)
+def _number(value: str) -> float | None:
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _fraction(value: str) -> float | None:
+    """Parse '0.5' or '50%' to a 0-1 fraction."""
+    value = value.strip()
+    if value.endswith("%"):
+        number = _number(value[:-1])
+        return None if number is None else number / 100
+    return _number(value)
+
+
+def _length_px(value: str) -> float | None:
+    m = _LENGTH.fullmatch(value.strip())
+    if m is None:
+        return None
+    number = float(m.group(1))
+    unit = m.group(2) or "px"
+    if unit == "pt":
+        return number * 4 / 3
+    return number * 16 if unit in {"em", "rem"} else number
+
+
+def _is_zero(value: str | None) -> bool:
+    if value is None:
+        return False
+    m = _LENGTH.fullmatch(value.strip())
+    return m is not None and float(m.group(1)) == 0
+
+
+def parse_color(value: str) -> tuple[int, int, int, float] | None:
+    """Normalise hex / rgb(a) / basic named colours to (r, g, b, alpha)."""
+    value = value.strip().lower()
+    if value == "transparent":
+        return (0, 0, 0, 0.0)
+    if value in _NAMED_COLORS:
+        return (*_NAMED_COLORS[value], 1.0)
+    hex_match = _HEX_COLOR.fullmatch(value)
+    if hex_match is not None:
+        digits = hex_match.group(1)
+        if len(digits) in {3, 4}:
+            digits = "".join(c * 2 for c in digits)
+        alpha = int(digits[6:8], 16) / 255 if len(digits) == 8 else 1.0
+        return (int(digits[0:2], 16), int(digits[2:4], 16), int(digits[4:6], 16), alpha)
+    func = _FUNC_COLOR.fullmatch(value)
+    if func is None:
+        return None
+    parts = [p for p in re.split(r"[,\s/]+", func.group(1).strip()) if p]
+    if len(parts) not in {3, 4}:
+        return None
+    channels: list[int] = []
+    for part in parts[:3]:
+        scale = 2.55 if part.endswith("%") else 1.0
+        number = _number(part.rstrip("%"))
+        if number is None:
+            return None
+        channels.append(max(0, min(255, round(number * scale))))
+    parsed_alpha = _fraction(parts[3]) if len(parts) == 4 else 1.0
+    if parsed_alpha is None:
+        return None
+    return (channels[0], channels[1], channels[2], parsed_alpha)
+
+
+def _background_color(props: dict[str, str]) -> tuple[int, int, int, float] | None:
+    for key in ("background-color", "background"):
+        for token in _split_top_level(props.get(key, ""), " \t\n"):
+            color = parse_color(token)
+            if color is not None:
+                return color
+    return None
+
+
+def _hidden_display(props: dict[str, str]) -> str | None:
+    if props.get("display") == "none":
+        return "display:none"
+    if props.get("visibility") in {"hidden", "collapse"}:
+        return f"visibility:{props['visibility']}"
+    return None
+
+
+def _hidden_opacity(props: dict[str, str], limit: float) -> str | None:
+    opacity = _fraction(props.get("opacity", ""))
+    if opacity is not None and opacity < limit:
+        return f"opacity:{props['opacity']}"
+    m = re.search(r"opacity\(\s*([^)]*)\)", props.get("filter", ""))
+    filtered = _fraction(m.group(1)) if m else None
+    if filtered is not None and filtered < limit:
+        return f"filter:opacity({m.group(1).strip() if m else ''})"
+    return None
+
+
+def _hidden_font_size(props: dict[str, str], factor: float) -> str | None:
+    m = _FONT_SIZE.fullmatch(props.get("font-size", ""))
+    if m is None:
+        return None
+    number = float(m.group(1))
+    unit = m.group(2)
+    if (unit is None and number == 0) or (
+        unit is not None and number < _TINY_FONT_LIMIT[unit] * factor
+    ):
+        return f"font-size:{props['font-size']}"
+    return None
+
+
+def _hidden_color(props: dict[str, str]) -> str | None:
+    color = parse_color(props.get("color", ""))
     if color is None:
         return None
-    color_value = _normalise_color(color.group(1))
-    background = _BACKGROUND.search(style)
+    if color[3] < _ALPHA_LIMIT:
+        return "color:transparent"
+    background = _background_color(props)
     if background is None:
-        return VectorType.CSS_HIDDEN_ELEMENT if color_value == "white" else None
-    return (
-        VectorType.CSS_HIDDEN_ELEMENT
-        if _normalise_color(background.group(1)) == color_value
-        else None
+        return (
+            "color:white-without-background" if color[:3] == (255, 255, 255) else None
+        )
+    if background[3] >= 1 - _ALPHA_LIMIT and background[:3] == color[:3]:
+        return "color:equals-background"
+    return None
+
+
+def _hidden_box(props: dict[str, str], aria_hidden: bool) -> str | None:
+    clipped = any(
+        props.get(k) in {"hidden", "clip"}
+        for k in ("overflow", "overflow-x", "overflow-y")
     )
+    if not clipped:
+        return None
+    for key in ("width", "height", "max-width", "max-height"):
+        value = props.get(key)
+        tiny = aria_hidden and value is not None and (_length_px(value) or 99) <= 1
+        if _is_zero(value) or tiny:
+            return f"size:{key}:{value} with overflow:hidden"
+    return None
+
+
+def _numbers(text: str) -> list[float] | None:
+    values = [_length_px(p) for p in re.split(r"[,\s]+", text.strip()) if p]
+    return (
+        None if any(v is None for v in values) else [v for v in values if v is not None]
+    )
+
+
+def _hidden_clip(props: dict[str, str]) -> str | None:
+    m = re.fullmatch(r"rect\(([^)]*)\)", props.get("clip", ""))
+    values = _numbers(m.group(1)) if m else None
+    if values is not None and len(values) == 4:
+        top, right, bottom, left = values
+        if right - left <= 0 or bottom - top <= 0:
+            return f"clip:{props['clip']}"
+    return None
+
+
+def _inset_hides(args: str) -> bool:
+    edges = args.split("round")[0].split()
+    if not edges or len(edges) > 4 or not all(e.endswith("%") for e in edges):
+        return False
+    pct = [_number(e[:-1]) or 0.0 for e in edges]
+    top = pct[0]
+    right = pct[1] if len(pct) > 1 else top
+    bottom = pct[2] if len(pct) > 2 else top
+    left = pct[3] if len(pct) > 3 else right
+    return top + bottom >= 100 or left + right >= 100
+
+
+def _polygon_area(args: str) -> float | None:
+    points: list[tuple[float, float]] = []
+    for piece in args.split(","):
+        coords = _numbers(re.sub(r"^(?:nonzero|evenodd)\s*", "", piece.strip()))
+        if coords is None:
+            return None
+        if len(coords) == 2:
+            points.append((coords[0], coords[1]))
+    if not points:
+        return None
+    return (
+        abs(
+            sum(
+                x1 * y2 - x2 * y1
+                for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1])
+            )
+        )
+        / 2
+    )
+
+
+def _hidden_clip_path(props: dict[str, str]) -> str | None:
+    value = props.get("clip-path", "")
+    shape = re.fullmatch(r"(inset|circle|polygon)\((.*)\)", value)
+    if shape is None:
+        return None
+    kind, args = shape.groups()
+    if kind == "inset" and _inset_hides(args):
+        return f"clip-path:{value}"
+    if kind == "circle" and _is_zero(args.split(" at ")[0].strip() or None):
+        return f"clip-path:{value}"
+    if kind == "polygon" and _polygon_area(args) == 0:
+        return f"clip-path:{value}"
+    return None
+
+
+def _hidden_transform(props: dict[str, str]) -> str | None:
+    value = props.get("transform", "")
+    for m in re.finditer(r"(?<![a-z])(scale(?:3d|x|y)?)\(([^)]*)\)", value):
+        factors = [_number(p) for p in re.split(r"[,\s]+", m.group(2).strip()) if p]
+        relevant = factors[:1] if m.group(1) in {"scalex", "scaley"} else factors[:2]
+        if any(f is not None and abs(f) < 0.05 for f in relevant):
+            return f"transform:{m.group(0)}"
+    return None
+
+
+def _hidden_off_screen(props: dict[str, str], aria_hidden: bool) -> str | None:
+    limit = 99 if aria_hidden else 999
+    indent = _length_px(props.get("text-indent", ""))
+    if indent is not None and indent <= -limit:
+        return "off-screen:text-indent"
+    if props.get("position") not in {"absolute", "fixed"}:
+        return None
+    for key in ("left", "top", "right", "bottom", "margin-left"):
+        offset = _length_px(props.get(key, ""))
+        if offset is not None and (offset <= -limit or offset >= 9999):
+            return f"off-screen:{key}"
+    return None
+
+
+def is_visually_hidden(props: dict[str, str], aria_hidden: bool = False) -> str | None:
+    """Return why an element's inline style hides its text from a reader, else None.
+
+    `aria_hidden` marks an aria-hidden="true" element, which lowers the thresholds.
+    """
+    return (
+        _hidden_display(props)
+        or _hidden_opacity(props, 0.2 if aria_hidden else _OPACITY_LIMIT)
+        or _hidden_font_size(props, 2.5 if aria_hidden else 1.0)
+        or _hidden_color(props)
+        or _hidden_box(props, aria_hidden)
+        or _hidden_clip(props)
+        or _hidden_clip_path(props)
+        or _hidden_transform(props)
+        or _hidden_off_screen(props, aria_hidden)
+    )
+
+
+def _style_vector(reason: str) -> VectorType:
+    if reason.startswith(("display", "visibility")):
+        return VectorType.CSS_DISPLAY_NONE
+    if reason.startswith("font-size"):
+        return VectorType.CSS_ZERO_FONT
+    return VectorType.CSS_HIDDEN_ELEMENT
 
 
 def _find_close(text: str, name: str, start: int) -> int:
@@ -343,7 +593,11 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
         vector: VectorType | None = None
         style = _STYLE_ATTR.search(attrs)
         if style is not None:
-            vector = _style_vector(style.group(1) or style.group(2) or "")
+            reason = is_visually_hidden(
+                parse_style(style.group(1) or style.group(2) or ""),
+                aria_hidden=bool(_ARIA_HIDDEN.search(attrs)),
+            )
+            vector = None if reason is None else _style_vector(reason)
         if vector is None and _COLLAPSED_CLASS.search(attrs):
             vector = VectorType.COLLAPSED_BLOCK
         if vector is None and _HIDDEN_ATTR.search(_QUOTED.sub('""', attrs)):
@@ -368,9 +622,41 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
             )
         )
     for m in _WIKI_ALT.finditer(masked):
-        _append_alt(items, text, m.start(), m.end(), m.group(1))
-    for m in _HTML_ATTR.finditer(masked):
-        _append_alt(items, text, m.start() + 1, m.end(), m.group(2) or m.group(3) or "")
+        _append_attr_text(
+            items,
+            text,
+            VectorType.A11Y_ALT_POISONING,
+            m.start(),
+            m.end(),
+            m.group(1),
+            min_words=SUSPICIOUS_ALT_WORD_LIMIT + 1,
+        )
+    for start, end, value in _media_params(masked):
+        _append_attr_text(
+            items, text, VectorType.A11Y_ALT_POISONING, start, end, value, True
+        )
+    for m in _OPEN_TAG.finditer(masked):
+        for pair in _ATTR_PAIR.finditer(m.group(2)):
+            name = pair.group(1).lower()
+            if name in _A11Y_ATTRS or name.startswith("aria-label"):
+                vector = VectorType.A11Y_ALT_POISONING
+            elif (
+                name in _TEXT_ATTRS
+                or name.startswith("data-")
+                or (name == "content" and m.group(1).lower() == "meta")
+            ):
+                vector = VectorType.ATTRIBUTE_TEXT
+            else:
+                continue
+            _append_attr_text(
+                items,
+                text,
+                vector,
+                m.start(2) + pair.start(1),
+                m.start(2) + pair.end(),
+                pair.group(2) or pair.group(3) or "",
+                name not in _LEGACY_ATTRS,
+            )
     for start, end, value in _template_params(masked):
         if looks_like_instruction(value):
             item = _item(text, VectorType.TEMPLATE_PARAM_TEXT, start, end, value)
@@ -387,26 +673,89 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
     )
 
 
+def _split_pipes(text: str, offset: int) -> list[tuple[int, str]]:
+    """Split on top-level '|' (not inside [[ ]]); returns (offset of '|', piece)."""
+    pieces: list[tuple[int, str]] = []
+    depth = 0
+    start = 0
+    i = 0
+    while i < len(text):
+        if text.startswith("[[", i):
+            depth += 1
+            i += 2
+            continue
+        if text.startswith("]]", i):
+            depth = max(depth - 1, 0)
+            i += 2
+            continue
+        if text[i] == "|" and depth == 0:
+            pieces.append((offset + start, text[start:i]))
+            start = i
+        i += 1
+    pieces.append((offset + start, text[start:]))
+    return pieces
+
+
+def _split_param(piece: str) -> tuple[str, str]:
+    """Split '|name=value' into (name, value); positional pieces have name ''."""
+    name, eq, value = piece[1:].partition("=")
+    if eq and name.strip() and not re.search(r"[\n\[\]<>{}]", name.strip()):
+        return name.strip().lower(), value
+    return "", piece[1:]
+
+
 def _template_params(text: str) -> list[tuple[int, int, str]]:
-    """Return (start, end, value) of every named template parameter, innermost first."""
+    """Return (start, end, value) of every template parameter, innermost first."""
     params: list[tuple[int, int, str]] = []
     while True:
         matches = list(_TEMPLATE.finditer(text))
         if not matches:
             return params
         for m in matches:
-            params.extend(
-                (m.start() + p.start(), m.start() + p.end(), p.group(1))
-                for p in _TEMPLATE_PARAM.finditer(m.group())
-            )
+            for start, piece in _split_pipes(m.group()[2:-2], m.start() + 2)[1:]:
+                params.append((start, start + len(piece), _split_param(piece)[1]))
             text = text[: m.start()] + " " * len(m.group()) + text[m.end() :]
 
 
-def _append_alt(
-    items: list[QuarantinedItem], text: str, start: int, end: int, value: str
+def _media_params(text: str) -> list[tuple[int, int, str]]:
+    """Return (start, end, value) of alt/title/caption-like params in File: links."""
+    found: list[tuple[int, int, str]] = []
+    for m in _MEDIA_LINK.finditer(text):
+        depth = 1
+        i = m.end()
+        while i < len(text) and depth:
+            if text.startswith("[[", i):
+                depth += 1
+                i += 2
+            elif text.startswith("]]", i):
+                depth -= 1
+                i += 2
+            else:
+                i += 1
+        for start, piece in _split_pipes(text[m.end() : i - 2], m.end())[1:]:
+            name, value = _split_param(piece)
+            if name in _MEDIA_PARAMS:
+                found.append((start, start + len(piece), value))
+    return found
+
+
+def _append_attr_text(
+    items: list[QuarantinedItem],
+    text: str,
+    vector: VectorType,
+    start: int,
+    end: int,
+    value: str,
+    words_only: bool = False,
+    min_words: int = ATTRIBUTE_TEXT_MIN_WORDS,
 ) -> None:
-    if len(value.split()) > SUSPICIOUS_ALT_WORD_LIMIT or looks_like_instruction(value):
-        items.append(_item(text, VectorType.A11Y_ALT_POISONING, start, end, value))
+    """Quarantine attribute text with >= min_words words, or short instruction-like text."""
+    long_enough = len(value.split()) >= min_words
+    if long_enough or (not words_only and looks_like_instruction(value)):
+        item = _item(text, vector, start, end, value)
+        items.append(
+            item.model_copy(update={"instruction_like": has_strong_instruction(value)})
+        )
 
 
 def _drop_nested(items: list[QuarantinedItem]) -> list[QuarantinedItem]:
