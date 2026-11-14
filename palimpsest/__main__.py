@@ -1,7 +1,8 @@
-"""CLI entry point: python -m palimpsest prepare|ingest."""
+"""CLI entry point: python -m palimpsest prepare|ingest|diagnose."""
 
 import argparse
 import asyncio
+import sys
 from pathlib import Path
 
 from palimpsest.judge import PROMPT_VERSION
@@ -9,6 +10,10 @@ from palimpsest.pipeline import ingest, prepare
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "diagnose":
+        from palimpsest.diagnose import main as diagnose_main
+
+        raise SystemExit(diagnose_main(sys.argv[2:]))
     parser = argparse.ArgumentParser(prog="palimpsest")
     sub = parser.add_subparsers(dest="command", required=True)
     prep = sub.add_parser("prepare", help="Run stages 0-1 and write judge batches")
@@ -26,6 +31,7 @@ def main() -> None:
     ing = sub.add_parser("ingest", help="Read judge results, score, render report.html")
     ing.add_argument("--run", type=Path, required=True)
     ing.add_argument("--compare", type=Path, default=None)
+    sub.add_parser("diagnose", help="Run one edit through audit-diff in-process")
     args = parser.parse_args()
     if args.command == "prepare":
         asyncio.run(

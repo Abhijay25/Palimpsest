@@ -38,6 +38,12 @@ also get Stage 0 watch-list reasons, other languages only the language-neutral r
 `PALIMPSEST_USE_GEMINI=1`) and Stage 0 is not clean (no verdict is faked), 502 if a
 judge call fails.
 
+For one edit, `python -m palimpsest diagnose --case cases.jsonl [--case-id ID] [--json]`
+runs the exact in-process `audit-diff` pipeline and prints its stages, latencies, and
+verdict details; alternatively supply `--old`, `--new`, `--lang`, `--title`, and
+repeatable `--ref`. If Stage 0 is not clean and no judge is configured, it prints the
+completed stages without inventing a verdict and exits 3.
+
 `POST /api/v1/cross-lingual` is an explicit cold-path endpoint. It accepts
 `lang_code`, `page_title`, `claim_text`, and `edit_verdict`, then returns local-citation
 audits for linked target wikis plus a divergence warning. It is never called by

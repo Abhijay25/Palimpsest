@@ -395,6 +395,17 @@ class _UnitOutcome(BaseModel):
     unit_ms: float
 
 
+class JudgeUnavailableError(Exception):
+    """Stage 0 completed, but no configured judge can continue the audit."""
+
+    def __init__(self, stage0_ms: float) -> None:
+        self.stage0_ms = stage0_ms
+        self.stealth_status = "CLEAN"
+        self.finding_count = 0
+        self.stealth_ms = 0.0
+        super().__init__("Judge backend unavailable: no verdict was produced.")
+
+
 def _unit_changed_refs(unit: EditUnit) -> list[str] | None:
     if unit.old_wikitext and unit.new_wikitext:
         return refs_for_changed_sentences(unit.old_wikitext, unit.new_wikitext)
@@ -441,11 +452,7 @@ async def _judge_unit(
         stage2_ms = 0.0
         if not stage0.clean:
             if backend is None:
-                raise HTTPException(
-                    status_code=503,
-                    detail="Judge backend unavailable: set GEMINI_API_KEY to enable "
-                    "Stage 2. No verdict was produced.",
-                )
+                raise JudgeUnavailableError(stage0.latency_ms)
             ref_scans: list[ScanResult] = []
             pc.window = await _window_for(case, fetcher, ref_scans)
             pc.ref_scan = _worst_scan(ref_scans)
@@ -480,12 +487,11 @@ async def _cancel_all(tasks: "list[asyncio.Task[_UnitOutcome]]") -> None:
             await task
 
 
-@app.post("/api/v1/audit-diff", response_model=AuditDiffResponse)
-async def audit_diff(
+async def audit_diff_logic(
     req: AuditDiffRequest,
-    process_fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
-    backend: Annotated[AsyncJudge | None, Depends(get_judge_backend)],
-    auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
+    process_fetcher: SourceFetcher,
+    backend: AsyncJudge | None,
+    auditor_provider: AuditorProvider,
 ) -> AuditDiffResponse:
     started = time.perf_counter()
     diff_scan, old_scan, new_scan, all_units = await run_in_threadpool(
@@ -537,6 +543,12 @@ async def audit_diff(
     try:
         try:
             outcomes = list(await asyncio.gather(*unit_tasks))
+        except JudgeUnavailableError as exc:
+            await _cancel_all(unit_tasks)
+            exc.stealth_status = diff_scan.stealth_status.value
+            exc.finding_count = len(reportable_findings(diff_scan))
+            exc.stealth_ms = stealth_ms
+            raise
         except BaseException:
             await _cancel_all(unit_tasks)
             raise
@@ -631,3 +643,20 @@ async def audit_diff(
         with contextlib.suppress(BaseException):
             await render_task
         raise
+
+
+@app.post("/api/v1/audit-diff", response_model=AuditDiffResponse)
+async def audit_diff(
+    req: AuditDiffRequest,
+    process_fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
+    backend: Annotated[AsyncJudge | None, Depends(get_judge_backend)],
+    auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
+) -> AuditDiffResponse:
+    try:
+        return await audit_diff_logic(req, process_fetcher, backend, auditor_provider)
+    except JudgeUnavailableError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Judge backend unavailable: set GEMINI_API_KEY to enable Stage 2. "
+            "No verdict was produced.",
+        ) from exc
