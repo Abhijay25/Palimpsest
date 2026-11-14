@@ -21,11 +21,11 @@ def main():
                     util: { wikiScript: () => 'https://example.test/api.php', getUrl: (title, params) => '/wiki/' + title + '?' + new URLSearchParams(params) },
                     user: { tokens: { get: () => '+\\\\' } }
                 };
-                const revision = (id, parent, comment) => ({ revision_id: id, parent_id: parent, timestamp: '2026-03-15T10:00:00Z', user: 'Editor', comment, minor: false, source: null, url: '/wiki/Example?oldid=' + id, diff_url: '/w/index.php?diff=' + id + '&oldid=' + parent, contributions_url: '/wiki/Special:Contributions/Editor' });
+                const revision = (id, parent, comment) => ({ revision_id: id, parent_id: parent, timestamp: id === 91 ? '2025-12-31T23:59:59Z' : '2025-12-30T23:59:59Z', user: 'Editor', comment, minor: false, source: null, url: '/wiki/Example?oldid=' + id, diff_url: '/w/index.php?diff=' + id + '&oldid=' + parent, contributions_url: '/wiki/Special:Contributions/Editor' });
                 const base = {
                     status: 'ready', page: { id: 42, title: 'Example', language: 'en', latest_revision_id: 91 },
-                    snapshot: { revision_id: 91, parent_id: 90, timestamp: '2026-03-15T10:00:00Z', user: 'Editor', comment: 'Changed phrase', url: '/wiki/Example?oldid=91', diff_url: '/w/index.php?diff=91&oldid=90', contributions_url: '/wiki/Special:Contributions/Editor' },
-                    coverage: { history_complete: true, provenance_status: 'local', source_wiki: null, source_page_id: null, source_anchor_revision_id: null, source_anchor_timestamp: null, earliest_timestamp: '2026-02-01T00:00:00Z', latest_timestamp: '2026-03-15T10:00:00Z', reasons: [] },
+                    snapshot: { revision_id: 91, parent_id: 90, timestamp: '2025-12-31T23:59:59Z', user: 'Editor', comment: 'Changed phrase', url: '/wiki/Example?oldid=91', diff_url: '/w/index.php?diff=91&oldid=90', contributions_url: '/wiki/Special:Contributions/Editor' },
+                    coverage: { history_complete: false, provenance_status: 'verified', source_wiki: 'enwiki', source_page_id: 99, source_anchor_revision_id: 91, source_anchor_timestamp: '2025-12-31T23:59:59Z', earliest_timestamp: '2025-01-01T00:00:00Z', latest_timestamp: '2025-12-31T23:59:59Z', reasons: ['Imported source history ends at the source anchor.'] },
                     source_text: 'alpha beta', html: '<p id="statement"><span data-pb-start="0" data-pb-end="5">alpha</span> <span data-pb-start="6" data-pb-end="10">beta</span></p>',
                     spans: [{ start: 0, end: 5, revision_id: 91, token_id: '91:0', lineage_ids: [], confidence: 'certain' }, { start: 6, end: 10, revision_id: 91, token_id: '91:1', lineage_ids: [], confidence: 'certain' }],
                     revisions: [revision(91, 90, 'Changed phrase'), revision(90, 89, 'Old text')],
@@ -34,6 +34,7 @@ def main():
                 };
                 window.__requests = [];
                 window.__forceUnavailable = false;
+                window.__forcePermanent = false;
                 window.__buildComplete = false;
                 window.fetch = (input, init = {}) => {
                     const method = init.method || 'GET';
@@ -46,10 +47,12 @@ def main():
                         response = { status: 'pending', job: { id: 'job-1', status: 'pending', processed: 0, total: 2 } };
                     } else if (params.get('op') === 'status') {
                         response = { status: 'ready', job: { id: params.get('jobid'), status: 'ready', processed: 2, total: 2 } };
+                    } else if (params.get('op') === 'analyze' && window.__forcePermanent && !window.__buildComplete) {
+                        response = { status: 'unavailable', reason: 'Imported provenance mapping is invalid.', build_available: false };
                     } else if (params.get('op') === 'analyze' && window.__forceUnavailable && !window.__buildComplete) {
-                        response = { status: 'unavailable', reason: 'Fixture requests a resumable build.' };
+                        response = { status: 'unavailable', reason: 'Fixture exceeds synchronous analysis limits.', reason_code: 'budget_exceeded', build_available: true };
                     } else if (params.get('op') === 'versions') {
-                        response = { status: 'ready', mode: params.get('mode'), bounds: { from: params.get('from'), to: params.get('to') }, versions: [{ revision_id: 90, timestamp: '2026-03-01T00:00:00Z', user: 'Editor' }], selected_revision_id: 90, continuation: null, coverage: base.coverage };
+                        response = { status: 'ready', mode: params.get('mode'), bounds: { from: params.get('from'), to: params.get('to') }, versions: [{ revision_id: 91, timestamp: '2025-12-31T23:59:59Z', user: 'Editor' }], selected_revision_id: 91, continuation: null, coverage: base.coverage };
                     } else if (params.get('ranges')) {
                         response = Object.assign({}, base, { selection: { ranges: JSON.parse(params.get('ranges')), revision_ids: [91], events: [{ revision_id: 91, before: 'old phrase', after: 'lph', token_ids: ['91:0'], ambiguous: false }], ambiguous: false, reasons: [] } });
                     } else {
@@ -89,6 +92,7 @@ def main():
         page.get_by_role("textbox", name="Describe a date query").fill("Latest version before 1 April 2026")
         page.get_by_role("button", name="Interpret date query").click()
         assert "2026-04-01T00:00:00Z" in page.locator(".pb-date-preview").inner_text()
+        assert "does not prove the live source wiki’s state" in page.locator(".pb-date-preview").inner_text()
         page.get_by_role("button", name="Apply these bounds").click()
         page.wait_for_selector(".pb-version")
         versions_request = page.evaluate("window.__requests.filter(r => r.params.op === 'versions').at(-1)")
@@ -117,12 +121,17 @@ def main():
         )
         analysis_count = page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length")
         page.get_by_role("button", name="Inspect selected article text").click()
-        assert "no partial analysis was requested" in page.locator(".pb-warning").inner_text()
+        assert "no partial analysis was requested" in page.get_by_text("This selection contains more than 64 separate verified source ranges.").inner_text()
         assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analysis_count
 
-        page.evaluate("window.__forceUnavailable = true")
+        page.evaluate("window.__forcePermanent = true")
         page.locator('[data-pb-start="0"]').click()
-        page.get_by_role("button", name="Build full history").click()
+        page.wait_for_selector("[role=alert]")
+        assert page.get_by_role("button", name="Prepare attribution").count() == 0
+
+        page.evaluate("window.__forcePermanent = false; window.__forceUnavailable = true")
+        page.locator('[data-pb-start="0"]').click()
+        page.get_by_role("button", name="Prepare attribution").click()
         page.wait_for_selector(".pb-date-query")
         build_request = page.evaluate("window.__requests.filter(r => r.params.op === 'build').at(-1)")
         status_request = page.evaluate("window.__requests.filter(r => r.params.op === 'status').at(-1)")

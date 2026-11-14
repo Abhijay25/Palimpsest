@@ -61,11 +61,19 @@
 			root.appendChild( button );
 		}
 		if ( build ) {
-			var buildButton = element( 'button', 'pb-button', 'Build full history' );
+			var buildButton = element( 'button', 'pb-button', 'Prepare attribution' );
 			buildButton.type = 'button';
 			buildButton.addEventListener( 'click', queueBuild );
 			root.appendChild( buildButton );
 		}
+	}
+
+	function mayRetry( data ) {
+		return Boolean( data && ( data.retryable === true || data.job && data.job.retryable === true || data.status === 'pending' ) );
+	}
+
+	function mayPrepare( data ) {
+		return Boolean( data && data.build_available === true && ( data.status === 'pending' || data.job && data.job.retryable === true || data.reason_code === 'budget_exceeded' ) );
 	}
 
 	function apiRequest( params, method, signal ) {
@@ -135,7 +143,8 @@
 			showResponse( data, selection, request );
 		} ).catch( function ( error ) {
 			if ( isCurrent( request ) && error.name !== 'AbortError' ) {
-				setState( 'error', error.message || 'The revision history could not be loaded.', true, true );
+				var retryable = error.retryable === true || error.buildAvailable === true || error.retryable === undefined && error.buildAvailable === undefined;
+				setState( 'error', error.message || 'The revision history could not be loaded.', retryable, error.buildAvailable === true );
 			}
 		} );
 	}
@@ -143,8 +152,13 @@
 	function pollJob( jobId, request ) {
 		var attempts = 0;
 		function poll() {
-			if ( !isCurrent( request ) || attempts++ >= 30 ) {
-				return Promise.reject( new Error( 'History analysis is still running. Retry to check its progress.' ) );
+			if ( !isCurrent( request ) ) {
+				return Promise.reject( new Error( 'This history request is no longer current.' ) );
+			}
+			if ( attempts++ >= 30 ) {
+				var timeoutError = new Error( 'Attribution preparation is still running. Retry to check its progress.' );
+				timeoutError.retryable = true;
+				return Promise.reject( timeoutError );
 			}
 			return apiRequest( { op: 'status', jobid: jobId }, 'GET', request.signal ).then( function ( status ) {
 				if ( !isCurrent( request ) ) {
@@ -155,16 +169,19 @@
 					return null;
 				}
 				if ( jobState === 'failed' || jobState === 'unavailable' ) {
-					throw new Error( status.job && status.job.reason || 'History analysis could not be completed.' );
+					var jobError = new Error( status.job && status.job.reason || 'History analysis could not be completed.' );
+					jobError.retryable = mayRetry( status );
+					jobError.buildAvailable = mayPrepare( status );
+					throw jobError;
 				}
 				var progress = status.job && Number.isFinite( status.job.processed ) ? ' (' + status.job.processed + ( status.job.total ? '/' + status.job.total : '' ) + ' revisions)' : ' (' + attempts + '/30 checks)';
-				setState( 'pending', 'Building revision history' + progress + '…' );
+				setState( 'pending', 'Preparing attribution' + progress + '…' );
 				return new Promise( function ( resolve ) {
 					window.setTimeout( resolve, 800 );
 				} ).then( poll );
 			} );
 		}
-		return poll().then( function ( result ) {
+		return poll().then( function () {
 			if ( isCurrent( request ) ) {
 				startAnalysis( null );
 			}
@@ -173,12 +190,12 @@
 
 	function showResponse( data, selection, request ) {
 		if ( !data || data.status === 'unavailable' || data.status === 'failed' ) {
-			setState( 'error', data && data.reason || 'Verified attribution is unavailable for this revision.', true, true );
+			setState( 'error', data && data.reason || 'Verified attribution is unavailable for this revision.', mayRetry( data ), mayPrepare( data ) );
 			return;
 		}
 		var invalid = H.validateAnalyzeResponse( data, revisionParam() );
 		if ( invalid ) {
-			setState( 'error', invalid, true, true );
+			setState( 'error', invalid, true, false );
 			return;
 		}
 		if ( !initialRevision ) {
@@ -270,7 +287,7 @@
 
 	function queueBuild() {
 		var request = beginRequest();
-		setState( 'pending', 'Starting a bounded history build…' );
+		setState( 'pending', 'Starting bounded attribution preparation…' );
 		var revision = revisionParam();
 		var params = { op: 'build' };
 		if ( revision ) {
@@ -286,7 +303,8 @@
 			return pollJob( data.job.id, request );
 		} ).catch( function ( error ) {
 			if ( isCurrent( request ) && error.name !== 'AbortError' ) {
-				setState( 'error', error.message || 'The history build could not start.', true, true );
+				var retryable = error.retryable === true || error.buildAvailable === true || error.retryable === undefined && error.buildAvailable === undefined;
+				setState( 'error', error.message || 'Attribution preparation could not start.', retryable, error.buildAvailable === true );
 			}
 		} );
 	}
@@ -662,12 +680,28 @@
 		preview.replaceChildren();
 		var text = query.mode === 'range' ? 'From ' + query.from + ' through ' + query.to + ' UTC. ' + query.rule : 'Bound: ' + query.to + ' UTC. ' + query.rule;
 		preview.appendChild( element( 'p', '', text ) );
+		var cutoff = sourceCutoffNotice( currentData && currentData.coverage, query );
+		if ( cutoff ) {
+			preview.appendChild( element( 'p', 'pb-warning', cutoff ) );
+		}
 		var apply = element( 'button', 'pb-button pb-primary', 'Apply these bounds' );
 		apply.type = 'button';
 		apply.addEventListener( 'click', function () {
 			requestVersions( query, results );
 		} );
 		preview.appendChild( apply );
+	}
+
+	function sourceCutoffNotice( coverage, query ) {
+		if ( !coverage || !coverage.source_anchor_timestamp || !query || !query.to ) {
+			return null;
+		}
+		var anchor = Date.parse( coverage.source_anchor_timestamp );
+		var bound = Date.parse( query.to );
+		if ( !Number.isFinite( anchor ) || !Number.isFinite( bound ) || bound <= anchor ) {
+			return null;
+		}
+		return 'These bounds extend past imported source coverage ending ' + formatUtc( coverage.source_anchor_timestamp ) + '. Only available local revisions are listed; the latest matching result does not prove the live source wiki’s state at the requested date.';
 	}
 
 	function requestVersions( query, results, cursor, append ) {
@@ -716,6 +750,10 @@
 			response.coverage.reasons.forEach( function ( reason ) {
 				results.appendChild( element( 'p', 'pb-warning', reason ) );
 			} );
+		}
+		var cutoff = !append && sourceCutoffNotice( response.coverage, query );
+		if ( cutoff ) {
+			results.appendChild( element( 'p', 'pb-warning', cutoff ) );
 		}
 		if ( !response.versions || !response.versions.length ) {
 			results.appendChild( element( 'p', 'pb-muted', append ? 'No more revisions match these bounds.' : 'No revision matches these bounds. No later version was substituted.' ) );
