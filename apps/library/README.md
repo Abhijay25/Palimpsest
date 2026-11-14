@@ -8,6 +8,12 @@ The initial collection contains **3 topic-books, 9 language articles and 133 ori
 
 Requirements: Docker with Compose, Python 3, Node **22.12+** (tested 22.23.3), and Ollama on `PATH`. Vite also supports Node 20.19+. Allow approximately 1.2 GB for the bge-m3 model, plus the locked datasets and isolated wiki/database storage. Initial setup needs internet access to public release assets, Wikipedia APIs, images and the model registry.
 
+On the delivery Mac, the default Homebrew Node/Docker links were unusable. These installed paths were verified; use them when resuming on this host (other machines should use their own working installations):
+
+```sh
+export PATH="$HOME/.nvm/versions/node/v22.23.3/bin:/Applications/Docker.app/Contents/Resources/bin:/opt/homebrew/Cellar/ollama/0.9.6/bin:$PATH"
+```
+
 From the repository root, with working `node`, `npm`, `docker`, and `ollama` commands:
 
 ```sh
