@@ -97,6 +97,25 @@ def verify_keyboard_phrase_activation(page: Page, phrase: str, key: str) -> None
 
 
 def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
+    page.wait_for_function(
+        """({quote}) => {
+          const root = document.querySelector('#mw-content-text');
+          const panel = document.querySelector('#palimpsest-blame');
+          if (!root || !panel || panel.dataset.state === 'loading') return false;
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+              return node.parentElement?.closest('#palimpsest-blame')
+                ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
+            }
+          });
+          let articleText = '';
+          while (walker.nextNode()) articleText += walker.currentNode.nodeValue || '';
+          const searchQuote = quote.includes('\\n\\n') ? quote.replace(/\\n\\n/g, '') : quote;
+          return articleText.includes(searchQuote) && articleText.trim() !== 'Loading verified revision history…';
+        }""",
+        {"quote": quote},
+        timeout=15000,
+    )
     selected = page.evaluate(
         """({quote, occurrence}) => {
           const root = document.querySelector('#mw-content-text');
