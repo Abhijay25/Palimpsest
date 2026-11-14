@@ -22,3 +22,8 @@ Product goal (user, 2026-11-14 14:58): an assistive proofreader that does the fi
 ## Real-data verification with an isolated scout (user, 2026-11-14 20:49)
 - Every feature, once built, is verified on real data (live Wikipedia, or the MariaDB dataset M version history), not only synthetic cases: synthetic data carries confirmation bias.
 - Real test cases are found by an independent scout agent that works only from raw data and a plain-language description of the phenomenon. The scout never sees palimpsest/ code, prompts, eval runs, labels or model outputs, and the judging models never see the scout's notes beyond the case itself. Prefer cases where the error was later corrected in the history (the correction is the ground truth).
+
+## Open review items (user, 2026-11-14 22:58)
+- Wording (FRAMING) and Motive flags look too sensitive on large real edits; review later (do not tune yet). Evidence: shopping-centres real edit 1 gets 6-7 admin flags, several on mild words ("fiercely", "ironically", "severely reduced").
+- User hypothesis on v9: guidelines that are too tight make the model match criteria mechanically and label prematurely, without weighing whether the change is actually a problem. Supported by g05_v9_hl: it flagged changes it said the source supports.
+- Factual errors: next approach (user): use the changed values (e.g. birth year, age) as keywords in Exa highlights queries against the edit's own cited document; if that fails, fall back to Wikidata.
