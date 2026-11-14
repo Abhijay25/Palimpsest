@@ -1,20 +1,26 @@
 """Mine candidate hidden-channel additions from fi versions parquet; dumps candidates to a pickle."""
 
-import pickle, re, sys, unicodedata
+import pickle
+import re
+import sys
+
 import pyarrow.parquet as pq
 
+FeatRow = tuple[int, int, str, dict[str, int], set[str], int]
+Candidate = tuple[str, int, int, str, int]
+
 OUT = sys.argv[1]
-ZW = re.compile("[​-‏‪-‮⁦-⁩﻿⁠­]")
+ZW = re.compile("[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff\u2060\u00ad]")
 chan = {
-    "comment": re.compile(r"<!--.*?-->", re.S),
-    "style": re.compile(r"<(?:span|div)[^>]*style\s*=", re.I),
-    "alt": re.compile(r"\balt\s*=", re.I),
-    "collapsible": re.compile(r"mw-collapsible", re.I),
+    "comment": re.compile(r"<!--.*?-->", re.DOTALL),
+    "style": re.compile(r"<(?:span|div)[^>]*style\s*=", re.IGNORECASE),
+    "alt": re.compile(r"\balt\s*=", re.IGNORECASE),
+    "collapsible": re.compile(r"mw-collapsible", re.IGNORECASE),
     "zw": ZW,
 }
 
 
-def mixed(t):
+def mixed(t: str) -> set[str]:
     out = set()
     for w in re.findall(r"\w+", t):
         if re.search("[A-Za-z]", w) and re.search("[Ѐ-ӿͰ-Ͽ]", w):
@@ -22,7 +28,7 @@ def mixed(t):
     return out
 
 
-feat = {}  # rev_id -> (page_id, parent_id, title, counts, mixed)
+feat: dict[int, FeatRow] = {}  # rev_id -> (page_id, parent_id, title, counts, mixed)
 for f in ("01", "02"):
     pf = pq.ParquetFile(f"data/m/versions-{f}.parquet")
     for g in range(pf.metadata.num_row_groups):
@@ -37,7 +43,7 @@ for f in ("01", "02"):
                 len(t),
             )
 print(len(feat), flush=True)
-cands = []
+cands: list[Candidate] = []
 for rev, (pid, par, title, cnt, mx, ln) in feat.items():
     p = feat.get(par)
     if not p or p[0] != pid:
@@ -50,4 +56,5 @@ for rev, (pid, par, title, cnt, mx, ln) in feat.items():
 from collections import Counter
 
 print(Counter(c[0] for c in cands))
-pickle.dump(cands, open(OUT, "wb"))
+with open(OUT, "wb") as fh:
+    pickle.dump(cands, fh)

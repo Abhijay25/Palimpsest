@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+type CaseRecord = dict[str, str | None]
+
 CASES_DIR = Path(__file__).resolve().parent.parent / "cases"
 FIELDS = [
     "case_id",
@@ -17,7 +19,7 @@ FIELDS = [
 ]
 
 
-def write_cases(name: str, cases: list[dict]) -> None:
+def write_cases(name: str, cases: list[CaseRecord]) -> None:
     CASES_DIR.mkdir(parents=True, exist_ok=True)
     with open(CASES_DIR / name, "w", encoding="utf-8") as fh:
         for c in cases:
@@ -27,8 +29,16 @@ def write_cases(name: str, cases: list[dict]) -> None:
 
 
 def case(
-    case_id, lang, bucket, provenance, target_type, old_text, text, expected, notes
-):
+    case_id: str,
+    lang: str,
+    bucket: str,
+    provenance: str,
+    target_type: str,
+    old_text: str | None,
+    text: str,
+    expected: str,
+    notes: str,
+) -> CaseRecord:
     return dict(
         zip(
             FIELDS,
