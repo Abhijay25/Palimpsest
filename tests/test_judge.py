@@ -90,9 +90,12 @@ def test_batches_skip_when_result_exists(tmp_path: Path) -> None:
 
 def test_unavailable_source_payload_line() -> None:
     payload = render_case_payload(_prepared("a", False, status="unavailable"))
-    assert "SOURCE UNAVAILABLE" in payload
-    assert "judge framing from the diff only" in payload
+    assert "SOURCE_STATUS: SOURCE UNAVAILABLE" in payload
+    assert "still judge wording (G2), added motives (G3)" in payload
     assert "DOMAIN_TRUST_TIER: UNKNOWN" in payload
+    # Pipeline status is trusted guidance: never inside the untrusted data tags.
+    assert "<untrusted_field name=\"CITATION_DISCOURSE_WINDOW\">" not in payload
+    assert payload.index("SOURCE_STATUS") > payload.index("</untrusted_field>")
 
 
 def test_fixed_source_payload_has_window() -> None:
@@ -131,7 +134,8 @@ def test_uncited_payload_line() -> None:
     payload = render_case_payload(pc)
     assert "CHANGED SENTENCE CARRIES NO INLINE CITATION" in payload
     assert "SOURCE UNAVAILABLE" not in payload
-    assert "do not flag G1/G3 for lack of a source" in payload
+    assert "do not flag G1/G3 for lack of a source" not in payload
+    assert "SOURCE_STATUS: CHANGED SENTENCE CARRIES NO INLINE CITATION" in payload
 
 
 def test_untrusted_window_cannot_spoof_payload_structure() -> None:
