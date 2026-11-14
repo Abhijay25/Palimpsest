@@ -55,10 +55,11 @@ class FileExchangeBackend:
         run_dir: Path,
         models: list[str],
         batch_size: int = 10,
+        prompt_version: str = PROMPT_VERSION,
     ) -> list[Path]:
         judged = [pc for pc in prepared if not pc.stage0.clean]
         instructions = (PROMPTS_DIR / "subagent_judge.txt").read_text()
-        rubric = (PROMPTS_DIR / f"{PROMPT_VERSION}.txt").read_text()
+        rubric = (PROMPTS_DIR / f"{prompt_version}.txt").read_text()
         written: list[Path] = []
         for model in models:
             for index, start in enumerate(range(0, len(judged), batch_size), start=1):

@@ -6,7 +6,12 @@ from typing import Final
 
 from pydantic import BaseModel
 
-from palimpsest.judge import PROMPT_VERSION, FileExchangeBackend, PreparedCase
+from palimpsest.judge import (
+    PROMPT_VERSION,
+    PROMPTS_DIR,
+    FileExchangeBackend,
+    PreparedCase,
+)
 from palimpsest.report import render_report
 from palimpsest.schema import (
     AuditOutput,
@@ -45,7 +50,15 @@ async def _window_for(case: Case, fetcher: SourceFetcher) -> SourceWindow:
     return SourceWindow(url=None, status="unavailable", text="", latency_ms=0.0)
 
 
-async def prepare(cases_paths: list[Path], run_dir: Path, models: list[str]) -> None:
+async def prepare(
+    cases_paths: list[Path],
+    run_dir: Path,
+    models: list[str],
+    prompt_version: str = PROMPT_VERSION,
+    batch_size: int = 10,
+) -> None:
+    if not (PROMPTS_DIR / f"{prompt_version}.txt").is_file():
+        raise SystemExit(f"unknown prompt version: {prompt_version}")
     cases: dict[str, Case] = {}
     for path in cases_paths:
         for case in load_cases(path):
@@ -65,12 +78,14 @@ async def prepare(cases_paths: list[Path], run_dir: Path, models: list[str]) -> 
     run_dir.mkdir(parents=True, exist_ok=True)
     dump_jsonl(run_dir / "prepared.jsonl", prepared)
     manifest = Manifest(
-        prompt_version=PROMPT_VERSION,
+        prompt_version=prompt_version,
         models=models,
         case_files=[str(p) for p in cases_paths],
     )
     (run_dir / "manifest.json").write_text(manifest.model_dump_json(indent=2))
-    batches = FileExchangeBackend().write_batches(prepared, run_dir, models)
+    batches = FileExchangeBackend().write_batches(
+        prepared, run_dir, models, batch_size=batch_size, prompt_version=prompt_version
+    )
     clean = sum(1 for pc in prepared if pc.stage0.clean)
     print(
         f"{len(prepared)} cases, {clean} stage-0 clean, "
@@ -90,13 +105,16 @@ def _stage0_clean_output() -> AuditOutput:
 
 
 def _case_result(
-    pc: PreparedCase, model: str, judged: dict[str, AuditOutput | str]
+    pc: PreparedCase,
+    model: str,
+    judged: dict[str, AuditOutput | str],
+    prompt_version: str,
 ) -> CaseResult:
     window = pc.window
     base = {
         "case_id": pc.case.case_id,
         "model": model,
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": prompt_version,
         "stage0_ms": pc.stage0.latency_ms,
         "stage1_ms": window.latency_ms if window else 0.0,
         "source_status": window.status if window else "skipped",
@@ -124,7 +142,9 @@ def ingest(run_dir: Path, compare_to: Path | None = None) -> None:
     results: dict[str, list[CaseResult]] = {}
     for model in manifest.models:
         judged = backend.read_results(run_dir, model)
-        results[model] = [_case_result(pc, model, judged) for pc in prepared]
+        results[model] = [
+            _case_result(pc, model, judged, manifest.prompt_version) for pc in prepared
+        ]
     metrics = score(prepared, results)
     dump_jsonl(
         run_dir / "results.jsonl", [r for rows in results.values() for r in rows]

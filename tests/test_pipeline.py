@@ -1,10 +1,11 @@
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
 
 from palimpsest.judge import PreparedCase
-from palimpsest.pipeline import prepare
+from palimpsest.pipeline import ingest, prepare
 from palimpsest.schema import Case, Verdict, dump_jsonl, load_cases
 
 
@@ -54,3 +55,31 @@ def test_prepare_statuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert (run / "batches" / "haiku" / "batch_001.md").exists()
     assert (run / "manifest.json").exists()
     assert len(load_cases(cases)) == 3
+
+
+def test_prompt_version_and_batch_size_flow_to_results(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("palimpsest.pipeline.load_exa_api_key", lambda: None)
+    monkeypatch.setattr("palimpsest.pipeline.PROMPTS_DIR", tmp_path)
+    monkeypatch.setattr("palimpsest.judge.PROMPTS_DIR", tmp_path)
+    (tmp_path / "subagent_judge.txt").write_text("write to {RESULTS_PATH}")
+    (tmp_path / "stage2_test.txt").write_text("TEST RUBRIC")
+    cases = tmp_path / "c.jsonl"
+    dump_jsonl(cases, [_case(f"c{i}", "He said it on Monday.", []) for i in range(3)])
+    run = tmp_path / "run"
+    asyncio.run(prepare([cases], run, ["haiku"], "stage2_test", batch_size=1))
+    batches = sorted((run / "batches" / "haiku").glob("*.md"))
+    assert len(batches) == 3
+    assert "TEST RUBRIC" in batches[0].read_text()
+    ingest(run)
+    rows = [
+        json.loads(line) for line in (run / "results.jsonl").read_text().splitlines()
+    ]
+    assert {r["prompt_version"] for r in rows} == {"stage2_test"}
+
+
+def test_unknown_prompt_version_exits(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        asyncio.run(prepare([], tmp_path / "run", ["haiku"], "stage2_nope"))
