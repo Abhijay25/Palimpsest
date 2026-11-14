@@ -1,6 +1,6 @@
 # Palimpsest
 
-An optional [NeoWiki divergence explorer](tools/divergence-explorer/README.md) visualizes historical differences between language editions. Run it independently with the included real-data sample; no wiki runtime or API key is required.
+An optional [NeoWiki divergence explorer](tools/divergence-explorer/README.md) visualizes historical differences between language editions. Run it independently with the included real-data sample; no wiki runtime or API key is required. The existing [language comparison app and engine](tools/language-gap-explorer/PORT.md) are included separately, with an [exploration registry](docs/explorations/README.md) recording all research paths.
 
 Local MediaWiki infrastructure for the team, with separate Finnish, Swedish and English wikis and one persistent MariaDB server. The approved baseline includes Vector 2022, local accounts, source/visual editing, history/diffs, discussions, watchlists, uploads, references, Lua and online Commons. See the [scope](docs/infra/spec.md) for the feature matrix and boundaries.
 
