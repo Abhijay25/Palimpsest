@@ -11,7 +11,7 @@ from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
 from palimpsest.stage0 import Stage0Result
 from palimpsest.stealth.models import ScanResult, VectorType
 
-PROMPT_VERSION: Final = "stage2_v6"
+PROMPT_VERSION: Final = "stage2_v7"
 PROMPTS_DIR: Final = Path(__file__).parent / "prompts"
 SOURCE_UNAVAILABLE_LINE: Final = (
     "SOURCE UNAVAILABLE — judge framing from the diff only; "

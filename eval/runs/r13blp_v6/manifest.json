@@ -1,0 +1,10 @@
+{
+  "prompt_version": "stage2_v6",
+  "models": [
+    "haiku",
+    "sonnet"
+  ],
+  "case_files": [
+    "eval/cases/blp_silence.jsonl"
+  ]
+}
