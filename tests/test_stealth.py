@@ -213,7 +213,7 @@ def test_latency_20kb() -> None:
         result = scan(text, "WIKIPEDIA_DIFF")
         timings.append((time.perf_counter() - start) * 1000)
     assert min(timings) < 50
-    assert result.scan_latency_ms < 50 or min(timings) < 50
+    assert 0 < result.scan_latency_ms
 
 
 def test_cli_prints_json(tmp_path: Path) -> None:
