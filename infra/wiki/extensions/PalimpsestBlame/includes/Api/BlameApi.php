@@ -104,11 +104,21 @@ final class BlameApi extends ApiBase {
 		if ( !$revision || $revision->getPageId() !== $title->getArticleID() ) {
 			throw new DomainException( 'requested-revision-is-not-on-page' );
 		}
+		$db = $services->getConnectionProvider()->getPrimaryDatabase();
+		$readyJobId = $db->selectField( 'palimpsestblame_job', 'pbj_id', [
+			'pbj_page_id' => $revision->getPageId(),
+			'pbj_revision_id' => $revision->getId(),
+			'pbj_algorithm' => AttributionEngine::VERSION,
+			'pbj_schema_version' => 1,
+			'pbj_status' => 'ready',
+		], __METHOD__ );
+		if ( is_string( $readyJobId ) && $readyJobId !== '' ) {
+			return $this->readBuildJob( $title, array_merge( $params, [ 'jobid' => (string)$readyJobId, 'revision' => $revision->getId() ] ) );
+		}
 		$history = [];
 		$bytes = 0;
 		$tokens = 0;
 		$cursor = $revision;
-		$truncated = false;
 		while ( $cursor && count( $history ) < self::MAX_REVISIONS ) {
 			if ( $cursor->isDeleted( RevisionRecord::DELETED_TEXT ) ) {
 				throw new DomainException( 'history-contains-hidden-content' );
@@ -131,11 +141,11 @@ final class BlameApi extends ApiBase {
 			$cursor = $services->getRevisionLookup()->getPreviousRevision( $cursor );
 		}
 		if ( $cursor ) {
-			$truncated = true;
+			throw new DomainException( 'synchronous-history-limit-exceeded; resumable-build-required' );
 		}
 		$history = array_reverse( $history );
 		$engine = ( new AttributionEngine() )->analyze( $history );
-		return $this->buildAnalysisResponse( $title, $revision, $history, $engine, $truncated );
+		return $this->buildAnalysisResponse( $title, $revision, $history, $engine, false, $params['ranges'] );
 	}
 
 	private function canBuild( Title $title, int $requestedRevision ): bool {
@@ -266,9 +276,10 @@ final class BlameApi extends ApiBase {
 	private function readBuildJob( Title $title, array $params ): array {
 		if ( $params['jobid'] === '' || $params['revision'] < 1 ) { throw new DomainException( 'job-id-and-pinned-revision-required' ); }
 		$services = MediaWikiServices::getInstance();
-		$db = $services->getConnectionProvider()->getReplicaDatabase();
+		$db = $services->getConnectionProvider()->getPrimaryDatabase();
 		$row = $db->selectRow( 'palimpsestblame_job', '*', [ 'pbj_id' => $params['jobid'] ], __METHOD__ );
-		if ( !$row || (int)$row->pbj_page_id !== $title->getArticleID() || (int)$row->pbj_revision_id !== $params['revision'] ) {
+		if ( !$row || (int)$row->pbj_page_id !== $title->getArticleID() || (int)$row->pbj_revision_id !== $params['revision'] ||
+			$row->pbj_algorithm !== AttributionEngine::VERSION || (int)$row->pbj_schema_version !== 1 ) {
 			throw new DomainException( 'job-does-not-match-page-and-pinned-revision' );
 		}
 		$target = $services->getRevisionLookup()->getRevisionByTitle( $title, $params['revision'] );
@@ -298,6 +309,10 @@ final class BlameApi extends ApiBase {
 				throw new DomainException( 'cached-history-checkpoint-integrity-failed' );
 			}
 		}
+		if ( $row->pbj_status === 'ready' && ( !$result || count( $history ) !== (int)$row->pbj_processed || !$history || end( $history )['id'] !== $target->getId() ||
+			!isset( $result['tokens'], $result['events'], $result['algorithm'] ) || !is_array( $result['tokens'] ) || !is_array( $result['events'] ) || !is_array( $result['algorithm'] ) ) ) {
+			throw new DomainException( 'cached-build-result-integrity-failed' );
+		}
 		$job = [
 			'id' => (string)$row->pbj_id,
 			'status' => (string)$row->pbj_status,
@@ -309,12 +324,12 @@ final class BlameApi extends ApiBase {
 		];
 		if ( $row->pbj_status === 'ready' && isset( $result ) ) {
 			$engine = [ 'tokens' => $result['tokens'], 'events' => $result['events'], 'algorithm' => $result['algorithm'] ];
-			return $this->buildAnalysisResponse( $title, $target, $history, $engine, false ) + [ 'job' => $job ];
+			return $this->buildAnalysisResponse( $title, $target, $history, $engine, false, $params['ranges'] ) + [ 'job' => $job ];
 		}
 		return [ 'schema_version' => 1, 'status' => (string)$row->pbj_status, 'revision_id' => $params['revision'], 'job' => $job ];
 	}
 
-	private function buildAnalysisResponse( Title $title, RevisionRecord $revision, array $history, array $engine, bool $truncated ): array {
+	private function buildAnalysisResponse( Title $title, RevisionRecord $revision, array $history, array $engine, bool $truncated, string $ranges = '' ): array {
 		$services = MediaWikiServices::getInstance();
 		$revisionRows = [];
 		foreach ( $history as $item ) {
@@ -340,7 +355,7 @@ final class BlameApi extends ApiBase {
 			'source_anchor_revision_id' => $map['source_anchor_revision_id'],
 			'source_anchor_timestamp' => $map['source_anchor_timestamp'],
 			'earliest_timestamp' => $revisionRows[0]['timestamp'] ?? null,
-			'latest_timestamp' => $latestLocalRevision ? $this->timestampToIso( $latestLocalRevision->getTimestamp() ) : null,
+			'latest_timestamp' => $latestLocalRevision ? self::timestampIso( $latestLocalRevision->getTimestamp() ) : null,
 			'reasons' => array_values( array_filter( [
 				$truncated ? 'revision-window-truncated' : null,
 				...$map['reasons'],
@@ -369,8 +384,8 @@ final class BlameApi extends ApiBase {
 			'algorithm' => $engine['algorithm'],
 			'mapping' => [ 'mapped_characters' => $render['mapped_characters'], 'unmapped_reasons' => $render['reasons'] ],
 		];
-		if ( $params['ranges'] !== '' ) {
-			$result['selection'] = $this->selection( $params['ranges'], $currentText, $engine['tokens'], $engine['events'] );
+		if ( $ranges !== '' ) {
+			$result['selection'] = $this->selection( $ranges, $currentText, $engine['tokens'], $engine['events'] );
 		}
 		return $result;
 	}
@@ -378,13 +393,20 @@ final class BlameApi extends ApiBase {
 	private function versions( Title $title, array $params ): array {
 		$services = MediaWikiServices::getInstance();
 		$mode = $params['mode'];
-		$from = $this->parseUtcBound( $params['from'], $mode === 'asof' );
-		$to = $this->parseUtcBound( $params['to'], true );
-		if ( $mode === 'range' && ( !$from || !$to || $from > $to ) ) {
-			throw new DomainException( 'invalid-or-reversed-range' );
-		}
-		if ( $mode !== 'range' && !$from ) {
-			throw new DomainException( 'invalid-date-bound' );
+		if ( $mode === 'range' ) {
+			$from = $this->parseUtcBound( $params['from'], false );
+			$to = $this->parseUtcBound( $params['to'], true );
+			if ( $from === null || $to === null || $from > $to ) { throw new DomainException( 'invalid-or-reversed-range' ); }
+			$singleBound = null;
+		} else {
+			if ( $params['from'] !== '' && $params['to'] !== '' && $params['from'] !== $params['to'] ) {
+				throw new DomainException( 'conflicting-single-date-bounds' );
+			}
+			$singleValue = $params['to'] !== '' ? $params['to'] : $params['from'];
+			$singleBound = $this->parseUtcBound( $singleValue, $mode === 'asof' );
+			if ( $singleBound === null ) { throw new DomainException( 'invalid-date-bound' ); }
+			$from = null;
+			$to = null;
 		}
 		$cursor = $services->getRevisionLookup()->getRevisionByTitle( $title );
 		if ( !$cursor ) {
@@ -406,8 +428,8 @@ final class BlameApi extends ApiBase {
 			$ts = DateTimeImmutable::createFromFormat( 'YmdHis', $timestamp, new DateTimeZone( 'UTC' ) );
 			$time = $ts ? $ts->getTimestamp() : 0;
 			$hit = match ( $mode ) {
-				'asof' => $time <= $from,
-				'before' => $time < $from,
+				'asof' => $time <= $singleBound,
+				'before' => $time < $singleBound,
 				'range' => $time >= $from && $time <= $to,
 			};
 			if ( $mode !== 'range' && $hit ) {
@@ -440,7 +462,12 @@ final class BlameApi extends ApiBase {
 			'schema_version' => 1,
 			'status' => 'ready',
 			'mode' => $mode,
-			'bounds' => [ 'from' => $from === null ? null : gmdate( 'Y-m-d\TH:i:s\Z', $from ), 'to' => $to === null ? null : gmdate( 'Y-m-d\TH:i:s\Z', $to ), 'timezone' => 'UTC', 'same_second_order' => 'revision_id_descending' ],
+			'bounds' => [
+				'from' => $from === null ? null : gmdate( 'Y-m-d\TH:i:s\Z', $from ),
+				'to' => gmdate( 'Y-m-d\TH:i:s\Z', $mode === 'range' ? $to : $singleBound ),
+				'timezone' => 'UTC',
+				'same_second_order' => 'revision_id_descending',
+			],
 			'versions' => $mode === 'range' ? $page : array_slice( $matches, 0, 1 ),
 			'selected_revision_id' => $mode === 'range' ? null : ( $matches[0]['revision_id'] ?? null ),
 			'continuation' => $continuation,
@@ -626,6 +653,9 @@ final class BlameApi extends ApiBase {
 				'source_anchor_timestamp' => $page['source_anchor_timestamp'] ?? null,
 				'reasons' => [],
 			];
+		}
+		if ( $containsImportedIdentity ) {
+			throw new DomainException( 'provenance-page-record-missing' );
 		}
 		return $empty;
 	}
