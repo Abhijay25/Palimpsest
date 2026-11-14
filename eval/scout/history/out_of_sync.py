@@ -122,6 +122,7 @@ async def main() -> None:
         "controls": {"deterministic": 0, "semantic": 0},
     }
     failures = 0
+    hits: list[str] = []
     async with httpx.AsyncClient(timeout=20.0) as client:
         await _prime_names(client, limiter)
         for label, filename in (
@@ -148,6 +149,11 @@ async def main() -> None:
                     )
                     for finding in findings:
                         counts[label][finding.method] += 1
+                        hits.append(
+                            f"- {label} | {row.get('page_title')} | rev {revision} |"
+                            f" {finding.method} | {finding.old_value} -> {finding.new_value} |"
+                            f" section: {finding.section} | page still says: {finding.quote[:200]}"
+                        )
                 except (httpx.HTTPError, ValueError, KeyError):
                     failures += 1
     OUT.parent.mkdir(parents=True, exist_ok=True)
@@ -156,7 +162,8 @@ async def main() -> None:
         f"- swaps: deterministic {counts['swaps']['deterministic']}, semantic {counts['swaps']['semantic']}\n"
         f"- controls: deterministic {counts['controls']['deterministic']}, semantic {counts['controls']['semantic']}\n"
         f"- failed revision fetches: {failures}\n"
-        f"- semantic judge: {'enabled' if judge is not None else 'disabled (set Gemini credentials and PALIMPSEST_USE_GEMINI=1)'}\n",
+        f"- semantic judge: {'enabled' if judge is not None else 'disabled (set Gemini credentials and PALIMPSEST_USE_GEMINI=1)'}\n"
+        "\n## Findings\n\n" + "\n".join(hits) + "\n",
         encoding="utf-8",
     )
 
