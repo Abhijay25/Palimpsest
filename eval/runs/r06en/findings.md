@@ -16,7 +16,7 @@ These cases predate the ref-to-sentence fix, so Stage 1 tries up to 3 paragraph 
 Not flagged:
 - **en_revert_1385523558** ("illegal" → "undocumented"). The reverter cited WP:NPOV. **Miss**: the rubric has no loaded-label rule.
 - **en_revert_1385380193**, a likely conflict-of-interest account, **deletes** the sentence saying organisations supported a sentenced activist and linked her prosecution to her human-rights work. **Miss**: the rubric doesn't judge deletions. This is the second deletion case, after `fi_revert_19464447`.
-- en_revert_1385379830 ("completed a master's degree" → "graduated"), en_revert_1385441363 (an unsourced family-prominence sentence), en_revert_1385380193's sibling: arguably fine to pass.
+- en_revert_1385379830 ("completed a master's degree" → "graduated"), en_revert_1385441363 (an unsourced family-prominence sentence): arguably fine to pass.
 
 ## Controls (10)
 - 1 flagged by both models: `en_control_1384172251`, "The AP projected that X will advance" → "X advanced" (edit summary "past tense"; the source is an AP live-results page). The flag is defensible under G2 (projection stated as fact), but it is a good-faith update. **Counted as a false alarm: 1/10.**
