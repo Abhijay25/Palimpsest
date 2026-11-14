@@ -9,6 +9,8 @@
 
 	var config = mw.config.get( [ 'wgPageName', 'wgRevisionId', 'wgArticleId', 'wgCanonicalSpecialPageName' ] );
 	var title = config.wgPageName;
+	var originalRootParent = root.parentNode;
+	var originalRootNextSibling = root.nextSibling;
 	var actionRevision = Number( root.dataset.revision );
 	if ( !Number.isInteger( actionRevision ) || actionRevision <= 0 ) {
 		actionRevision = null;
@@ -237,6 +239,10 @@
 		if ( !nativeSelection || nativeSelection.isCollapsed || !nativeSelection.rangeCount ) {
 			return null;
 		}
+		if ( selectionCrossesInterface( nativeSelection ) ) {
+			retainedArticleSelection = null;
+			return null;
+		}
 		if ( !selectionIsInArticle( nativeSelection ) ) {
 			retainedArticleSelection = null;
 			return null;
@@ -245,6 +251,28 @@
 		snapshot.statement = nearestStatement( nativeSelection );
 		retainedArticleSelection = snapshot;
 		return snapshot;
+	}
+
+	function selectionCrossesInterface( selection ) {
+		if ( !selection || !selection.rangeCount || !article || !article.contains( root ) ) {
+			return false;
+		}
+		for ( var i = 0; i < selection.rangeCount; i++ ) {
+			if ( selection.getRangeAt( i ).intersectsNode( root ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	function showSelectionGuard() {
+		var panel = root.querySelector( '.pb-breakdown' ) || root;
+		if ( panel.querySelector( '.pb-selection-error' ) ) {
+			return;
+		}
+		var message = element( 'p', 'pb-warning pb-selection-error', 'This selection crosses the inline history controls. Close history, then select article text again.' );
+		message.setAttribute( 'role', 'alert' );
+		panel.appendChild( message );
 	}
 
 	document.addEventListener( 'selectionchange', function () {
@@ -425,6 +453,11 @@
 			readArticleSelection();
 		} );
 		inspect.addEventListener( 'click', function () {
+			if ( selectionCrossesInterface( window.getSelection() ) ) {
+				retainedArticleSelection = null;
+				showSelectionGuard();
+				return;
+			}
 			var selection = readArticleSelection() || retainedArticleSelection;
 			if ( selection ) {
 				selection = Object.assign( {}, selection, { ranges: selection.ranges.slice(), unmapped: selection.unmapped.slice() } );
@@ -591,6 +624,16 @@
 		currentHost = root;
 	}
 
+	function restoreRootPosition() {
+		if ( originalRootParent && originalRootParent.isConnected && !( article && ( originalRootParent === article || article.contains( originalRootParent ) ) ) ) {
+			var reference = originalRootNextSibling && originalRootNextSibling.parentNode === originalRootParent ? originalRootNextSibling : null;
+			originalRootParent.insertBefore( root, reference );
+		} else if ( article && article.parentNode ) {
+			article.parentNode.insertBefore( root, article.nextSibling );
+		}
+		currentHost = root;
+	}
+
 	function openBreakdown( data, selection ) {
 		placeInline( selection.statement || nearestStatement( window.getSelection() ) );
 		buildActionBar();
@@ -605,6 +648,7 @@
 		close.type = 'button';
 		close.addEventListener( 'click', function () {
 			panel.remove();
+			restoreRootPosition();
 			renderFull( currentData );
 			if ( returnFocus && returnFocus.isConnected ) {
 				returnFocus.focus();

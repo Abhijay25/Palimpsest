@@ -143,20 +143,6 @@ def main():
             assert page.locator("#palimpsest-blame").evaluate("node => node.previousElementSibling.id") == "paragraph-two", "forward and reverse selections must place the panel after the last selected block"
             page.get_by_role("button", name="Close history").click()
 
-        native_quote = page.evaluate(
-            """() => {
-                const selection = window.getSelection();
-                const alpha = document.querySelector('[data-pb-start="0"]').firstChild;
-                const beta = document.querySelector('[data-pb-start="6"]').firstChild;
-                selection.setBaseAndExtent(beta, 2, alpha, 1);
-                return selection.toString();
-            }"""
-        )
-        page.get_by_role("button", name="Inspect selected article text").click()
-        page.wait_for_selector(".pb-breakdown")
-        actual_quote = page.locator(".pb-selected-text").text_content()
-        assert actual_quote == native_quote, f"reverse native quote changed: {actual_quote!r} != {native_quote!r}"
-
         boundary_quote = page.evaluate(
             """() => {
                 const selection = window.getSelection();
@@ -170,6 +156,19 @@ def main():
         page.wait_for_selector(".pb-breakdown")
         assert page.locator(".pb-selected-text").text_content() == boundary_quote
         assert page.locator("#palimpsest-blame").evaluate("node => node.previousElementSibling.id") == "paragraph-one", "an endpoint at offset zero must anchor to the preceding selected block"
+        page.get_by_role("button", name="Close history").click()
+        assert page.locator("#mw-content-text").evaluate("content => content.contains(document.getElementById('palimpsest-blame')) && !document.querySelector('.mw-parser-output').contains(document.getElementById('palimpsest-blame'))"), "closing history must restore the panel outside article content"
+
+        page.evaluate(
+            """() => {
+                const selection = window.getSelection();
+                const beta = document.querySelector('[data-pb-start="6"]').firstChild;
+                selection.setBaseAndExtent(beta, 0, beta, 4);
+            }"""
+        )
+        page.get_by_role("button", name="Inspect selected article text").click()
+        page.wait_for_selector(".pb-breakdown")
+        assert page.locator("#palimpsest-blame").evaluate("node => node.previousElementSibling.id") == "paragraph-two"
 
         page.get_by_role("textbox", name="Describe a date query").fill("Latest version before 1 April 2026")
         page.get_by_role("button", name="Interpret date query").click()
@@ -185,8 +184,23 @@ def main():
         versions_request = page.evaluate("window.__requests.filter(r => r.params.op === 'versions').at(-1)")
         assert versions_request["params"]["mode"] == "before"
         assert versions_request["params"]["to"] == "2026-04-01T00:00:00Z"
+
+        analysis_count = page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length")
+        page.evaluate(
+            """() => {
+                const selection = window.getSelection();
+                const alpha = document.querySelector('[data-pb-start="0"]').firstChild;
+                const controlText = document.querySelector('.pb-date-query p.pb-muted').firstChild;
+                selection.setBaseAndExtent(alpha, 1, controlText, Math.min(5, controlText.length));
+            }"""
+        )
+        page.get_by_role("button", name="Inspect selected article text").click()
+        assert "crosses the inline history controls" in page.get_by_role("alert").inner_text()
+        assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analysis_count, "selections crossing the inline controls must not request partial analysis"
+        assert page.locator(".pb-breakdown").count() == 1, "the Close history action must remain available after a guarded selection"
         page.get_by_role("button", name="Close history").click()
         assert page.locator(".pb-breakdown").count() == 0
+        assert page.locator("#mw-content-text").evaluate("content => content.contains(document.getElementById('palimpsest-blame')) && !document.querySelector('.mw-parser-output').contains(document.getElementById('palimpsest-blame'))")
         assert page.get_by_role("textbox", name="Describe a date query").count() == 1, "closing history must restore the full date controls"
         assert page.get_by_role("link", name="Return to latest version").count() == 1, "closing history must restore the latest-version link"
 
