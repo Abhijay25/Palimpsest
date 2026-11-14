@@ -7,8 +7,9 @@ from palimpsest.flags import (
     StealthFlagInput,
     build_flags,
     cherry_pick_flags,
+    suppress_out_of_sync_duplicates,
 )
-from palimpsest.schema import AuditOutput, FlagEvidence, SourceWindow, Verdict
+from palimpsest.schema import AuditOutput, Flag, FlagEvidence, SourceWindow, Verdict
 from palimpsest.stealth.models import HiddenFinding, VectorType
 
 
@@ -431,3 +432,52 @@ def test_deleted_text_anchors_on_the_old_side_whatever_the_kind() -> None:
     assert flag.kind == "FACT"
     assert flag.side == "old"
     assert flag.anchor_start == old.index("though")
+
+
+def test_out_of_sync_suppresses_duplicate_judge_fact() -> None:
+    shared = {
+        "tier": "admin",
+        "confidence": 1.0,
+        "side": "new",
+        "context_sentence": "The population changed to 18.",
+        "evidence": [],
+        "citations": [],
+        "neutral_rewrite": None,
+    }
+    page_flag = Flag(
+        id="o0-0",
+        kind="OUT_OF_SYNC",
+        title="Out of sync with the page",
+        reason="The edit changes 12 to 18, but the section 'Population' still says 12.",
+        anchor_text="18",
+        anchor_start=26,
+        anchor_end=28,
+        check="consistency",
+        **shared,
+    )
+    judge_flag = Flag(
+        id="u0-s0",
+        kind="FACT",
+        title="Claim contradicts cited source",
+        reason="The source gives 12.",
+        anchor_text="18",
+        anchor_start=26,
+        anchor_end=28,
+        check="judge",
+        **shared,
+    )
+    retained = Flag(
+        id="u1-s0",
+        kind="FACT",
+        title="Claim contradicts cited source",
+        reason="Another issue.",
+        anchor_text="18",
+        anchor_start=26,
+        anchor_end=28,
+        check="judge",
+        **shared,
+    )
+    assert suppress_out_of_sync_duplicates([page_flag, judge_flag, retained]) == [
+        page_flag,
+        retained,
+    ]

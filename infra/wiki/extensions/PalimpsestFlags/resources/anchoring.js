@@ -6,6 +6,7 @@
 }( typeof globalThis !== 'undefined' ? globalThis : window, function () {
 	'use strict';
 	function normalize( text ) { return String( text || '' ).replace( /\u00a0/g, ' ' ).replace( /\s+/g, ' ' ).trim(); }
+	function stripQuoteMarks( text ) { return String( text || '' ).replace( /^[\s\"“”«»']+|[\s\"“”«»']+$/g, '' ); }
 	function sideCells( table, side ) {
 		var inline = table.classList.contains( 'mw-diff-inline' );
 		var selectors = inline ? ( side === 'old' ? 'td.mw-diff-inline-deleted,td.mw-diff-inline-changed,td.mw-diff-inline-context' : 'td.mw-diff-inline-added,td.mw-diff-inline-changed,td.mw-diff-inline-context' ) : ( side === 'old' ? 'td.diff-deletedline,td.diff-context' : 'td.diff-addedline,td.diff-context' );
@@ -47,7 +48,7 @@
 		return found;
 	}
 	function findMatch( entries, flag ) {
-		var anchor = String( flag.anchor_text || '' );
+		var anchor = stripQuoteMarks( flag.anchor_text );
 		if ( !anchor ) { return null; }
 		var exact = [];
 		entries.forEach( function ( entry, order ) {
@@ -96,5 +97,5 @@
 		return result;
 	}
 	function unwrap( table ) { Array.prototype.slice.call( table.querySelectorAll( 'mark.pf-anchor' ) ).forEach( function ( mark ) { mark.replaceWith( ...Array.prototype.slice.call( mark.childNodes ) ); } ); Array.prototype.slice.call( table.querySelectorAll( '.pf-inline-pin' ) ).forEach( function ( pin ) { pin.remove(); } ); }
-	return { normalize: normalize, sideCells: sideCells, resolve: resolve, unwrap: unwrap, findMatch: findMatch };
+	return { normalize: normalize, stripQuoteMarks: stripQuoteMarks, sideCells: sideCells, resolve: resolve, unwrap: unwrap, findMatch: findMatch };
 } ) );

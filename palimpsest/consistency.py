@@ -5,6 +5,7 @@ import json
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from typing import Final, Literal, Protocol
 from urllib.parse import quote
 
@@ -29,6 +30,7 @@ from palimpsest.value_swaps import swaps
 DEADLINE_S: Final = 6.0
 MAX_SEMANTIC_CANDIDATES: Final = 5
 _HEADING: Final = re.compile(r"^={2,}\s*(.*?)\s*={2,}\s*$", re.MULTILINE)
+_TABLE: Final = re.compile(r"{\\|(?P<body>.*?)(?:\n\\|})", re.DOTALL)
 _WORD_VALUE: Final = re.compile(r"[^\W\d_][\w'-]*", re.UNICODE)
 
 
@@ -124,6 +126,7 @@ class _PageParam:
     name: str
     value: str
     section: str
+    quote: str
 
 
 def _normalise(text: str) -> str:
@@ -150,7 +153,8 @@ def _page_sentences(wikitext: str) -> list[_PageSentence]:
             current = plain(chunk) or "Introduction"
             continue
         result.extend(
-            _PageSentence(sentence, current) for sentence in sentences(plain(chunk))
+            _PageSentence(sentence, current)
+            for sentence in sentences(plain(_TABLE.sub("", chunk)))
         )
     return result
 
@@ -165,9 +169,45 @@ def _params(wikitext: str) -> list[_PageParam]:
         for param in template.params:
             value = plain(str(param.value))
             if value:
+                label = plain(str(param.name)).strip()
                 result.append(
-                    _PageParam(name, plain(str(param.name)).casefold(), value, section)
+                    _PageParam(
+                        name,
+                        label.casefold(),
+                        value,
+                        section,
+                        f"| {label} = {value}",
+                    )
                 )
+    result.extend(_table_params(wikitext))
+    return result
+
+
+def _table_params(wikitext: str) -> list[_PageParam]:
+    """Expose simple wiki-table label/value pairs as labeled page evidence."""
+    result: list[_PageParam] = []
+    for table_index, match in enumerate(_TABLE.finditer(wikitext)):
+        section = _section_at(wikitext, match.start())
+        rows = re.split(r"\n\|-.*\n", match.group("body"))
+        for row in rows:
+            cells: list[str] = []
+            for line in row.splitlines():
+                line = line.lstrip()
+                if line.startswith(("|", "!")):
+                    cells.extend(line[1:].split("||" if line.startswith("|") else "!!"))
+            for label_text, value_text in pairwise(cells):
+                label = plain(label_text).strip()
+                value = plain(value_text).strip()
+                if label and value:
+                    result.append(
+                        _PageParam(
+                            f"table:{table_index}",
+                            label.casefold(),
+                            value,
+                            section,
+                            f"{label}: {value}",
+                        )
+                    )
     return result
 
 
@@ -302,7 +342,7 @@ async def check_page_consistency(
                             deterministic = ConsistencyFinding(
                                 unit.index,
                                 changed_sentence,
-                                param.value,
+                                param.quote,
                                 param.section,
                                 "deterministic",
                                 old_value,

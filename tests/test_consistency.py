@@ -43,10 +43,17 @@ def test_deterministic_prose_and_infobox_hits(monkeypatch: pytest.MonkeyPatch) -
             [_unit("The Festival opened in 1997.", "The Festival opened in 2009.")],
             "en",
         )
+        table = await check_page_consistency(
+            "{|\n| Väkiluku (2009) || 12\n|}\nPopulation was 12.",
+            "{|\n| Väkiluku (2009) || 12\n|}\nPopulation was 18.",
+            [_unit("Population was 12.", "Population was 18.")],
+            "en",
+        )
         assert [(item.method, item.section) for item in prose] == [
             ("deterministic", "History")
         ]
-        assert infobox[0].quote == "1997"
+        assert infobox[0].quote == "| year = 1997"
+        assert table[0].quote == "Väkiluku (2009): 12"
 
     asyncio.run(run())
 
@@ -149,6 +156,10 @@ def test_flag_mapping_has_page_jump_anchor() -> None:
     assert flags[0].kind == "OUT_OF_SYNC"
     assert flags[0].tier == "admin"
     assert flags[0].title == "Out of sync with the page: 2009 vs 1997"
+    assert (
+        flags[0].reason
+        == "The edit changes 1997 to 2009, but the section 'A section & more' still says 1997."
+    )
     assert flags[0].evidence[0].url == article_url("fi", "A title", "A section & more")
     assert flags[0].evidence[0].url.endswith("#A_section_%26_more")
 

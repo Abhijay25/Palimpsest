@@ -5,8 +5,8 @@ import contextlib
 import os
 import re
 import time
-from collections.abc import AsyncIterator, Awaitable, Callable
-from datetime import date, datetime
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from datetime import date
 from functools import cache
 from typing import Annotated, Final, Literal, cast
 
@@ -28,7 +28,12 @@ from palimpsest.cherry_pick import (
     gemini_cherry_pick_judge,
     scan_cherry_picks,
 )
-from palimpsest.citation_dates import CitationDateScan, scan_changed_citation_dates
+from palimpsest.citation_dates import (
+    CitationDateScan,
+    citation_parameter_date,
+    month_names,
+    scan_changed_citation_dates,
+)
 from palimpsest.citation_lifecycle import (
     CitationDriftReport,
     GeminiEmbedder,
@@ -57,6 +62,7 @@ from palimpsest.flags import (
     build_flags,
     cherry_pick_flags,
     consistency_flags,
+    suppress_out_of_sync_duplicates,
 )
 from palimpsest.judge import (
     PROMPT_VERSION,
@@ -142,8 +148,10 @@ CHERRY_PICK_TIMEOUT_S: Final = 8.0
 MAX_CITATION_LIFECYCLE_URLS: Final = 4
 _CITATION_WIKITEXT_RE: Final = re.compile(r"{{|<ref\b", re.IGNORECASE)
 _REF_TAG_RE: Final = re.compile(r"<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE)
+# These are wiki configuration template parameter names, not prose date labels.
 _CITATION_PARAM_RE: Final = re.compile(
-    r"\|\s*(access[ _-]?date|date)\s*=\s*([^|}\n]+)", re.IGNORECASE
+    r"\|\s*(access-date|accessdate|access_date|accessed|luettu|hämtdatum|hämtad)\s*=\s*([^|}\n]+)",
+    re.IGNORECASE,
 )
 _CHANGED_VALUE_RE: Final = re.compile(
     r"\b(?:\d[\d,.%]*|[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)*)\b"
@@ -635,23 +643,15 @@ async def _scan_citation_dates(
     return await scan_changed_citation_dates(lang_code, page_title, wikitexts)
 
 
-def _access_date(value: str) -> date | None:
-    """Parse the common unambiguous dates accepted by cite-web parameters."""
-    value = value.strip().replace("&nbsp;", " ")
-    try:
-        return date.fromisoformat(value)
-    except ValueError:
-        pass
-    for pattern in ("%d %B %Y", "%B %d, %Y", "%B %d %Y"):
-        try:
-            return datetime.strptime(value, pattern).date()
-        except ValueError:
-            continue
-    return None
+def _access_date(value: str, months: Mapping[str, int] | None = None) -> date | None:
+    """Parse a citation template's access-date parameter value."""
+    return citation_parameter_date(value, months or {})
 
 
 def _citation_lifecycle_candidates(
-    units: list[EditUnit], refs_by_unit: dict[int, list[str] | None]
+    units: list[EditUnit],
+    refs_by_unit: dict[int, list[str] | None],
+    months: Mapping[str, int] | None = None,
 ) -> list[tuple[str, date, str]]:
     """Changed-reference URLs paired with their citation date and local claim text."""
     candidates: list[tuple[str, date, str]] = []
@@ -666,7 +666,7 @@ def _citation_lifecycle_candidates(
             if not urls:
                 continue
             match = _CITATION_PARAM_RE.search(ref)
-            access_date = _access_date(match.group(2)) if match else None
+            access_date = _access_date(match.group(2), months) if match else None
             if access_date is None:
                 continue
             for url in urls:
@@ -676,6 +676,22 @@ def _citation_lifecycle_candidates(
                     if len(candidates) == MAX_CITATION_LIFECYCLE_URLS:
                         return candidates
     return candidates
+
+
+async def _localized_citation_lifecycle_candidates(
+    units: list[EditUnit], refs_by_unit: dict[int, list[str] | None], lang_code: str
+) -> list[tuple[str, date, str]]:
+    """Read local MediaWiki month names before parsing citation parameters."""
+    if lang_code == "en":
+        return _citation_lifecycle_candidates(units, refs_by_unit, {})
+    try:
+        async with httpx.AsyncClient(
+            headers={"User-Agent": MEDIAWIKI_USER_AGENT}
+        ) as client:
+            months = await month_names(client, lang_code)
+    except (httpx.HTTPError, RuntimeError):
+        months = {}
+    return _citation_lifecycle_candidates(units, refs_by_unit, months)
 
 
 def _lifecycle_embedder() -> HashingEmbedder | GeminiEmbedder:
@@ -1007,7 +1023,13 @@ async def audit_diff_logic(
             )
         )
         await citation_dates_started
-    lifecycle_candidates = _citation_lifecycle_candidates(units, refs_by_unit)
+    lifecycle_candidates = (
+        await _localized_citation_lifecycle_candidates(
+            units, refs_by_unit, req.lang_code
+        )
+        if any(refs_by_unit.values())
+        else []
+    )
     citation_lifecycle_task: asyncio.Task[CitationLifecycleScan] | None = None
     citation_lifecycle_started: asyncio.Future[float] | None = None
     if lifecycle_candidates:
@@ -1293,6 +1315,7 @@ async def audit_diff_logic(
                 0,
                 "reviewer disabled" if not reviewer_enabled() else "no value change",
             )
+        response_flags = suppress_out_of_sync_duplicates(response_flags)
         # A reviewer may lower ordinary candidates to review, but hard source-security
         # signals retain their existing escalation path above.
         candidate_route: Route = (

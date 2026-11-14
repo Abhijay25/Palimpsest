@@ -23,7 +23,7 @@
 				{ "name": "ext.palimpsest.flags.js", "file": "ext.palimpsest.flags.js", "main": true },
 				"anchoring.js",
 				"stacking.js",
-				{ "name": "icons.json", "callback": "MediaWiki\\ResourceLoader\\CodexModule::getIcons", "callbackParam": [ "cdxIconAlert", "cdxIconUserTalk", "cdxIconQuotes", "cdxIconSubtract", "cdxIconEyeClosed", "cdxIconClock", "cdxIconReference", "cdxIconCheck" ] }
+				{ "name": "icons.json", "callback": "MediaWiki\\ResourceLoader\\CodexModule::getIcons", "callbackParam": [ "cdxIconAlert", "cdxIconUserTalk", "cdxIconQuotes", "cdxIconSubtract", "cdxIconEyeClosed", "cdxIconClock", "cdxIconReference", "cdxIconArticles", "cdxIconCheck" ] }
 			],
 			"styles": [ "ext.palimpsest.flags.less" ],
 			"dependencies": [ "mediawiki.api", "mediawiki.util" ]

@@ -203,6 +203,53 @@ def _collapse(flags: list[Flag]) -> list[Flag]:
     return collapsed
 
 
+_OUT_OF_SYNC_REASON = re.compile(r"^The edit changes .+? to (.+?), but the section '")
+
+
+def suppress_out_of_sync_duplicates(flags: list[Flag]) -> list[Flag]:
+    """Prefer a page contradiction over a duplicate judge fact finding."""
+    out_of_sync = [flag for flag in flags if flag.kind == "OUT_OF_SYNC"]
+    result: list[Flag] = []
+    for flag in flags:
+        if flag.kind != "FACT" or flag.check != "judge":
+            result.append(flag)
+            continue
+        unit = re.match(r"^u(\d+)-", flag.id)
+        if unit is None:
+            result.append(flag)
+            continue
+        duplicate = False
+        for page_flag in out_of_sync:
+            page_unit = re.match(r"^o(\d+)-", page_flag.id)
+            value = _OUT_OF_SYNC_REASON.match(page_flag.reason)
+            if (
+                page_unit is None
+                or value is None
+                or page_unit.group(1) != unit.group(1)
+                or flag.side != page_flag.side
+            ):
+                continue
+            overlaps = (
+                flag.anchor_start is not None
+                and flag.anchor_end is not None
+                and page_flag.anchor_start is not None
+                and page_flag.anchor_end is not None
+                and flag.anchor_start < page_flag.anchor_end
+                and page_flag.anchor_start < flag.anchor_end
+            )
+            same_sentence = _normalised_reason(
+                flag.context_sentence
+            ) == _normalised_reason(page_flag.context_sentence)
+            if same_sentence and (
+                overlaps or value.group(1).casefold() in flag.anchor_text.casefold()
+            ):
+                duplicate = True
+                break
+        if not duplicate:
+            result.append(flag)
+    return result
+
+
 def _citation_title(code: str) -> str:
     if code == "FUTURE_DATE":
         return "Future citation date"
@@ -331,8 +378,8 @@ def consistency_flags(
                     f"{finding.new_value} vs {finding.old_value}"
                 )[:_TITLE_MAX],
                 reason=(
-                    f"This edit says {finding.changed_sentence}; the section "
-                    f"'{finding.section}' still says '{finding.quote}'."
+                    f"The edit changes {finding.old_value} to {finding.new_value}, but "
+                    f"the section '{finding.section}' still says {finding.old_value}."
                 ),
                 confidence=1.0 if finding.method == "deterministic" else 0.7,
                 side="new",

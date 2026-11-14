@@ -3,6 +3,12 @@
 const test = require( 'node:test' );
 const assert = require( 'node:assert/strict' );
 const stacking = require( '../../infra/wiki/extensions/PalimpsestFlags/resources/stacking.js' );
+const anchoring = require( '../../infra/wiki/extensions/PalimpsestFlags/resources/anchoring.js' );
+
+test( 'strips surrounding quote marks from judge anchors', () => {
+	assert.equal( anchoring.stripQuoteMarks( ' “quoted value” ' ), 'quoted value' );
+	assert.equal( anchoring.stripQuoteMarks( "«quoted value»" ), 'quoted value' );
+} );
 
 test( 'stacks collisions with an eight-pixel gap and pins the active card', () => {
 	const result = stacking.computePositions( [

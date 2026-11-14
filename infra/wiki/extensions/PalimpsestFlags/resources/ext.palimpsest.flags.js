@@ -11,7 +11,7 @@
 	if ( !cfg || !cfg.oldid || !cfg.diff ) { return; }
 	var table, root, workspace, rail, list, summary, tray, live, state = { flags: [], anchored: [], unanchored: [], active: null, reviewed: new Set(), filter: null, layout: 'rail', trigger: null, response: null };
 	var kindLabel = { FACT: 'Fact', MOTIVE: 'Motive', FRAMING: 'Wording', REMOVED_CONTEXT: 'Removed context', HIDDEN_TEXT: 'Hidden text', CITATION_DATE: 'Citation date', CITED_PAGE: 'Cited page', CHERRY_PICK: 'Selective quote', OUT_OF_SYNC: 'Out of sync' };
-	var kindIcon = { FACT: 'cdxIconAlert', MOTIVE: 'cdxIconUserTalk', FRAMING: 'cdxIconQuotes', REMOVED_CONTEXT: 'cdxIconSubtract', HIDDEN_TEXT: 'cdxIconEyeClosed', CITATION_DATE: 'cdxIconClock', CITED_PAGE: 'cdxIconReference', CHERRY_PICK: 'cdxIconQuotes', OUT_OF_SYNC: 'cdxIconArticle' };
+	var kindIcon = { FACT: 'cdxIconAlert', MOTIVE: 'cdxIconUserTalk', FRAMING: 'cdxIconQuotes', REMOVED_CONTEXT: 'cdxIconSubtract', HIDDEN_TEXT: 'cdxIconEyeClosed', CITATION_DATE: 'cdxIconClock', CITED_PAGE: 'cdxIconReference', CHERRY_PICK: 'cdxIconQuotes', OUT_OF_SYNC: 'cdxIconArticles' };
 	function el( tag, cls, text ) { var n = document.createElement( tag ); if ( cls ) { n.className = cls; } if ( text !== undefined ) { n.textContent = text; } return n; }
 	function button( cls, label ) { var b = el( 'button', cls, label ); b.type = 'button'; return b; }
 	function safeUrl( url ) { try { var parsed = new URL( url, location.href ); return /^https?:$/.test( parsed.protocol ) ? parsed.href : null; } catch ( e ) { return null; } }
@@ -107,9 +107,9 @@
 		var seen = {}, links = el( 'div', 'pf-citations' );
 		( flag.citations || [] ).concat( quotes.map( function ( q ) { return q.url; } ) ).forEach( function ( url ) { var href = safeUrl( url ); if ( href && !seen[ href ] ) { seen[ href ] = true; var a = el( 'a', 'pf-citation', new URL( href ).hostname ); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.title = href; links.appendChild( a ); } } );
 		if ( links.childNodes.length ) { sourceBox.append( links ); }
-		if ( sourceBox.childNodes.length && flag.kind !== 'FRAMING' && flag.kind !== 'HIDDEN_TEXT' ) { body.append( section( quotes.length ? 'What the source says' : 'Source', sourceBox ) ); }
+		if ( sourceBox.childNodes.length && flag.kind !== 'FRAMING' && flag.kind !== 'HIDDEN_TEXT' && flag.kind !== 'OUT_OF_SYNC' ) { body.append( section( quotes.length ? 'What the source says' : 'Source', sourceBox ) ); }
 		if ( flag.neutral_rewrite ) { body.append( section( 'Suggested neutral wording', el( 'div', 'pf-rewrite', flag.neutral_rewrite ) ) ); }
-		body.appendChild( el( 'div', 'pf-card__footer pf-muted', 'Found by: ' + ( { judge: 'source comparison', stealth: 'hidden-text scan', citation_dates: 'citation date check', render: 'cited page scan', citation_lifecycle: 'cited page history check' }[ flag.check ] || flag.check ) ) ); return body;
+		body.appendChild( el( 'div', 'pf-card__footer pf-muted', 'Found by: ' + ( { judge: 'source comparison', stealth: 'hidden-text scan', citation_dates: 'citation date check', render: 'cited page scan', citation_lifecycle: 'cited page history check', consistency: 'consistency check against the rest of the page', value_check: 'value check against source/Wikidata', cherry_pick: 'selective quote check', reviewer: 'reviewer check' }[ flag.check ] || flag.check ) ) ); return body;
 	}
 	function renderCards() {
 		list.replaceChildren(); if ( state.layout !== 'rail' || !state.flags.length ) { renderPins(); return; } rail.hidden = false; visibleFlags().forEach( function ( row ) { var li = el( 'li', 'pf-rail__item' ); li.dataset.pfId = row.flag.id; li.appendChild( cardFor( row.flag, true ) ); list.appendChild( li ); } ); relayout();
