@@ -9,7 +9,7 @@ use DomainException;
 final class AttributionEngine {
 	public const VERSION = 'lcs-anchor-v3';
 	public const MAX_DIFF_CELLS = 250000;
-	public const MAX_DERIVATION_REFERENCES = 250000;
+	public const MAX_DERIVATION_REFERENCES = 1000000;
 
 	/** @param list<array{id:int,text:string}> $history Oldest first. */
 	public function analyze( array $history ): array {

@@ -86,12 +86,18 @@ check( count( $restoredWords ) === 2 && !in_array( false, array_column( $restore
 $numericDuplicate = $engine->analyze( [ [ 'id' => 42, 'text' => 'score 2000 2000 points' ], [ 'id' => 43, 'text' => 'score 2000 points' ] ] );
 check( (bool)array_filter( $numericDuplicate['tokens'], static fn ( $t ) => $t['text'] === '2000' && $t['ambiguous'] ), 'numeric token keys remain strings during ambiguity checks' );
 
-$stressOld = implode( ' ', array_map( static fn ( $i ) => 'old' . $i, range( 1, 160 ) ) );
-$stressMiddle = implode( '-', array_map( static fn ( $i ) => 'middle' . $i, range( 1, 160 ) ) );
-$stressNew = implode( '/', array_map( static fn ( $i ) => 'new' . $i, range( 1, 160 ) ) );
+$stressOld = implode( ' ', array_map( static fn ( $i ) => 'old' . $i, range( 1, 250 ) ) );
+$stressMiddle = implode( '-', array_map( static fn ( $i ) => 'middle' . $i, range( 1, 250 ) ) );
+$stressNew = implode( '/', array_map( static fn ( $i ) => 'new' . $i, range( 1, 250 ) ) );
+$stressLatest = implode( '+', array_map( static fn ( $i ) => 'latest' . $i, range( 1, 250 ) ) );
 $lineageLimitReached = false;
 try {
-	$engine->analyze( [ [ 'id' => 44, 'text' => $stressOld ], [ 'id' => 45, 'text' => $stressMiddle ], [ 'id' => 46, 'text' => $stressNew ] ] );
+	$engine->analyze( [
+		[ 'id' => 44, 'text' => $stressOld ],
+		[ 'id' => 45, 'text' => $stressMiddle ],
+		[ 'id' => 46, 'text' => $stressNew ],
+		[ 'id' => 47, 'text' => $stressLatest ],
+	] );
 } catch ( DomainException $e ) {
 	$lineageLimitReached = $e->getMessage() === 'lineage-derivation-reference-limit-exceeded';
 }
