@@ -144,6 +144,7 @@ class QuarantinedItem(BaseModel):
 class HiddenChannelResult(BaseModel):
     sanitized_human_text: str
     quarantined_items: list[QuarantinedItem]
+    unscanned_span: tuple[int, int] | None = None
 
 
 def looks_like_instruction(text: str) -> bool:
@@ -660,7 +661,8 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
                 pair.group(2) or pair.group(3) or "",
                 name not in _LEGACY_ATTRS,
             )
-    for start, end, value in _template_params(masked):
+    template_params, unscanned_span = _template_params(masked)
+    for start, end, value in template_params:
         if looks_like_instruction(value):
             item = _item(text, VectorType.TEMPLATE_PARAM_TEXT, start, end, value)
             items.append(
@@ -672,7 +674,9 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
     kept = _drop_nested(items)
     removals.extend(i.span for i in kept)
     return HiddenChannelResult(
-        sanitized_human_text=remove_spans(text, removals), quarantined_items=kept
+        sanitized_human_text=remove_spans(text, removals),
+        quarantined_items=kept,
+        unscanned_span=unscanned_span,
     )
 
 
@@ -707,13 +711,18 @@ def _split_param(piece: str) -> tuple[str, str]:
     return "", piece[1:]
 
 
-def _template_params(text: str) -> list[tuple[int, int, str]]:
+def _template_params(
+    text: str,
+) -> tuple[list[tuple[int, int, str]], tuple[int, int] | None]:
     """Return (start, end, value) of every template parameter, innermost first.
 
     Cost is bounded: only the first MAX_TEMPLATE_SCAN_CHARS characters are scanned and at
     most MAX_TEMPLATE_PASSES nesting levels are peeled; anything beyond is not reported.
     """
     params: list[tuple[int, int, str]] = []
+    unscanned: tuple[int, int] | None = None
+    if len(text) > MAX_TEMPLATE_SCAN_CHARS:
+        unscanned = (MAX_TEMPLATE_SCAN_CHARS, len(text))
     text = text[:MAX_TEMPLATE_SCAN_CHARS]
 
     def blank(m: re.Match[str]) -> str:
@@ -725,7 +734,11 @@ def _template_params(text: str) -> list[tuple[int, int, str]]:
         if not _TEMPLATE.search(text):
             break
         text = _TEMPLATE.sub(blank, text)
-    return params
+    else:
+        leftover = _TEMPLATE.search(text)
+        if leftover and unscanned is None:
+            unscanned = (leftover.start(), len(text))
+    return params, unscanned
 
 
 def _media_params(text: str) -> list[tuple[int, int, str]]:

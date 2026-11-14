@@ -515,3 +515,21 @@ def test_many_flat_templates_scan_is_bounded() -> None:
     started = time.perf_counter()
     scan("{{a|x}}" * 30_000, "WIKIPEDIA_DIFF")
     assert time.perf_counter() - started < 1.0
+
+
+def test_truncated_template_scan_is_flagged() -> None:
+    text = "{{a|" * 60_000 + "}}" * 60_000
+    started = time.perf_counter()
+    result = scan(text, "WIKIPEDIA_DIFF")
+    assert time.perf_counter() - started < 1.0
+    truncated = [
+        f for f in result.hidden_findings if f.vector_type == VectorType.SCAN_TRUNCATED
+    ]
+    assert len(truncated) == 1
+    assert truncated[0].classification == "NEEDS_TRIAGE"
+    assert (
+        truncated[0].explanation
+        == "Template parameter scan stopped at the size/nesting limit; "
+        "remaining content was not inspected."
+    )
+    assert result.stealth_status != StealthStatus.CLEAN

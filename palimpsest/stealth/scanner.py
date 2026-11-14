@@ -122,6 +122,21 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
         )
 
     channels = extract_hidden_channels(text)
+    if channels.unscanned_span is not None:
+        span_start, span_end = channels.unscanned_span
+        add(
+            HiddenFinding(
+                vector_type=VectorType.SCAN_TRUNCATED,
+                raw_snippet=text[span_start : min(span_end, span_start + 200)],
+                decoded_hidden_text="",
+                char_span=channels.unscanned_span,
+                classification="NEEDS_TRIAGE",
+                confidence=0.5,
+                explanation="Template parameter scan stopped at the size/nesting "
+                "limit; remaining content was not inspected.",
+            ),
+            StealthStatus.BENIGN_NOTES_ONLY,
+        )
     for item in channels.quarantined_items:
         if not is_new(item.raw_snippet):
             continue
