@@ -110,6 +110,67 @@ def main():
         sent_ranges = page.evaluate("window.__requests.filter(r => r.params.ranges).at(-1).params.ranges")
         assert sent_ranges == '[{"start":1,"end":4}]', sent_ranges
 
+        page.get_by_role("button", name="Close history").click()
+        page.evaluate(
+            """() => {
+                const article = document.querySelector('.mw-parser-output');
+                const alpha = article.querySelector('[data-pb-start="0"]');
+                const beta = article.querySelector('[data-pb-start="6"]');
+                alpha.closest('p').id = 'paragraph-one';
+                const second = document.createElement('p');
+                second.id = 'paragraph-two';
+                second.append(beta);
+                document.getElementById('paragraph-one').after(second);
+                article.parentNode.insertBefore(document.getElementById('palimpsest-blame'), article.nextSibling);
+            }"""
+        )
+        for reverse in [False, True]:
+            native_quote = page.evaluate(
+                """reverse => {
+                    const selection = window.getSelection();
+                    const alpha = document.querySelector('[data-pb-start="0"]').firstChild;
+                    const beta = document.querySelector('[data-pb-start="6"]').firstChild;
+                    if (reverse) selection.setBaseAndExtent(beta, 2, alpha, 1);
+                    else selection.setBaseAndExtent(alpha, 1, beta, 2);
+                    return selection.toString();
+                }""",
+                reverse,
+            )
+            page.get_by_role("button", name="Inspect selected article text").click()
+            page.wait_for_selector(".pb-breakdown")
+            actual_quote = page.locator(".pb-selected-text").text_content()
+            assert actual_quote == native_quote, f"the inline quote must preserve the exact native cross-paragraph selection: {actual_quote!r} != {native_quote!r}"
+            assert page.locator("#palimpsest-blame").evaluate("node => node.previousElementSibling.id") == "paragraph-two", "forward and reverse selections must place the panel after the last selected block"
+            page.get_by_role("button", name="Close history").click()
+
+        native_quote = page.evaluate(
+            """() => {
+                const selection = window.getSelection();
+                const alpha = document.querySelector('[data-pb-start="0"]').firstChild;
+                const beta = document.querySelector('[data-pb-start="6"]').firstChild;
+                selection.setBaseAndExtent(beta, 2, alpha, 1);
+                return selection.toString();
+            }"""
+        )
+        page.get_by_role("button", name="Inspect selected article text").click()
+        page.wait_for_selector(".pb-breakdown")
+        actual_quote = page.locator(".pb-selected-text").text_content()
+        assert actual_quote == native_quote, f"reverse native quote changed: {actual_quote!r} != {native_quote!r}"
+
+        boundary_quote = page.evaluate(
+            """() => {
+                const selection = window.getSelection();
+                const alpha = document.querySelector('[data-pb-start="0"]').firstChild;
+                const beta = document.querySelector('[data-pb-start="6"]').firstChild;
+                selection.setBaseAndExtent(alpha, 1, beta, 0);
+                return selection.toString();
+            }"""
+        )
+        page.get_by_role("button", name="Inspect selected article text").click()
+        page.wait_for_selector(".pb-breakdown")
+        assert page.locator(".pb-selected-text").text_content() == boundary_quote
+        assert page.locator("#palimpsest-blame").evaluate("node => node.previousElementSibling.id") == "paragraph-one", "an endpoint at offset zero must anchor to the preceding selected block"
+
         page.get_by_role("textbox", name="Describe a date query").fill("Latest version before 1 April 2026")
         page.get_by_role("button", name="Interpret date query").click()
         assert "2026-04-01T00:00:00Z" in page.locator(".pb-date-preview").inner_text()

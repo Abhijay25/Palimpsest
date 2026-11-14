@@ -550,8 +550,32 @@
 	}
 
 	function nearestStatement( selection ) {
-		var active = selection && selection.rangeCount ? selection.getRangeAt( 0 ).startContainer : null;
-		var node = active && ( active.nodeType === 1 ? active : active.parentElement );
+		if ( !selection || !selection.rangeCount ) {
+			return null;
+		}
+		var lastSelectedNode = null;
+		for ( var index = 0; index < selection.rangeCount; index++ ) {
+			var range = selection.getRangeAt( index );
+			var walker = document.createTreeWalker( article || range.commonAncestorContainer, NodeFilter.SHOW_TEXT );
+			var textNode;
+			while ( ( textNode = walker.nextNode() ) ) {
+				if ( !range.intersectsNode( textNode ) ) {
+					continue;
+				}
+				var selectedPart = document.createRange();
+				selectedPart.selectNodeContents( textNode );
+				if ( range.compareBoundaryPoints( Range.START_TO_START, selectedPart ) > 0 ) {
+					selectedPart.setStart( range.startContainer, range.startOffset );
+				}
+				if ( range.compareBoundaryPoints( Range.END_TO_END, selectedPart ) < 0 ) {
+					selectedPart.setEnd( range.endContainer, range.endOffset );
+				}
+				if ( selectedPart.toString() ) {
+					lastSelectedNode = textNode;
+				}
+			}
+		}
+		var node = lastSelectedNode && lastSelectedNode.parentElement;
 		return node && node.closest( 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dt, dd, figcaption' );
 	}
 
