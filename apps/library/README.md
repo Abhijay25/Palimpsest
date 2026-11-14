@@ -88,8 +88,13 @@ docker run --rm --entrypoint python \
   -v "$PWD/apps/library:/repo/apps/library:ro" \
   -v "$PWD/.local/library/evidence:/evidence" \
   palimpsest-library-browser:1.65.1 /repo/apps/library/tests/spatial_acceptance.py
+docker run --rm --entrypoint python \
+  -e LIBRARY_BROWSER_ORIGIN=http://host.docker.internal:5180 \
+  -v "$PWD/apps/library:/repo/apps/library:ro" \
+  -v "$PWD/.local/library/evidence:/evidence" \
+  palimpsest-library-browser:1.65.1 /repo/apps/library/tests/guard_acceptance.py
 ```
 
-These macOS Docker Desktop commands access the localhost app through `host.docker.internal`. Linux requires a suitable host-network address/configuration. Browser tests read the real corpus; they do not seed replacement content or mock responses. The mixed-word case freezes original contributor-revision identities independently of rendered output. The spatial suite uses software WebGL for functional coverage; actual GPU performance is measured separately in the native browser.
+These macOS Docker Desktop commands access the localhost app through `host.docker.internal`. Linux requires a suitable host-network address/configuration. Browser tests read the real corpus; they do not seed replacement content or fabricate response data. The guard suite delays one unchanged real response to exercise a language race and uses a browser Range over actual generated text to verify refusal; native gestures are tested separately. The mixed-word case freezes original contributor-revision identities independently of rendered output. The spatial suite uses software WebGL for functional coverage; actual GPU performance is measured separately in the native browser.
 
 See [verification](../../docs/library/verification.md), [design](../../docs/library/design.md), and [prioritized future work](../../docs/library/future-work.md).
