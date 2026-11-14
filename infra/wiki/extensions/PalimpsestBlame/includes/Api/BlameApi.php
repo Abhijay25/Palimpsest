@@ -611,6 +611,9 @@ final class BlameApi extends ApiBase {
 			if ( ( $page['title'] ?? null ) !== $title->getPrefixedText() ) {
 				throw new DomainException( 'provenance-page-title-mismatch' );
 			}
+			if ( ( $page['history_complete'] ?? false ) !== true ) {
+				throw new DomainException( 'imported-history-incomplete' );
+			}
 			$records = [];
 			foreach ( $page['revisions'] ?? [] as $record ) { $records[(int)$record['local_revision_id']] = $record; }
 			$anchorTimestamp = (string)( $page['source_anchor_timestamp'] ?? '' );

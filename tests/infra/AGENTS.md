@@ -26,3 +26,4 @@
 - Every pinned async response, including ready analysis, must carry the same positive top-level `revision_id` as its snapshot and job object.
 - Scope active-job limits to the current algorithm/schema, and make queued jobs no-op for obsolete cache rows without touching source history.
 - If revision comparisons are second-precision, reject fractional-second date bounds instead of accepting and truncating them.
+- A valid provenance checksum does not make a partial import complete; fail closed on `history_complete=false` before emitting any attribution.
