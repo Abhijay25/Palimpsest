@@ -221,7 +221,7 @@ _COLLECT_JS = r"""
   }
 
   for (const el of document.querySelectorAll("body, body *")) {
-    const tag = el.tagName.toLowerCase();
+    const tag = (el.tagName || "").toLowerCase();
     const cs = getComputedStyle(el);
     let kind = null;
     if (tag === "img" || tag === "svg" || tag === "canvas") kind = tag;

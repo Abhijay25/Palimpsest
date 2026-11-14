@@ -169,6 +169,10 @@ class SourceFetcher:
         except (OSError, ValidationError):
             return None
 
+    def cached_text(self, url: str) -> str | None:
+        """Cached page text for url, or None; never calls the network."""
+        return self._read_cache(url)
+
     def _write_cache(self, url: str, text: str) -> None:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._cache_path(url).write_text(_CachedText(text=text).model_dump_json())

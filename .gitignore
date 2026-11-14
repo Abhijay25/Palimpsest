@@ -9,3 +9,5 @@ eval/runs/*/batches/
 eval/runs/*/results/
 eval/stealth/runs/*/batches/
 eval/stealth/runs/*/results/
+eval/stealth/runs/*/tiles/
+eval/stealth/runs/p*/prepared.jsonl
