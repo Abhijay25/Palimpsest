@@ -61,6 +61,47 @@ def worst_status(statuses: Iterable[StealthStatus]) -> StealthStatus:
     return max(statuses, key=_RANK.__getitem__, default=StealthStatus.CLEAN)
 
 
+def reportable_findings(result: ScanResult) -> list[HiddenFinding]:
+    """Findings to report to API/pipeline callers.
+
+    SCREEN_FOR_INJECTION items are unresolved screening requests for triage,
+    not findings; they stay in the ScanResult but are never counted or listed.
+    """
+    return [
+        f for f in result.hidden_findings if f.classification != SCREEN_CLASSIFICATION
+    ]
+
+
+def _screen_chunks(
+    pieces: list[tuple[str, tuple[int, int] | None]],
+) -> list[tuple[str, list[tuple[int, int]]]]:
+    """Group screened sentences into chunks of at most VISIBLE_SCREEN_MAX_CHARS.
+
+    Splits on sentence boundaries; one sentence longer than the limit is cut
+    into limit-sized slices so that no added text goes unscreened.
+    """
+    chunks: list[tuple[str, list[tuple[int, int]]]] = []
+    current = ""
+    spans: list[tuple[int, int]] = []
+
+    def flush() -> None:
+        nonlocal current, spans
+        if current:
+            chunks.append((current, spans))
+        current, spans = "", []
+
+    for prose, span in pieces:
+        for offset in range(0, len(prose), VISIBLE_SCREEN_MAX_CHARS):
+            part = prose[offset : offset + VISIBLE_SCREEN_MAX_CHARS]
+            if current and len(current) + 1 + len(part) > VISIBLE_SCREEN_MAX_CHARS:
+                flush()
+            current = f"{current} {part}" if current else part
+            if span is not None:
+                spans.append(span)
+    flush()
+    return chunks
+
+
 def scan(text: str, target_type: TargetType, old_text: str | None = None) -> ScanResult:
     started = time.perf_counter()
 
@@ -200,8 +241,7 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
         [p.span for p in tags.payloads] + [i.span for i in channels.quarantined_items],
     )
     old_stripped = old_text.translate(_INVISIBLE_TABLE) if old_text else None
-    screen_sentences: list[str] = []
-    screen_spans: list[tuple[int, int]] = []
+    screen_pieces: list[tuple[str, tuple[int, int] | None]] = []
     for sentence in _SENTENCE_BREAK.split(visible):
         clean = sentence.translate(_INVISIBLE_TABLE)
         if old_stripped is not None and clean in old_stripped:
@@ -215,10 +255,10 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
                 and old_text is not None
                 and len(_WORD.findall(prose)) >= VISIBLE_SCREEN_MIN_WORDS
             ):
-                screen_sentences.append(prose)
                 first = text.find(sentence)
-                if first >= 0:
-                    screen_spans.append((first, first + len(sentence)))
+                screen_pieces.append(
+                    (prose, (first, first + len(sentence)) if first >= 0 else None)
+                )
             continue
         start = max(text.find(sentence), 0)
         span = (start, start + len(sentence))
@@ -273,16 +313,15 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
                 ),
                 None,
             )
-    if screen_sentences:
-        joined = " ".join(screen_sentences)[:VISIBLE_SCREEN_MAX_CHARS]
+    for joined, chunk_spans in _screen_chunks(screen_pieces):
         add(
             HiddenFinding(
                 vector_type=VectorType.VISIBLE_INSTRUCTION,
                 raw_snippet=joined,
                 decoded_hidden_text=joined,
                 char_span=(
-                    min((sp[0] for sp in screen_spans), default=0),
-                    max((sp[1] for sp in screen_spans), default=0),
+                    min((sp[0] for sp in chunk_spans), default=0),
+                    max((sp[1] for sp in chunk_spans), default=0),
                 ),
                 classification=SCREEN_CLASSIFICATION,
                 confidence=0.1,
