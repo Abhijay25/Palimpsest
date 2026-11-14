@@ -1,5 +1,7 @@
 ﻿# Wikipedia Language Gap Explorer
 
+Current integrated flow: [divergence skyline → historical article tracker](docs/skyline.md), using real EN/FI/SV Winter War observations. The original comparison, watchlist and timeline experiments remain available.
+
 Local Wikipedia-style reading and comparison app. The full supplied snapshot has 29,460 articles; 7,256 linked topics have multiple language editions. Start Docker Desktop, run `./start.ps1`, and open http://127.0.0.1:8010. The app and database bind to localhost. Review progress is at `/reviews`.
 
 ## Fast Decisions-only pipeline

@@ -19,6 +19,14 @@ These experiments answer different questions. They share evidence conventions, b
 
 ## Data and semantic distinctions
 
+### Current skyline iteration
+
+`feature/divergence-skyline` implements the approved first complete reader flow in the existing research app: article/language prompt → aggregated skyline → paginated questions → the article's existing discrepancy tracker. All three EN/FI/SV pairings participate; repeated occurrences and pairings count once per underlying question. Columns use the latest assessed observation in a calendar period, with unknown gaps and day-limited zoom. The selected run, observation, question and actual source pair survive the handoff and browser-back navigation. Full historical evidence appears in the existing Wikipedia-style tracker shell, not a second reviewer implementation.
+
+The EN/FI/SV Winter War preparation completed 26 checkpoints from January 1, 2020 through July 29, 2025: 324 distinct provisional questions, 3,535 source occurrences and 40 source revisions. The latest checkpoint contains 128 questions (116 coverage, 12 framing, zero strict contradictions). These counts differ from the earlier EN/FI/RU cohort. Every stored quote offset, source timestamp and language-anchor cutoff was audited. No provider requests were made by overview, question-list, tracker or browser navigation checks; source translation continues through the existing local translation path.
+
+Verification: 52 research tests plus 15 independent-viewer tests pass; calendar aggregation checks cover latest-not-sum, unknown-versus-zero and responsive binning. Browser checks covered desktop/mobile, FI–SV evidence without an English passage, English-left EN–SV evidence, local translation, keyboard selection, category/observation restoration, and a one-day zoom limit. The independent viewer and native wiki stack remain separate. This is presentation/context routing over the existing engine, not a new clustering pipeline or an accuracy claim.
+
 The supplied FineWiki/MariaDB research corpus contains August-2025-era multilingual snapshots; it is not live Wikipedia and does not include complete original histories. The main infrastructure's acquisition/import pipeline preserves original article/revision IDs and reconciles them to local wiki IDs. Do not assume source IDs equal local IDs.
 
 The prepared Winter War common comparison window is January 1, 2020 through July 16, 2025, using six annual observations plus 20 recent cached edit checkpoints. Annual gaps are unobserved. Historical rendered HTML may contain newer transclusions. An analysis-run timestamp, a source-edit timestamp and a system-versioning processing timestamp mean different things.

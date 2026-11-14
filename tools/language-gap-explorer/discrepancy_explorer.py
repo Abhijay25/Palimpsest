@@ -14,6 +14,38 @@ from flask import Blueprint, jsonify, render_template, request,session
 bp = Blueprint('discrepancy_explorer', __name__)
 
 
+def skyline_run():
+    from skyline import selection
+    from paired_history import summary
+    topic,languages,run=selection(request.args)
+    result=summary(topic,languages,run=run) if run else summary(topic,languages)
+    if result is None:raise LookupError('This language comparison is not prepared yet. No inference was started by opening this page.')
+    return result,languages
+
+
+@bp.get('/explore/api/skyline')
+def skyline_overview():
+    from skyline import aggregate
+    try:
+        data,languages=skyline_run()
+        return jsonify(aggregate(data,languages))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='The comparison database is unavailable. Retry when it is ready.'),503
+
+
+@bp.get('/explore/api/questions')
+def skyline_questions():
+    from skyline import question_page
+    try:
+        data,languages=skyline_run()
+        return jsonify(question_page(data,languages,request.args.get('stamp',''),int(request.args.get('page','1')),
+                        request.args.get('kind','all'),request.args.get('current','en'),request.args.get('back','')))
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404
+    except Exception:return jsonify(error='Stored question evidence is temporarily unavailable.'),503
+
+
 @bp.get('/explore/api/history')
 def historical():
     topic=request.args.get('topic','')
@@ -24,7 +56,7 @@ def historical():
         from paired_history import summary
         result=summary(topic,languages)
         if result is None:
-            return jsonify(error='A historical replay is not prepared for this topic/language set. Winter War currently supports the prepared English, Finnish and Russian batch. Cached snapshots remain available separately.'),404
+            return jsonify(error='A historical replay is not prepared for this topic/language set. Cached snapshots remain available separately.'),404
         return jsonify(result)
     except Exception:
         return jsonify(error='Historical comparisons are unavailable while the local database or preparation is offline. No inference was started.'),503

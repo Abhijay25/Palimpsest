@@ -11,6 +11,10 @@ Read [the exploration registry](docs/explorations/README.md) before extending a 
 
 ## Product and evidence rules
 
+Current iteration: `feature/divergence-skyline` changes only the existing research app's `/explore` presentation and historical tracker handoff. It uses EN/FI/SV Winter War data: 324 distinct questions across 26 observations, 3,535 source occurrences and 40 source revisions, through July 29, 2025. Latest observation: 128 questions (116 coverage, 12 framing, zero strict contradictions). Do not confuse this cohort with the older EN/FI/RU standalone sample below. The independent `tools/divergence-explorer` implementation is preserved.
+
+`NEOWIKI_RESEARCH_ROOT` optionally points the research code at an existing ignored data/model/environment root; source/templates still come from this repository. The working skyline preview uses port 8022. No native wiki stack changes are part of this iteration.
+
 The current article edition is always on the left/first, with other editions on the right. Preserve explicit language pair/triplet selection, exact source quotes, revision attribution, cached translations, uncertainty and accessible controls. Missing current-edition evidence requires an honest placeholder.
 
 One historical divergence row represents one provisional underlying semantic disagreement/question, with repeated passages/language pairs attached as occurrences. No fixed topic count, English introduction seeds or assumption of shared article structure. Coverage is passage-level additional information; a retrieval miss is not a whole-article omission. Missing observations are not resolution. Sampled annual spans do not establish persistence. Model probabilities are not truth or a calibrated divergence score.

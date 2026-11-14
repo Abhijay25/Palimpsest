@@ -71,6 +71,12 @@ def article_page(topic):
 @app.get('/topic/<topic>')
 def topic_page(topic):
     if not re.fullmatch(r'Q\d+',topic): abort(404)
+    if any(key in request.args for key in ('run','group','stamp','occurrence')):
+        from skyline import tracker_context
+        args=request.args.copy();args['topic']=topic
+        try:return render_template('topic.html',**tracker_context(topic,args))
+        except ValueError as error:return render_template('historical_unavailable.html',topic=topic,message=str(error)),400
+        except LookupError as error:return render_template('historical_unavailable.html',topic=topic,message=str(error)),404
     source=request.args.get('lang') or request.args.get('source') or session.get('showcase_article_language','en' if topic=='Q2606233' else 'fi')
     target=request.args.get('target') or next(l for l in LANGS if l!=source)
     if source==target and request.args.get('lang'):target=next(l for l in LANGS if l!=source)

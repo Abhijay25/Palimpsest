@@ -349,12 +349,20 @@ def scope_summary(data,languages):
     return data
 
 
-def summary(topic=TOPIC,languages=None):
+def summary(topic=TOPIC,languages=None,run=None):
     with connect() as db,db.cursor() as c:
-        c.execute('SELECT summary FROM paired_run WHERE topic=%s AND version=%s AND summary IS NOT NULL ORDER BY updated DESC',(topic,VERSION));runs=list(c.fetchall())
+        sql='SELECT summary,configuration FROM paired_run WHERE topic=%s AND version=%s AND summary IS NOT NULL'
+        args=[topic,VERSION]
+        if run:sql+=' AND id=%s';args.append(run)
+        c.execute(sql+' ORDER BY updated DESC',args);runs=list(c.fetchall())
     for row in runs:
         data=json.loads(row['summary'])
         if languages and not set(languages)<=set(data['topic']['languages']):continue
+        stamps=sorted(json.loads(row.get('configuration') or '{}').get('window',[]))
+        progress=data.get('progress',{});done=progress.get('completed_checkpoints',0)
+        complete=set(stamps if progress.get('stage')=='ready' else stamps[-done:] if done else [])
+        present={p['start'] for r in data['rows'] for p in r['phases']}
+        data['observations']=[dict(stamp=s,state='complete' if s in complete else 'partial' if s in present else 'unknown') for s in stamps or sorted(present)]
         if languages:
             # Compatibility with a preparation process started before pair metadata
             # was introduced. Only metadata is used; GET never runs the engine.
