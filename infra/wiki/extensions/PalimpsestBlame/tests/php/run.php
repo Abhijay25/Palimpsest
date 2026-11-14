@@ -125,6 +125,19 @@ $moveEvents = array_slice( $moveRevert['events'], 1 );
 $restoredWords = array_values( array_filter( $moveRevert['tokens'], static fn ( $t ) => in_array( $t['text'], [ 'rests', 'waits' ], true ) ) );
 check( count( $moveEvents ) >= 2 && !in_array( false, array_column( $moveEvents, 'ambiguous' ), true ), 'moved and reverted wording marks both edit events ambiguous' );
 check( count( $restoredWords ) === 2 && !in_array( false, array_column( $restoredWords, 'ambiguous' ), true ), 'reordered words stay ambiguous after returning to their original positions' );
+$selectedMarkerIds = [];
+foreach ( $moveRevert['tokens'] as $token ) {
+	if ( $token['utf16_start'] < 10 && $token['utf16_end'] > 0 ) {
+		$selectedMarkerIds[] = $token['token_id'];
+		$selectedMarkerIds = array_merge( $selectedMarkerIds, $token['lineage_ids'] );
+	}
+}
+$selectedMoveEvents = SelectionEventFilter::filter( $moveRevert['events'], $selectedMarkerIds );
+$selectedMovePairs = array_map( static fn ( $event ) => $event['before'] . '=>' . $event['after'], array_filter(
+	$selectedMoveEvents,
+	static fn ( $event ) => $event['ambiguous'] && in_array( $event['before'], [ 'rests', 'waits' ], true ) && in_array( $event['after'], [ 'rests', 'waits' ], true )
+) );
+check( in_array( 'rests=>waits', $selectedMovePairs, true ) && in_array( 'waits=>rests', $selectedMovePairs, true ), 'selection of red marker retains adjacent ambiguous rests/waits replacements' );
 $numericDuplicate = $engine->analyze( [ [ 'id' => 42, 'text' => 'score 2000 2000 points' ], [ 'id' => 43, 'text' => 'score 2000 points' ] ] );
 check( (bool)array_filter( $numericDuplicate['tokens'], static fn ( $t ) => $t['text'] === '2000' && $t['ambiguous'] ), 'numeric token keys remain strings during ambiguity checks' );
 
@@ -235,4 +248,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 26 isolated attribution, DSR, selection, date-bound, and link fixtures\n";
+echo "PASS: 27 isolated attribution, DSR, selection, date-bound, and link fixtures\n";

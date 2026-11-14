@@ -3,7 +3,7 @@ declare( strict_types = 1 );
 
 namespace MediaWiki\Extension\PalimpsestBlame\Attribution;
 
-/** Selects directly related events, using anchors only to retain pure deletions. */
+/** Selects directly related events and anchored removals or replacements. */
 final class SelectionEventFilter {
 	/** @param list<array> $events @param list<string> $selectedTokenIds @return list<array> */
 	public static function filter( array $events, array $selectedTokenIds ): array {
@@ -12,7 +12,7 @@ final class SelectionEventFilter {
 			foreach ( $event['token_ids'] ?? [] as $id ) {
 				if ( isset( $selected[$id] ) ) { return true; }
 			}
-			if ( ( $event['before'] ?? '' ) === '' || ( $event['after'] ?? '' ) !== '' ) { return false; }
+			if ( ( $event['before'] ?? '' ) === '' ) { return false; }
 			return isset( $selected[$event['left_token_id'] ?? ''] ) || isset( $selected[$event['right_token_id'] ?? ''] );
 		} ) );
 	}

@@ -21,6 +21,7 @@
 - Per-revision byte/token limits do not bound transitive attribution ancestry. Charge a global lineage-reference budget before copying ancestors into replacement tokens or events, and fail closed when it is exhausted.
 - Unique shared words can move across edit gaps or be restored after a reorder. Detect order inversions and test move/revert sequences so events and spans remain marked ambiguous.
 - Compact spans must keep the full union of inherited ancestry and every member token ID; partial-selection consumers should include only IDs whose token ranges overlap the selection.
+- For selected-event context, anchors should retain removals and replacements (`before` is nonempty) while excluding pure insertions; test ambiguous move/revert replacements against the unchanged selection oracle.
 - MediaWiki JobFactory passes `(Title, params)` to ordinary mapped Job subclasses. Match the factory signature and exercise a real queued run; lint/direct construction alone will not catch this mismatch.
 - Keep internal job leases separate from the public job state contract; map `running` to the documented pending state in every response.
 - Every pinned async response, including ready analysis, must carry the same positive top-level `revision_id` as its snapshot and job object.
