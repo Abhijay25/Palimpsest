@@ -153,6 +153,14 @@ def history_and_diff(page: Page, root: str, title: str) -> None:
     expect(page.locator("table.diff")).to_be_visible()
 
 
+def search_page(page: Page, root: str, title: str, phrase: str) -> None:
+    page.goto(
+        english_ui(f"{root}/index.php?title=Special:Search&search={quote(phrase)}"),
+        wait_until="domcontentloaded",
+    )
+    expect(page.locator("#mw-content-text")).to_contain_text(title, timeout=45_000)
+
+
 def create_talk_post_and_reply(page: Page, root: str, title: str, token: str) -> None:
     talk = f"Talk:{title}"
     first = f"== Acceptance topic {token} ==\nInitial local discussion post {token}. ~~~~"
