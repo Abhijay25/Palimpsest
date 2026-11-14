@@ -1,0 +1,9 @@
+{% extends 'base.html' %}{% block content %}
+<h1>Language Gap Explorer</h1><nav class="article-tabs" aria-label="Page navigation"><span class="active">Project page</span><a href="#topics">Browse topics</a><a class="tab-end" href="#source-notes">About this tool</a></nav>
+<p class="site-subtitle">From Wikipedia’s Finnish history collection</p>
+<section class="intro"><p>Wikipedia tells a story in many languages. <strong>What gets left out?</strong> Compare articles about the same topic to find passages that may be missing from another language’s edition.</p><p>Read both sides, follow the sources, and decide what deserves an editor’s attention.</p></section>
+<form class="search" method="get" action="/articles"><label for="q">Find a topic in Finnish history</label><div><input id="q" name="q" value="{{ q }}" placeholder="Search an English, Finnish or Swedish title"><button>Find topics</button></div></form>
+<div class="list-heading" id="topics"><h2>{{ 'Search results' if q else 'Topics for comparison' }}</h2><span>{{ '{:,}'.format(count) }} articles · FI / EN / SV</span></div>
+<div class="topics">{% for t in topics %}<a class="topic-row" href="/wiki/{{ t.wikidata_id }}"><span><strong>{{ t.title or t.wikidata_id }}</strong><small>{{ t.wikidata_id }} · {{ t.languages|upper }}</small></span><span class="state">{{ 'Ready to compare' if t.prepared > 1 else 'Text available · not prepared' }}</span><span aria-hidden="true">→</span></a>{% else %}<p>No topics found. Try a shorter title.</p>{% endfor %}</div>
+<p class="note">Prepared topics have passage embeddings cached locally. Other topics can be prepared with the command shown on their comparison page.</p>
+{% endblock %}
