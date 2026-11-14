@@ -16,7 +16,7 @@ use Throwable;
 final class BlameBuildJob extends Job {
 	private const MAX_REVISIONS = 2000;
 	private const MAX_HISTORY_BYTES = 16777216;
-	private const MAX_TOKENS = 200000;
+	private const MAX_TOKENS = AttributionEngine::MAX_HISTORY_TOKENS;
 	private const STALE_CLAIM_SECONDS = 600;
 	protected $removeDuplicates = true;
 
@@ -61,6 +61,7 @@ final class BlameBuildJob extends Job {
 				if ( $bytes > self::MAX_HISTORY_BYTES ) { throw new DomainException( 'history-byte-limit-exceeded' ); }
 				$revisionTokens = preg_match_all( '/\s+|[\p{L}\p{N}\p{M}_]+|[^\s\p{L}\p{N}\p{M}_]/u', $text );
 				if ( $revisionTokens === false ) { throw new DomainException( 'history-text-invalid' ); }
+				if ( $revisionTokens > AttributionEngine::MAX_TOKENS_PER_REVISION ) { throw new DomainException( 'revision-token-limit-exceeded' ); }
 				$tokens += $revisionTokens;
 				if ( $tokens > self::MAX_TOKENS ) { throw new DomainException( 'history-token-limit-exceeded' ); }
 				$db->insert( 'palimpsestblame_job_revision', [

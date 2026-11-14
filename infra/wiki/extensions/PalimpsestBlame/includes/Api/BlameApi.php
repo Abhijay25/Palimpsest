@@ -28,7 +28,7 @@ use Wikimedia\ParamValidator\TypeDef\NumericDef;
 final class BlameApi extends ApiBase {
 	private const MAX_REVISIONS = 200;
 	private const MAX_HISTORY_BYTES = 2097152;
-	private const MAX_TOKENS = 200000;
+	private const MAX_TOKENS = AttributionEngine::MAX_HISTORY_TOKENS;
 	private const MAX_RESPONSE_BYTES = 2097152;
 	private const STALE_BUILD_JOB_SECONDS = 600;
 
@@ -135,7 +135,10 @@ final class BlameApi extends ApiBase {
 			}
 			$text = $content->getText();
 			$bytes += strlen( $text );
-			$tokens += preg_match_all( '/\s+|[\p{L}\p{N}\p{M}_]+|[^\s\p{L}\p{N}\p{M}_]/u', $text );
+			$revisionTokens = preg_match_all( '/\s+|[\p{L}\p{N}\p{M}_]+|[^\s\p{L}\p{N}\p{M}_]/u', $text );
+			if ( $revisionTokens === false ) { throw new DomainException( 'history-text-invalid' ); }
+			if ( $revisionTokens > AttributionEngine::MAX_TOKENS_PER_REVISION ) { throw new DomainException( 'revision-token-limit-exceeded' ); }
+			$tokens += $revisionTokens;
 			if ( $bytes > self::MAX_HISTORY_BYTES || $tokens > self::MAX_TOKENS ) {
 				throw new DomainException( 'synchronous-history-limit-exceeded; resumable-build-required' );
 			}
@@ -166,7 +169,9 @@ final class BlameApi extends ApiBase {
 				if ( !method_exists( $content, 'getText' ) ) { return false; }
 				$text = $content->getText();
 				$bytes += strlen( $text );
-				$tokenCount += preg_match_all( '/\s+|[\p{L}\p{N}\p{M}_]+|[^\s\p{L}\p{N}\p{M}_]/u', $text );
+				$revisionTokenCount = preg_match_all( '/\s+|[\p{L}\p{N}\p{M}_]+|[^\s\p{L}\p{N}\p{M}_]/u', $text );
+				if ( $revisionTokenCount === false || $revisionTokenCount > AttributionEngine::MAX_TOKENS_PER_REVISION ) { return false; }
+				$tokenCount += $revisionTokenCount;
 				if ( $bytes > 16777216 || $tokenCount > self::MAX_TOKENS ) { return false; }
 				$history[] = [ 'id' => $cursor->getId(), 'text' => $text ];
 				$rows[] = $this->revisionInfo( $cursor );
@@ -326,20 +331,22 @@ final class BlameApi extends ApiBase {
 			!isset( $result['tokens'], $result['events'], $result['algorithm'] ) || !is_array( $result['tokens'] ) || !is_array( $result['events'] ) || !is_array( $result['algorithm'] ) ) ) {
 			throw new DomainException( 'cached-build-result-integrity-failed' );
 		}
+		$publicStatus = $row->pbj_status === 'running' ? 'pending' : (string)$row->pbj_status;
 		$job = [
 			'id' => (string)$row->pbj_id,
-			'status' => (string)$row->pbj_status,
+			'status' => $publicStatus,
+			'phase' => $row->pbj_status === 'running' ? 'processing' : null,
 			'processed' => (int)$row->pbj_processed,
 			'total' => $row->pbj_total === null ? null : (int)$row->pbj_total,
 			'reason' => $row->pbj_error,
-			'retryable' => $row->pbj_status === 'pending',
+			'retryable' => $publicStatus === 'pending',
 			'revision_id' => $target->getId(),
 		];
 		if ( $row->pbj_status === 'ready' && isset( $result ) ) {
 			$engine = [ 'tokens' => $result['tokens'], 'events' => $result['events'], 'algorithm' => $result['algorithm'] ];
 			return $this->buildAnalysisResponse( $title, $target, $history, $engine, false, $params['ranges'] ) + [ 'job' => $job ];
 		}
-		return [ 'schema_version' => 1, 'status' => (string)$row->pbj_status, 'revision_id' => $params['revision'], 'job' => $job ];
+		return [ 'schema_version' => 1, 'status' => $publicStatus, 'revision_id' => $params['revision'], 'job' => $job ];
 	}
 
 	private function buildAnalysisResponse( Title $title, RevisionRecord $revision, array $history, array $engine, bool $truncated, string $ranges = '' ): array {

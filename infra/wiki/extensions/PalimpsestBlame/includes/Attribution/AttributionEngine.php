@@ -7,9 +7,11 @@ use DomainException;
 
 /** Last-change attribution over source tokens; alignment ambiguity is exposed, not resolved by guess. */
 final class AttributionEngine {
-	public const VERSION = 'lcs-anchor-v3';
+	public const VERSION = 'lcs-anchor-v4';
 	public const MAX_DIFF_CELLS = 250000;
 	public const MAX_DERIVATION_REFERENCES = 1000000;
+	public const MAX_TOKENS_PER_REVISION = 20000;
+	public const MAX_HISTORY_TOKENS = 200000;
 
 	/** @param list<array{id:int,text:string}> $history Oldest first. */
 	public function analyze( array $history ): array {
@@ -18,6 +20,9 @@ final class AttributionEngine {
 		$events = [];
 		$derivationReferences = 0;
 		foreach ( $history as $revisionIndex => $revision ) {
+			$revisionTokenCount = preg_match_all( '/\s+|[\p{L}\p{N}\p{M}_]+|[^\s\p{L}\p{N}\p{M}_]/u', $revision['text'] );
+			if ( $revisionTokenCount === false ) { throw new DomainException( 'history-text-invalid' ); }
+			if ( $revisionTokenCount > self::MAX_TOKENS_PER_REVISION ) { throw new DomainException( 'revision-token-limit-exceeded' ); }
 			$next = SourceTokenizer::tokenize( $revision['text'] );
 			if ( $revisionIndex === 0 ) {
 				foreach ( $next as $i => &$token ) {
@@ -77,6 +82,8 @@ final class AttributionEngine {
 				'limits' => [
 					'maximum_lcs_cells_per_pair' => self::MAX_DIFF_CELLS,
 					'maximum_lineage_derivation_references' => self::MAX_DERIVATION_REFERENCES,
+					'maximum_tokens_per_revision' => self::MAX_TOKENS_PER_REVISION,
+					'maximum_tokens_per_history' => self::MAX_HISTORY_TOKENS,
 					'lineage_budget_exhaustion' => 'Fail closed with no partial attribution.',
 					'fallback' => 'unique-token patience anchors; resulting preserved tokens are ambiguous',
 				],

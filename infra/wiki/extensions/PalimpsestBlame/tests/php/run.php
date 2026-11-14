@@ -28,11 +28,22 @@ $fox = array_values( array_filter( $ordinary['tokens'], static fn ( $t ) => $t['
 check( $fox['revision_id'] === 10, 'unchanged wording keeps last-change revision' );
 check( $ordinary['events'][1]['before'] === 'bright', 'replacement event contains exact old token' );
 check( $ordinary['events'][1]['after'] === 'swift', 'replacement event contains exact new token' );
+$smallHistory = $engine->analyze( [ [ 'id' => 12, 'text' => 'small history' ], [ 'id' => 13, 'text' => 'small verified history' ] ] );
+$smallTokens = $smallHistory['tokens'];
+check( end( $smallTokens )['text'] === 'history', 'ordinary history below the per-revision token ceiling remains analyzable' );
 $ordinarySpans = ( new AttributionSpanCompactor() )->compact( $ordinary['tokens'] );
 $ordinaryLineage = array_values( array_unique( array_merge( ...array_column( $ordinary['tokens'], 'lineage_ids' ) ) ) );
 $ordinarySpanLineage = array_values( array_unique( array_merge( ...array_column( $ordinarySpans, 'lineage_ids' ) ) ) );
 sort( $ordinaryLineage, SORT_STRING ); sort( $ordinarySpanLineage, SORT_STRING );
 check( $ordinaryLineage === $ordinarySpanLineage, 'ordinary compact spans retain the full set of token lineage IDs' );
+
+$oversizedRevision = false;
+try {
+	$engine->analyze( [ [ 'id' => 14, 'text' => str_repeat( 'x ', 10001 ) ] ] );
+} catch ( DomainException $e ) {
+	$oversizedRevision = $e->getMessage() === 'revision-token-limit-exceeded';
+}
+check( $oversizedRevision, 'single-revision token ceiling rejects oversized input before allocating attribution tokens' );
 
 // Multi-step one-token replacements retain a stable ancestry chain.
 $lineage = $engine->analyze( [
@@ -193,4 +204,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 18 isolated attribution, DSR, and link fixtures\n";
+echo "PASS: 19 isolated attribution, DSR, and link fixtures\n";
