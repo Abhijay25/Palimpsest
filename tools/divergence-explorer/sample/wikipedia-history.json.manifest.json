@@ -1,0 +1,24 @@
+{
+  "format": "neowiki-divergence/v1",
+  "artifact": "wikipedia-history.json.gz",
+  "sha256": "30d064b998efcbfb79de2eff06e93201e99497d0cfdb453383c639b197ffc1b4",
+  "compressed_bytes": 1573652,
+  "decoded_bytes": 18099235,
+  "topics": [
+    "Q134949"
+  ],
+  "snapshots": [
+    "Q2606233"
+  ],
+  "tracks": 520,
+  "occurrences": 5005,
+  "checkpoints": 26,
+  "bounds": [
+    "2020-01-01T00:00:00Z",
+    "2025-07-16T10:12:37Z"
+  ],
+  "source_revisions": 43,
+  "license": "CC-BY-SA-4.0",
+  "attribution": "Wikipedia contributors",
+  "policy": "Historical samples and model judgments, not verified truth or continuous lifetimes. No secrets or API ledger are exported."
+}
