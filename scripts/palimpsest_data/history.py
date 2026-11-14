@@ -133,6 +133,35 @@ def revision_record(raw: dict[str, Any], article: dict[str, Any], *, acquired_at
     return base
 
 
+def validate_source_record_content(record: dict[str, Any], *, context: str) -> None:
+    """Recompute stored content digests while preserving hidden/unavailable states."""
+    content = record.get("content")
+    hidden = record.get("content_hidden", False)
+    computed_sha1 = record.get("computed_sha1")
+    computed_sha256 = record.get("computed_sha256")
+    if hidden:
+        if content is not None or computed_sha1 is not None or computed_sha256 is not None:
+            raise DataError(f"hidden source content has visible text or computed hashes in {context}")
+        return
+    if content is None:
+        if computed_sha1 is not None or computed_sha256 is not None:
+            raise DataError(f"unavailable source content has computed hashes in {context}")
+        return
+    if not isinstance(content, str):
+        raise DataError(f"source content is not text in {context}")
+    try:
+        content_bytes = content.encode("utf-8")
+    except UnicodeEncodeError as e:
+        raise DataError(f"source content is not valid UTF-8 text in {context}") from e
+    actual_sha1 = hashlib.sha1(content_bytes).hexdigest()
+    actual_sha256 = sha256_bytes(content_bytes)
+    if (computed_sha1 is not None and computed_sha1 != actual_sha1) or computed_sha256 != actual_sha256:
+        raise DataError(f"computed source content hash mismatch in {context}")
+    source_sha1 = record.get("source_sha1")
+    if source_sha1 is not None and source_sha1 != actual_sha1:
+        raise DataError(f"source API sha1 mismatch in {context}")
+
+
 def _page_dir(history_dir: Path, article: dict[str, Any]) -> Path:
     return history_dir / article["source_wiki"] / str(article["source_page_id"])
 
@@ -154,6 +183,7 @@ def iter_page_records(history_dir: Path, article: dict[str, Any]):
         count = 0
         for record in iter_jsonl([path]):
             count += 1
+            validate_source_record_content(record, context=f"{path} revision {record.get('source_revision_id')}")
             yield record
         if count != batch.get("count"):
             raise DataError(f"committed source batch record count mismatch: {path}")
@@ -172,6 +202,7 @@ def _orphan_records(path: Path, article: dict[str, Any]) -> list[dict[str, Any]]
         rev = row.get("source_revision_id")
         if type(rev) is not int or rev <= 0 or rev in seen:
             raise DataError(f"orphan batch has invalid or duplicate revision identity: {path}")
+        validate_source_record_content(row, context=f"orphan batch {path} revision {rev}")
         seen.add(rev)
     return rows
 

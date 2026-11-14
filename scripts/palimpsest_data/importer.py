@@ -8,7 +8,7 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Callable
 
-from .history import fetch_json, iter_page_records
+from .history import fetch_json, iter_page_records, validate_source_record_content
 from .io import DataError, canonical_json, iter_jsonl, read_json, sha256_bytes, sha256_file
 from .manifests import LANGS, validate_corpus
 from .xml_export import export_article, export_article_stream
@@ -33,6 +33,7 @@ def iter_source_with_batch(history_dir: Path, article: dict[str, Any]):
         count = 0
         for record in iter_jsonl([path]):
             count += 1
+            validate_source_record_content(record, context=f"{path} revision {record.get('source_revision_id')}")
             enriched = dict(record)
             enriched["batch_checksum"] = checksum
             yield enriched

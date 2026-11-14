@@ -13,7 +13,7 @@ from urllib.parse import urlparse, parse_qs
 from scripts.palimpsest_data.coverage import build_coverage, exit_for_report, write_coverage
 from scripts.palimpsest_data.cli import _manifest_for
 from scripts.palimpsest_data.dataset import fetch_assets
-from scripts.palimpsest_data.history import GIB, acquire_article, acquire_corpus, fetch_json, revision_record
+from scripts.palimpsest_data.history import GIB, acquire_article, acquire_corpus, fetch_json, iter_page_records, revision_record, validate_source_record_content
 from scripts.palimpsest_data.io import DataError, atomic_json, canonical_json, iter_jsonl, sha256_bytes
 from scripts.palimpsest_data.manifests import validate_corpus
 from scripts.palimpsest_data.support import discover_support
@@ -159,6 +159,100 @@ class DataPipelineTests(unittest.TestCase):
                 acquire_article(article, Path(temp), api=FakeApi([]), sleep=lambda _: None, interval=0)
             saved = json.loads((page / "state.json").read_text())
             self.assertEqual(saved["unresolved_gaps"][-1]["kind"], "orphan-batch-invalid")
+
+    def test_tampered_content_in_valid_json_orphan_is_not_recovered(self):
+        article = corpus_article()
+        anchor = rev(3000, "2025-08-01T00:00:00Z", "genuine anchor")
+        with tempfile.TemporaryDirectory() as temp:
+            page = Path(temp) / "fiwiki" / "101"
+            page.mkdir(parents=True)
+            row = revision_record(anchor, article)
+            row["content"] = "tampered but valid JSON"
+            batch = page / "batch-000000.jsonl"
+            batch.write_bytes(canonical_json(row) + b"\n")
+            atomic_json(page / "state.json", {"schema_version": 1, "source_wiki": "fiwiki", "source_page_id": 101,
+                "anchor_revision_id": 3000, "continuation": None, "committed_batches": [],
+                "anchor_validated": False, "enumeration_exhausted": False, "unresolved_gaps": [],
+                "seen_continuations": [], "gap_analysis_complete": False})
+            api = FakeApi([{"query": {"pages": [{"pageid": 101, "revisions": [anchor]}]}}])
+            with self.assertRaisesRegex(DataError, "hash mismatch"):
+                acquire_article(article, Path(temp), api=api, sleep=lambda _: None, interval=0)
+            saved = json.loads((page / "state.json").read_text())
+            self.assertFalse(saved["enumeration_exhausted"])
+            self.assertFalse(saved["committed_batches"])
+            self.assertEqual(saved["unresolved_gaps"][-1]["kind"], "orphan-batch-invalid")
+            self.assertEqual(api.urls, [])
+
+    def test_committed_record_content_is_revalidated_on_read(self):
+        article = corpus_article()
+        payload = {"query": {"pages": [{"pageid": 101, "revisions": [
+            rev(3000, "2025-08-01T00:00:00Z", "genuine anchor"),
+        ]}]}}
+        with tempfile.TemporaryDirectory() as temp:
+            acquire_article(article, Path(temp), api=FakeApi([payload]), sleep=lambda _: None, interval=0)
+            page = Path(temp) / "fiwiki" / "101"
+            batch = next(page.glob("batch-*.jsonl"))
+            row = json.loads(batch.read_text().strip())
+            row["content"] = "tampered cached content"
+            batch.write_bytes(canonical_json(row) + b"\n")
+            state_path = page / "state.json"
+            state = json.loads(state_path.read_text())
+            from scripts.palimpsest_data.io import sha256_file
+            state["committed_batches"][0]["sha256"] = sha256_file(batch)
+            atomic_json(state_path, state)
+            with self.assertRaisesRegex(DataError, "hash mismatch"):
+                list(iter_page_records(Path(temp), article))
+
+    def test_direct_import_rejects_semantically_corrupt_cached_record(self):
+        corpus = sample_corpus()
+        article = corpus["articles"][0]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            history = root / "history"
+            page = history / article["source_wiki"] / str(article["source_page_id"])
+            page.mkdir(parents=True)
+            row = revision_record(rev(article["anchor_revision_id"], article["dataset_timestamp"], "genuine body"), article)
+            row["content"] = "tampered cached content"
+            batch = page / "batch-000000.jsonl"
+            batch.write_bytes(canonical_json(row) + b"\n")
+            from scripts.palimpsest_data.io import sha256_file
+            atomic_json(page / "state.json", {"schema_version": 1, "source_wiki": article["source_wiki"],
+                "source_page_id": article["source_page_id"], "anchor_revision_id": article["anchor_revision_id"],
+                "anchor_validated": True, "enumeration_exhausted": True, "committed_batches": [
+                    {"path": batch.name, "sha256": sha256_file(batch), "count": 1}]})
+            corpus_path = root / "sample.json"
+            atomic_json(corpus_path, corpus)
+            runtime = root / "runtime.json"
+            atomic_json(runtime, {"schema_version": 1, "project": "fixture", "initialized": {lang: True for lang in ("fi", "sv", "en")},
+                "languages": {lang: {"api_url": f"http://{lang}/api.php"} for lang in ("fi", "sv", "en")}})
+            runner_calls = []
+            with self.assertRaisesRegex(DataError, "hash mismatch"):
+                import_corpus(corpus_path, history, root / "imports", runtime, root / "runtime.py",
+                              api=lambda _url: self.fail("local API should not be queried"),
+                              runner=lambda *args, **kwargs: runner_calls.append(args))
+            self.assertFalse(runner_calls)
+
+    def test_source_record_hash_validation_preserves_hidden_and_empty_text(self):
+        article = corpus_article()
+        empty = revision_record(rev(3000, "2025-08-01T00:00:00Z", ""), article)
+        self.assertEqual(empty["content"], "")
+        validate_source_record_content(empty, context="empty-text fixture")
+        wrong_api_hash = revision_record(rev(3003, "2025-08-01T00:00:03Z", "visible"), article)
+        wrong_api_hash["source_sha1"] = "0" * 40
+        with self.assertRaisesRegex(DataError, "source API sha1 mismatch"):
+            validate_source_record_content(wrong_api_hash, context="wrong-api-sha1 fixture")
+        hidden_raw = rev(3001, "2025-08-01T00:00:01Z", "suppressed text")
+        hidden_raw["texthidden"] = ""
+        hidden = revision_record(hidden_raw, article)
+        self.assertTrue(hidden["content_hidden"])
+        self.assertIsNone(hidden["content"])
+        validate_source_record_content(hidden, context="hidden-text fixture")
+        unavailable_raw = rev(3002, "2025-08-01T00:00:02Z", "temporary")
+        unavailable_raw["slots"]["main"].pop("content")
+        unavailable = revision_record(unavailable_raw, article)
+        self.assertFalse(unavailable["content_hidden"])
+        self.assertIsNone(unavailable["content"])
+        validate_source_record_content(unavailable, context="unavailable-text fixture")
 
     def test_cached_corrupt_batch_fails_closed(self):
         article = corpus_article()
