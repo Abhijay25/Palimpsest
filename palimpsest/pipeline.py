@@ -93,6 +93,7 @@ async def prepare(
     batches = FileExchangeBackend().write_batches(
         prepared, run_dir, models, batch_size=batch_size, prompt_version=prompt_version
     )
+    print(f"Exa calls: {fetcher.calls}, cost ${fetcher.cost_dollars:.4f}")
     clean = sum(1 for pc in prepared if pc.stage0.clean)
     print(
         f"{len(prepared)} cases, {clean} stage-0 clean, "

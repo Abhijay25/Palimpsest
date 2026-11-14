@@ -3,6 +3,7 @@
 import hashlib
 import os
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Final
@@ -16,6 +17,7 @@ from palimpsest.schema import SourceWindow
 EXA_CONTENTS_URL: Final = "https://api.exa.ai/contents"
 REQUEST_TIMEOUT_S: Final = 10.0
 MIN_TEXT_CHARS: Final = 200
+DEFAULT_MAX_EXA_CALLS: Final = 400
 _SENTENCE_SPLIT: Final = re.compile(r"(?<=[.!?])\s+")
 _TOKEN: Final = re.compile(r"\w+")
 _HEADING: Final = re.compile(r"^#{1,6}\s")
@@ -29,14 +31,27 @@ class _ExaResult(BaseModel):
     text: str | None = None
 
 
+class _ExaCost(BaseModel):
+    total: float = 0.0
+
+
 class _ExaResponse(BaseModel):
     results: list[_ExaResult] = []
+    costDollars: _ExaCost | None = None
 
 
 def load_exa_api_key() -> str | None:
     """Read EXA_API_KEY from .env / environment; empty string counts as missing."""
     load_dotenv()
     return os.environ.get("EXA_API_KEY") or None
+
+
+def _max_exa_calls() -> int:
+    """EXA_MAX_CALLS from the environment; unset or invalid falls back to the default."""
+    try:
+        return int(os.environ.get("EXA_MAX_CALLS", DEFAULT_MAX_EXA_CALLS))
+    except ValueError:
+        return DEFAULT_MAX_EXA_CALLS
 
 
 def _tokens(text: str) -> set[str]:
@@ -84,6 +99,10 @@ class SourceFetcher:
         self._api_key = api_key or None
         self._cache_dir = cache_dir
         self._client = client
+        self._max_calls = _max_exa_calls()
+        self._budget_logged = False
+        self.calls = 0
+        self.cost_dollars = 0.0
 
     def _cache_path(self, url: str) -> Path:
         return self._cache_dir / f"{hashlib.sha256(url.encode()).hexdigest()}.json"
@@ -105,6 +124,16 @@ class SourceFetcher:
         """Return page text from Exa, or None on any failure."""
         if self._api_key is None:
             return None
+        if self.calls >= self._max_calls:
+            if not self._budget_logged:
+                self._budget_logged = True
+                print(
+                    f"EXA_MAX_CALLS={self._max_calls} reached; "
+                    "further uncached sources are unavailable",
+                    file=sys.stderr,
+                )
+            return None
+        self.calls += 1
         client = self._client or httpx.AsyncClient()
         try:
             response = await client.post(
@@ -120,6 +149,8 @@ class SourceFetcher:
         finally:
             if self._client is None:
                 await client.aclose()
+        if parsed.costDollars is not None:
+            self.cost_dollars += parsed.costDollars.total
         if not parsed.results:
             return None
         return parsed.results[0].text

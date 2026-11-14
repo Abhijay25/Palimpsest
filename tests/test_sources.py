@@ -108,3 +108,45 @@ def test_timeout_is_unavailable(tmp_path: Path) -> None:
         )
     )
     assert result.status == "unavailable"
+
+
+def test_call_budget_blocks_further_network_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("EXA_MAX_CALLS", "2")
+    calls: list[httpx.Request] = []
+    fetcher = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
+    results = [
+        asyncio.run(fetcher.window(f"https://example.com/{i}", "topic6"))
+        for i in range(4)
+    ]
+    assert [r.status for r in results] == ["ok", "ok", "unavailable", "unavailable"]
+    assert len(calls) == 2
+    assert fetcher.calls == 2
+    assert capsys.readouterr().err.count("EXA_MAX_CALLS") == 1
+
+
+def test_cache_hits_do_not_count_against_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EXA_MAX_CALLS", "1")
+    calls: list[httpx.Request] = []
+    fetcher = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
+    asyncio.run(fetcher.window(URL, "topic6"))
+    assert asyncio.run(fetcher.window(URL, "topic6")).status == "ok"
+    assert fetcher.calls == 1
+
+
+def test_cost_is_accumulated(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"results": [{"text": LONG_TEXT}], "costDollars": {"total": 0.002}},
+        )
+
+    fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
+    asyncio.run(fetcher.window("https://example.com/1", "x"))
+    asyncio.run(fetcher.window("https://example.com/2", "x"))
+    assert fetcher.cost_dollars == pytest.approx(0.004)
