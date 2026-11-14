@@ -258,18 +258,20 @@ final class BlameApi extends ApiBase {
 		if ( $queueJob ) {
 			$services->getJobQueueGroup()->push( new BlameBuildJob( $title, [ 'job_id' => (string)$row->pbj_id ] ) );
 		}
+		$publicStatus = $row->pbj_status === 'running' ? 'pending' : (string)$row->pbj_status;
 		return [
 			'schema_version' => 1,
-			'status' => $row->pbj_status === 'ready' ? 'ready' : ( $row->pbj_status === 'failed' ? 'failed' : 'pending' ),
+			'status' => $publicStatus,
 			'revision_id' => $revision->getId(),
 			'job' => [
 				'id' => (string)$row->pbj_id,
 				'revision_id' => $revision->getId(),
-				'status' => (string)$row->pbj_status,
+				'status' => $publicStatus,
+				'phase' => $row->pbj_status === 'running' ? 'processing' : null,
 				'processed' => (int)$row->pbj_processed,
 				'total' => $row->pbj_total === null ? null : (int)$row->pbj_total,
 				'reason' => $row->pbj_error,
-				'retryable' => $row->pbj_status === 'pending',
+				'retryable' => $publicStatus === 'pending',
 			],
 		];
 	}
