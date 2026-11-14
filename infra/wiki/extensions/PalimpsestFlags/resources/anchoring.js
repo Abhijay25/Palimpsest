@@ -33,6 +33,19 @@
 		for ( var j = 0; j + 2 < source.length; j++ ) { if ( grams[ source.slice( j, j + 3 ) ] ) { score++; } }
 		return score;
 	}
+	// Model quotes are prose; diff cells show wikitext. Match the quote's words in order while
+	// allowing link targets, brackets, bold/italic quotes and asterisks between them.
+	function markupTolerant( entries, anchor, flag ) {
+		var tokens = normalize( anchor ).match( /[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu ) || [];
+		if ( tokens.filter( function ( t ) { return /[\p{L}\p{N}]/u.test( t ); } ).length < 2 ) { return []; }
+		var gap = "(?:\\s|\\[\\[[^\\]|]*\\||[\\[\\]'*|])*", found = [];
+		var pattern = new RegExp( tokens.map( function ( t ) { return t.replace( /[.*+?^${}()|[\]\\]/g, '\\$&' ); } ).join( gap ), 'gu' );
+		entries.forEach( function ( entry, order ) {
+			var m; pattern.lastIndex = 0;
+			while ( ( m = pattern.exec( entry.text ) ) !== null ) { found.push( { entry: entry, start: m.index, end: m.index + m[ 0 ].length, order: order, score: overlapScore( entry.normalized, flag.context_sentence ) } ); if ( m[ 0 ].length === 0 ) { pattern.lastIndex++; } }
+		} );
+		return found;
+	}
 	function findMatch( entries, flag ) {
 		var anchor = String( flag.anchor_text || '' );
 		if ( !anchor ) { return null; }
@@ -41,6 +54,7 @@
 			var start = entry.text.indexOf( anchor );
 			while ( start !== -1 ) { exact.push( { entry: entry, start: start, end: start + anchor.length, order: order, score: overlapScore( entry.normalized, flag.context_sentence ) } ); start = entry.text.indexOf( anchor, start + 1 ); }
 		} );
+		if ( !exact.length ) { exact = markupTolerant( entries, anchor, flag ); }
 		if ( !exact.length ) { return null; }
 		var approx = Number.isInteger( flag.anchor_start ) ? 1 + flag.anchor_start / 80 : 0;
 		exact.sort( function ( a, b ) {
