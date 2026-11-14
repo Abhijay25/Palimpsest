@@ -39,6 +39,7 @@ DEFAULT_JUDGE_THINKING: Final = "LOW"
 DEFAULT_TRIAGE_MODEL: Final = "gemini-decision-1"
 DEFAULT_CONCURRENCY: Final = 8
 DEFAULT_TIMEOUT_SECONDS: Final = 60.0
+DEFAULT_SEED: Final = 7
 DEFAULT_BACKOFF_SECONDS: Final = 2.0
 RETRYABLE_STATUS: Final = 429
 TRIAGE_DIRECT_SUFFIX: Final = (
@@ -47,6 +48,13 @@ TRIAGE_DIRECT_SUFFIX: Final = (
 )
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
 
 
 class _Models(Protocol):
@@ -155,6 +163,8 @@ class _GeminiCaller:
             response_mime_type="application/json",
             response_schema=schema,
             temperature=0,
+            # Fixed seed: repeated audits of the same edit should give the same flags.
+            seed=_env_int("GEMINI_SEED", DEFAULT_SEED),
             thinking_config=self.thinking,
         )
         response = await asyncio.wait_for(
