@@ -2,6 +2,14 @@
 
 These experiments answer different questions. They share evidence conventions, but their counts, dates, identities and review states are not interchangeable. The existing research app is copied directly into [tools/language-gap-explorer](../../tools/language-gap-explorer/PORT.md). Prototype source paths below refer to that directory. Its source manifest records 82 byte-for-byte copied files; databases, secrets, model caches and reports are excluded. The native extension remains a separate unpublished branch.
 
+## Retired presentations and 3D Library
+
+The current research UI is `tools/language-gap-explorer/templates/lab_explorer.html`, `static/lab-explorer.js` and `static/lab-explorer.css`, with the shared `static/skyline-model.js`. The unused Constellation template and browser assets, earlier skyline/heatmap browser scripts and styles, and copied legacy discrepancy-viewer assets have been removed. `/explore?layout=constellation` continues to serve the current histogram UI. Historical descriptions below record previous iterations, not supported alternate layouts.
+
+The separate `apps/library` spatial bookshelf/corridor app was retired along with its Three.js dependency, isolated setup scripts, tests and `docs/library` implementation documents. Its source and verification history remain in Git. This source cleanup does not delete existing local datasets, models, database volumes or imported article histories.
+
+Shared research code (`skyline.py`, `heatmap.py`, `zoom_read.py` and their read APIs) remains for the current histogram, exact evidence/tracker handoff and compatibility. The independently runnable `tools/divergence-explorer` sample viewer remains supported. `SOURCE_MANIFEST.json` records the original source port, not the current file inventory.
+
 ## Map of independent explorations
 
 | Exploration | Question and interaction | Implementation/source | Status and limits |

@@ -45,7 +45,5 @@ jobs:
         working-directory: tools/language-gap-explorer
       - run: node test_skyline_model.js
         working-directory: tools/language-gap-explorer
-      - run: node --check static/constellation.js
-        working-directory: tools/language-gap-explorer
       - run: node --check static/lab-explorer.js
         working-directory: tools/language-gap-explorer
