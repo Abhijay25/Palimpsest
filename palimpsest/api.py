@@ -1,7 +1,9 @@
 """FastAPI surface: stealth-scan, audit-diff (spec s2 contract) and healthz."""
 
-import os
+import asyncio
+import contextlib
 import time
+from collections.abc import AsyncIterator
 from functools import cache
 from typing import Annotated, Final, Literal
 
@@ -10,7 +12,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import AfterValidator, BaseModel, Field
 
-from palimpsest.backends.gemini import GeminiJudgeBackend
+from palimpsest.backends.gemini import GeminiJudgeBackend, gemini_enabled
 from palimpsest.judge import PreparedCase
 from palimpsest.pipeline import (
     CACHE_DIR,
@@ -20,10 +22,18 @@ from palimpsest.pipeline import (
     _window_for,
     _worst_scan,
 )
+from palimpsest.render_service import (
+    AuditorProvider,
+    RenderSummary,
+    close_shared_auditor,
+    scan_ref_pages_in_temp_dir,
+    shared_auditor,
+)
 from palimpsest.schema import (
     AtomicProposition,
     AuditOutput,
     Case,
+    LangCode,
     Verdict,
 )
 from palimpsest.scoring import ADMIN_FLAG_STATUSES, Route, route
@@ -42,7 +52,19 @@ TRUST_DELTA_BY_VERDICT: Final = {
 }
 TRUST_DELTA_STEALTH_ADMIN: Final = -0.20
 
-app = FastAPI(title="Palimpsest", version="0.1.0")
+
+@contextlib.asynccontextmanager
+async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
+    yield
+    await close_shared_auditor()
+
+
+app = FastAPI(title="Palimpsest", version="0.1.0", lifespan=_lifespan)
+
+
+def get_auditor_provider() -> AuditorProvider:
+    """Lazy provider of the shared page renderer (overridable in tests)."""
+    return shared_auditor
 
 
 @cache
@@ -57,9 +79,8 @@ def get_fetcher() -> SourceFetcher:
 
 @cache
 def get_judge_backend() -> GeminiJudgeBackend | None:
-    """Gemini judge when GEMINI_API_KEY is set, else None (never faked)."""
-    load_dotenv()
-    if not os.environ.get("GEMINI_API_KEY"):
+    """Gemini judge when GEMINI_API_KEY is set and opted in, else None (never faked)."""
+    if not gemini_enabled():
         return None
     return GeminiJudgeBackend()
 
@@ -80,7 +101,7 @@ class StealthScanRequest(BaseModel):
 
 
 class AuditDiffRequest(BaseModel):
-    lang_code: Literal["en", "fi"]
+    lang_code: LangCode
     page_title: str = Field(min_length=1, max_length=512)
     section_title: str | None = Field(default=None, max_length=512)
     old_revision_id: int = Field(ge=0)
@@ -115,6 +136,7 @@ class LatencyMs(BaseModel):
     stage0: float
     stage1: float
     stage2: float
+    render: float
     total: float
 
 
@@ -128,6 +150,7 @@ class AuditDiffResponse(BaseModel):
     route: Route
     pipeline_stage_reached: Literal[0, 1, 2]
     stealth: StealthSummary
+    render: RenderSummary
     latency_ms: LatencyMs
     exa_budget_exhausted: bool
 
@@ -213,11 +236,20 @@ def _scan_request(
     return diff_scan, old_scan, new_scan, changed_refs
 
 
+async def _await_render(task: "asyncio.Task[RenderSummary]") -> RenderSummary:
+    """Render failures degrade to an unavailable summary; they never fail the audit."""
+    try:
+        return await task
+    except Exception:  # noqa: BLE001 - render scan is best-effort
+        return RenderSummary(status="unavailable")
+
+
 @app.post("/api/v1/audit-diff", response_model=AuditDiffResponse)
 async def audit_diff(
     req: AuditDiffRequest,
     fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
     backend: Annotated[GeminiJudgeBackend | None, Depends(get_judge_backend)],
+    auditor_provider: Annotated[AuditorProvider, Depends(get_auditor_provider)],
 ) -> AuditDiffResponse:
     started = time.perf_counter()
     diff_scan, old_scan, new_scan, changed_refs = await run_in_threadpool(
@@ -240,65 +272,80 @@ async def audit_diff(
         changed_ref_urls=changed_refs,
         expected="UNLABELLED",
     )
-    stage0 = await run_in_threadpool(prefilter, case.old_text, case.new_text, case.lang)
-    pc = PreparedCase(
-        case=case,
-        stage0=stage0,
-        window=None,
-        diff_scan=diff_scan,
-        stealth_ms=stealth_ms,
+    render_urls = changed_refs or req.ref_urls
+    render_task = asyncio.create_task(
+        scan_ref_pages_in_temp_dir(render_urls, auditor_provider, fetcher.cached_text)
     )
-    judged: dict[str, AuditOutput | str] = {}
-    stage2_ms = 0.0
-    if not stage0.clean:
-        if backend is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Judge backend unavailable: set GEMINI_API_KEY to enable "
-                "Stage 2. No verdict was produced.",
-            )
-        ref_scans: list[ScanResult] = []
-        pc.window = await _window_for(case, fetcher, ref_scans)
-        pc.ref_scan = _worst_scan(ref_scans)
-        pc.stealth_ms += sum(s.scan_latency_ms for s in ref_scans)
-        judged = await backend.judge([pc])
-        stage2_ms = backend.latencies_ms.get(case.case_id, 0.0)
-        outcome = judged.get(case.case_id, "no result for this case")
-        if isinstance(outcome, str):
-            raise HTTPException(
-                status_code=502, detail=f"Judge backend failed: {outcome}"
-            )
-    result = _case_result(
-        pc, backend.model if backend else "none", judged, "api", stage2_ms
-    )
-    output = result.output
-    if output is None:
-        raise HTTPException(status_code=500, detail="No audit output produced.")
-    stealth_flagged = pc.diff_scan is not None and (
-        pc.diff_scan.stealth_status in ADMIN_FLAG_STATUSES
-    )
-    return AuditDiffResponse(
-        verdict=output.verdict,
-        confidence=output.confidence,
-        flagged_spans=_spans_with_offsets(output, new_scan, req.new_text),
-        atomic_propositions=output.atomic_propositions,
-        neutral_rewrite=output.neutral_rewrite,
-        editor_trust_delta=_trust_delta(output, stealth_flagged),
-        route=route(result),
-        pipeline_stage_reached=result.stage_reached,
-        stealth=StealthSummary(
-            status=_stealth_status(pc) or "CLEAN",
-            vectors=_stealth_vectors(pc),
-            finding_count=sum(
-                len(s.hidden_findings) for s in (pc.diff_scan, pc.ref_scan) if s
+    try:
+        stage0 = await run_in_threadpool(
+            prefilter, case.old_text, case.new_text, case.lang
+        )
+        pc = PreparedCase(
+            case=case,
+            stage0=stage0,
+            window=None,
+            diff_scan=diff_scan,
+            stealth_ms=stealth_ms,
+        )
+        judged: dict[str, AuditOutput | str] = {}
+        stage2_ms = 0.0
+        if not stage0.clean:
+            if backend is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Judge backend unavailable: set GEMINI_API_KEY to enable "
+                    "Stage 2. No verdict was produced.",
+                )
+            ref_scans: list[ScanResult] = []
+            pc.window = await _window_for(case, fetcher, ref_scans)
+            pc.ref_scan = _worst_scan(ref_scans)
+            pc.stealth_ms += sum(s.scan_latency_ms for s in ref_scans)
+            judged = await backend.judge([pc])
+            stage2_ms = backend.latencies_ms.get(case.case_id, 0.0)
+            outcome = judged.get(case.case_id, "no result for this case")
+            if isinstance(outcome, str):
+                raise HTTPException(
+                    status_code=502, detail=f"Judge backend failed: {outcome}"
+                )
+        result = _case_result(
+            pc, backend.model if backend else "none", judged, "api", stage2_ms
+        )
+        output = result.output
+        if output is None:
+            raise HTTPException(status_code=500, detail="No audit output produced.")
+        stealth_flagged = pc.diff_scan is not None and (
+            pc.diff_scan.stealth_status in ADMIN_FLAG_STATUSES
+        )
+        render = await _await_render(render_task)
+        return AuditDiffResponse(
+            verdict=output.verdict,
+            confidence=output.confidence,
+            flagged_spans=_spans_with_offsets(output, new_scan, req.new_text),
+            atomic_propositions=output.atomic_propositions,
+            neutral_rewrite=output.neutral_rewrite,
+            editor_trust_delta=_trust_delta(output, stealth_flagged),
+            route="admin" if render.escalate else route(result),
+            pipeline_stage_reached=result.stage_reached,
+            stealth=StealthSummary(
+                status=_stealth_status(pc) or "CLEAN",
+                vectors=_stealth_vectors(pc),
+                finding_count=sum(
+                    len(s.hidden_findings) for s in (pc.diff_scan, pc.ref_scan) if s
+                ),
             ),
-        ),
-        latency_ms=LatencyMs(
-            stealth=pc.stealth_ms,
-            stage0=stage0.latency_ms,
-            stage1=pc.window.latency_ms if pc.window else 0.0,
-            stage2=stage2_ms,
-            total=(time.perf_counter() - started) * 1000,
-        ),
-        exa_budget_exhausted=fetcher.budget_exhausted,
-    )
+            render=render,
+            latency_ms=LatencyMs(
+                stealth=pc.stealth_ms,
+                stage0=stage0.latency_ms,
+                stage1=pc.window.latency_ms if pc.window else 0.0,
+                stage2=stage2_ms,
+                render=render.latency_ms,
+                total=(time.perf_counter() - started) * 1000,
+            ),
+            exa_budget_exhausted=fetcher.budget_exhausted,
+        )
+    except BaseException:
+        render_task.cancel()
+        with contextlib.suppress(BaseException):
+            await render_task
+        raise
