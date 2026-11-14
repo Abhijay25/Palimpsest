@@ -4,6 +4,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 from palimpsest.stealth.models import ScanResult, StealthStatus, VectorType
 from palimpsest.stealth.sanitizer import (
     decode_unicode_tags,
@@ -252,6 +254,36 @@ def test_color_normalisation_variants() -> None:
         ), style
     visible = 'x<span style="color:#fff;background-color:#000">light on dark</span>'
     assert scan(visible, "WIKIPEDIA_DIFF").stealth_status == StealthStatus.CLEAN
+
+
+def test_wikitable_background_makes_white_header_text_visible() -> None:
+    text = (
+        '{| class="wikitable"\n'
+        "|-\n"
+        '! colspan=9 style="background:#0B6623"| '
+        '<span style="color:white;">Professional Kickboxing Record</span>\n'
+        "|}"
+    )
+    assert scan(text, "WIKIPEDIA_DIFF").stealth_status == StealthStatus.CLEAN
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '{| style="background:#0B6623"\n|-\n! <span style="color:white">Header</span>\n|}',
+        '{|\n|- style="background:#0B6623"\n! <span style="color:white">Header</span>\n|}',
+        '<div style="background:#0B6623"><span style="color:white">Header</span></div>',
+    ],
+)
+def test_context_background_makes_white_text_visible(text: str) -> None:
+    assert scan(text, "WIKIPEDIA_DIFF").stealth_status == StealthStatus.CLEAN
+
+
+def test_white_text_without_a_nonwhite_background_is_hidden() -> None:
+    text = '<span style="color:white;">Secret record</span>'
+    assert scan(text, "WIKIPEDIA_DIFF").stealth_status == (
+        StealthStatus.CSS_CLOAKING_DETECTED
+    )
 
 
 def test_evasion_06_near_zero_font_size() -> None:

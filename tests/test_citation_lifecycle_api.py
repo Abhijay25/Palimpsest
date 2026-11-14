@@ -117,8 +117,37 @@ def test_citation_lifecycle_includes_an_added_ref_on_an_unchanged_claim() -> Non
     )
     changed = api._unit_changed_refs(unit)
     assert changed == [URL]
-    assert api._citation_lifecycle_candidates([unit], {0: changed}) == [
+    assert api._citation_lifecycle_candidates([unit], {0: changed}, {}) == [
         (URL, date(2020, 1, 2), old)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("parameter", "value", "months", "expected"),
+    [
+        ("access-date", "2020-11-12", {}, date(2020, 11, 12)),
+        ("accessdate", "12 November 2020", {}, date(2020, 11, 12)),
+        ("access_date", "November 12, 2020", {}, date(2020, 11, 12)),
+        ("accessed", "12.11.2020", {}, date(2020, 11, 12)),
+        ("luettu", "12 marraskuuta 2020", {"marraskuuta": 11}, date(2020, 11, 12)),
+        ("hämtdatum", "12 november 2020", {"november": 11}, date(2020, 11, 12)),
+        ("hämtad", "november 12, 2020", {"november": 11}, date(2020, 11, 12)),
+    ],
+)
+def test_citation_lifecycle_accepts_local_access_parameter_names(
+    parameter: str, value: str, months: dict[str, int], expected: date
+) -> None:
+    ref = f"<ref>{{{{cite web|url={URL}|{parameter}={value}}}}}</ref>"
+    unit = EditUnit(
+        index=0,
+        old_text="Claim.",
+        new_text="Claim.",
+        old_wikitext="Claim.",
+        new_wikitext=ref,
+        kind="changed",
+    )
+    assert api._citation_lifecycle_candidates([unit], {0: [URL]}, months) == [
+        (URL, expected, "Claim.")
     ]
 
 

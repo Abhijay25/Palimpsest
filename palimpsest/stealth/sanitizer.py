@@ -104,6 +104,10 @@ ATTRIBUTE_TEXT_MIN_WORDS = 4
 _WIKI_TABLE_START = re.compile(r"^\{\|[^\n]*mw-collapsed[^\n]*$", re.MULTILINE)
 _TABLE_MARKER = re.compile(r"^(\{\||\|\})", re.MULTILINE)
 _TAG_STRIP = re.compile(r"<[^>]*>")
+_WIKI_TABLE_BOUNDARY = re.compile(
+    r"^(?:\{\|(?P<table>[^\n]*)|\|-(?P<row>[^\n]*)|\|\})$", re.MULTILINE
+)
+_DEFAULT_BACKGROUND = (255, 255, 255, 1.0)
 
 
 class TagPayload(BaseModel):
@@ -459,20 +463,53 @@ def _hidden_font_size(props: dict[str, str], factor: float) -> str | None:
     return None
 
 
-def _hidden_color(props: dict[str, str]) -> str | None:
+def _relative_luminance(color: tuple[int, int, int, float]) -> float:
+    channels = tuple(
+        channel / 255 / 12.92
+        if channel / 255 <= 0.04045
+        else ((channel / 255 + 0.055) / 1.055) ** 2.4
+        for channel in color[:3]
+    )
+    return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2]
+
+
+def _opaque_color(
+    color: tuple[int, int, int, float], background: tuple[int, int, int, float]
+) -> tuple[int, int, int, float]:
+    alpha = color[3]
+    red, green, blue = (
+        round(channel * alpha + backdrop * (1 - alpha))
+        for channel, backdrop in zip(color[:3], background[:3])
+    )
+    return red, green, blue, 1.0
+
+
+def _contrast_ratio(
+    foreground: tuple[int, int, int, float], background: tuple[int, int, int, float]
+) -> float:
+    opaque_background = _opaque_color(background, _DEFAULT_BACKGROUND)
+    opaque_foreground = _opaque_color(foreground, opaque_background)
+    light, dark = sorted(
+        (
+            _relative_luminance(opaque_foreground),
+            _relative_luminance(opaque_background),
+        ),
+        reverse=True,
+    )
+    return (light + 0.05) / (dark + 0.05)
+
+
+def _hidden_color(
+    props: dict[str, str],
+    inherited_background: tuple[int, int, int, float] | None = None,
+) -> str | None:
     color = parse_color(props.get("color", ""))
     if color is None:
         return None
     if color[3] < _ALPHA_LIMIT:
         return "color:transparent"
-    background = _background_color(props)
-    if background is None:
-        return (
-            "color:white-without-background" if color[:3] == (255, 255, 255) else None
-        )
-    if background[3] >= 1 - _ALPHA_LIMIT and background[:3] == color[:3]:
-        return "color:equals-background"
-    return None
+    background = _background_color(props) or inherited_background or _DEFAULT_BACKGROUND
+    return None if _contrast_ratio(color, background) >= 3 else "color:low-contrast"
 
 
 def _hidden_box(props: dict[str, str], aria_hidden: bool) -> str | None:
@@ -579,7 +616,11 @@ def _hidden_off_screen(props: dict[str, str], aria_hidden: bool) -> str | None:
     return None
 
 
-def is_visually_hidden(props: dict[str, str], aria_hidden: bool = False) -> str | None:
+def is_visually_hidden(
+    props: dict[str, str],
+    aria_hidden: bool = False,
+    inherited_background: tuple[int, int, int, float] | None = None,
+) -> str | None:
     """Return why an element's inline style hides its text from a reader, else None.
 
     `aria_hidden` marks an aria-hidden="true" element, which lowers the thresholds.
@@ -588,7 +629,7 @@ def is_visually_hidden(props: dict[str, str], aria_hidden: bool = False) -> str 
         _hidden_display(props)
         or _hidden_opacity(props, 0.2 if aria_hidden else _OPACITY_LIMIT)
         or _hidden_font_size(props, 2.5 if aria_hidden else 1.0)
-        or _hidden_color(props)
+        or _hidden_color(props, inherited_background)
         or _hidden_box(props, aria_hidden)
         or _hidden_clip(props)
         or _hidden_clip_path(props)
@@ -641,6 +682,59 @@ def _item(
     )
 
 
+def _background_in_attrs(attrs: str) -> tuple[int, int, int, float] | None:
+    style = _STYLE_ATTR.search(attrs)
+    return (
+        _background_color(parse_style(style.group(1) or style.group(2) or ""))
+        if style is not None
+        else None
+    )
+
+
+def _wiki_table_background(
+    text: str, offset: int
+) -> tuple[int, int, int, float] | None:
+    tables: list[
+        tuple[tuple[int, int, int, float] | None, tuple[int, int, int, float] | None]
+    ] = []
+    for marker in _WIKI_TABLE_BOUNDARY.finditer(text, 0, offset):
+        table_attrs = marker.group("table")
+        row_attrs = marker.group("row")
+        if table_attrs is not None:
+            tables.append((_background_in_attrs(table_attrs), None))
+        elif row_attrs is not None and tables:
+            tables[-1] = (tables[-1][0], _background_in_attrs(row_attrs))
+        elif tables:
+            tables.pop()
+    if not tables:
+        return None
+    line_start = text.rfind("\n", 0, offset) + 1
+    cell = text[line_start:offset]
+    cell_attrs = (
+        cell[1 : cell.find("|", 1)]
+        if cell.startswith(("!", "|")) and "|" in cell[1:]
+        else ""
+    )
+    table_background, row_background = tables[-1]
+    return _background_in_attrs(cell_attrs) or row_background or table_background
+
+
+def _context_background(
+    text: str, masked: str, tag: re.Match[str]
+) -> tuple[int, int, int, float] | None:
+    own = _background_in_attrs(tag.group(2))
+    if own is not None:
+        return own
+    for ancestor in reversed(list(_OPEN_TAG.finditer(masked, 0, tag.start()))):
+        if ancestor.group(1).lower() not in {"span", "div"}:
+            continue
+        if _find_close(masked, ancestor.group(1), ancestor.end()) >= tag.end():
+            background = _background_in_attrs(ancestor.group(2))
+            if background is not None:
+                return background
+    return _wiki_table_background(text, tag.start())
+
+
 def extract_hidden_channels(text: str) -> HiddenChannelResult:
     items: list[QuarantinedItem] = []
     for m in _COMMENT.finditer(text):
@@ -666,6 +760,7 @@ def extract_hidden_channels(text: str) -> HiddenChannelResult:
             reason = is_visually_hidden(
                 parse_style(style.group(1) or style.group(2) or ""),
                 aria_hidden=bool(_ARIA_HIDDEN.search(attrs)),
+                inherited_background=_context_background(text, masked, m),
             )
             vector = None if reason is None else _style_vector(reason)
         if vector is None and _COLLAPSED_CLASS.search(attrs):

@@ -4,7 +4,7 @@ import asyncio
 import html
 import re
 from collections import defaultdict
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from typing import Final, Literal, cast
@@ -525,6 +525,17 @@ def parsed_dates(text: str, months: dict[str, int]) -> list[tuple[re.Match[str],
                 results.append((match, value))
                 occupied.append(match.span())
     return sorted(results, key=lambda item: item[0].start())
+
+
+def citation_parameter_date(value: str, months: Mapping[str, int]) -> date | None:
+    """Parse one date-valued citation template parameter."""
+    text = value.strip().replace("&nbsp;", " ")
+    names = dict(_MONTH_INDEX)
+    names.update(months)
+    for match, parsed in parsed_dates(text, names):
+        if match.span() == (0, len(text)):
+            return parsed
+    return None
 
 
 def _citation_id_at(page: RenderedPage, offset: int) -> int | None:
