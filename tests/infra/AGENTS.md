@@ -25,3 +25,4 @@
 - Keep internal job leases separate from the public job state contract; map `running` to the documented pending state in every response.
 - Every pinned async response, including ready analysis, must carry the same positive top-level `revision_id` as its snapshot and job object.
 - Scope active-job limits to the current algorithm/schema, and make queued jobs no-op for obsolete cache rows without touching source history.
+- If revision comparisons are second-precision, reject fractional-second date bounds instead of accepting and truncating them.

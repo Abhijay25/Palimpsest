@@ -6,12 +6,14 @@ require_once __DIR__ . '/../../includes/Attribution/AttributionEngine.php';
 require_once __DIR__ . '/../../includes/Attribution/ParsoidTextMapper.php';
 require_once __DIR__ . '/../../includes/Attribution/ParsoidLinkNormalizer.php';
 require_once __DIR__ . '/../../includes/Attribution/AttributionSpanCompactor.php';
+require_once __DIR__ . '/../../includes/Api/UtcDateBoundParser.php';
 
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionEngine;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\SourceTokenizer;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidTextMapper;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\ParsoidLinkNormalizer;
 use MediaWiki\Extension\PalimpsestBlame\Attribution\AttributionSpanCompactor;
+use MediaWiki\Extension\PalimpsestBlame\Api\UtcDateBoundParser;
 
 function check( bool $condition, string $message ): void {
 	if ( !$condition ) { fwrite( STDERR, "FAIL: $message\n" ); exit( 1 ); }
@@ -28,6 +30,14 @@ $fox = array_values( array_filter( $ordinary['tokens'], static fn ( $t ) => $t['
 check( $fox['revision_id'] === 10, 'unchanged wording keeps last-change revision' );
 check( $ordinary['events'][1]['before'] === 'bright', 'replacement event contains exact old token' );
 check( $ordinary['events'][1]['after'] === 'swift', 'replacement event contains exact new token' );
+$wholeSecondBound = UtcDateBoundParser::parse( '2026-11-14T07:05:26Z', false );
+check( $wholeSecondBound !== null && gmdate( 'Y-m-d\TH:i:s\Z', $wholeSecondBound ) === '2026-11-14T07:05:26Z', 'whole-second ISO bounds parse at exact UTC seconds' );
+check( UtcDateBoundParser::parse( '2026-11-14T07:05:26.500Z', false ) === null, 'fractional-second bound is rejected instead of truncated' );
+check( UtcDateBoundParser::parse( '2026-11-14T08:05:26+01:00', false ) === $wholeSecondBound, 'whole-second timezone offsets preserve the same instant' );
+check( UtcDateBoundParser::parse( '2026-11-14T07:05:26+01:99', false ) === null && UtcDateBoundParser::parse( '2026-11-14T07:05:26+25:00', false ) === null, 'invalid timezone offsets remain rejected' );
+$startOfDay = UtcDateBoundParser::parse( '2026-11-14', false );
+$endOfDay = UtcDateBoundParser::parse( '2026-11-14', true );
+check( $startOfDay !== null && $endOfDay === $startOfDay + 86399, 'date-only bounds retain precise start/end-of-day behavior' );
 $smallHistory = $engine->analyze( [ [ 'id' => 12, 'text' => 'small history' ], [ 'id' => 13, 'text' => 'small verified history' ] ] );
 $smallTokens = $smallHistory['tokens'];
 check( end( $smallTokens )['text'] === 'history', 'ordinary history below the per-revision token ceiling remains analyzable' );
@@ -204,4 +214,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 19 isolated attribution, DSR, and link fixtures\n";
+echo "PASS: 24 isolated attribution, DSR, date-bound, and link fixtures\n";

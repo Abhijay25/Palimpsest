@@ -417,8 +417,8 @@ final class BlameApi extends ApiBase {
 		$services = MediaWikiServices::getInstance();
 		$mode = $params['mode'];
 		if ( $mode === 'range' ) {
-			$from = $this->parseUtcBound( $params['from'], false );
-			$to = $this->parseUtcBound( $params['to'], true );
+			$from = UtcDateBoundParser::parse( $params['from'], false );
+			$to = UtcDateBoundParser::parse( $params['to'], true );
 			if ( $from === null || $to === null || $from > $to ) { throw new DomainException( 'invalid-or-reversed-range' ); }
 			$singleBound = null;
 		} else {
@@ -426,7 +426,7 @@ final class BlameApi extends ApiBase {
 				throw new DomainException( 'conflicting-single-date-bounds' );
 			}
 			$singleValue = $params['to'] !== '' ? $params['to'] : $params['from'];
-			$singleBound = $this->parseUtcBound( $singleValue, $mode === 'asof' );
+			$singleBound = UtcDateBoundParser::parse( $singleValue, $mode === 'asof' );
 			if ( $singleBound === null ) { throw new DomainException( 'invalid-date-bound' ); }
 			$from = null;
 			$to = null;
@@ -524,25 +524,6 @@ final class BlameApi extends ApiBase {
 			}
 		}
 		return [ 'timestamp' => null, 'status' => 'not-imported', 'reason' => null ];
-	}
-
-	private function parseUtcBound( string $value, bool $endOfDay ): ?int {
-		if ( preg_match( '/^\d{4}-\d{2}-\d{2}$/', $value ) ) {
-			[ $year, $month, $day ] = array_map( 'intval', explode( '-', $value ) );
-			if ( !checkdate( $month, $day, $year ) ) { return null; }
-			$dt = DateTimeImmutable::createFromFormat( '!Y-m-d', $value, new DateTimeZone( 'UTC' ) );
-			if ( !$dt || $dt->format( 'Y-m-d' ) !== $value ) { return null; }
-			return $endOfDay ? $dt->getTimestamp() + 86399 : $dt->getTimestamp();
-		}
-		if ( !preg_match( '/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/', $value, $parts ) ) {
-			return null;
-		}
-		if ( !checkdate( (int)$parts[2], (int)$parts[3], (int)$parts[1] ) || (int)$parts[4] > 23 || (int)$parts[5] > 59 || (int)$parts[6] > 59 ) { return null; }
-		try {
-			return ( new DateTimeImmutable( $value ) )->setTimezone( new DateTimeZone( 'UTC' ) )->getTimestamp();
-		} catch ( Throwable ) {
-			return null;
-		}
 	}
 
 	private function encodeVersionCursor( int $lastId, Title $title, string $mode, string $from, string $to ): string {
