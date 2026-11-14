@@ -118,3 +118,17 @@ def test_strip_wikitext_removes_refs_and_markup() -> None:
         strip_wikitext("[[Helsinki|City]] is big.<ref>https://a.example</ref>").strip()
         == "City is big."
     )
+
+
+def test_longer_typo_fix_is_clean() -> None:
+    result = prefilter(
+        "regular maintainence was performed",
+        "regular maintenance was performed",
+        "en",
+    )
+    assert result.clean
+
+
+def test_different_word_same_length_not_clean() -> None:
+    result = prefilter("the vote was won", "the vote was lost", "en")
+    assert not result.clean

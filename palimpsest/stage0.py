@@ -13,6 +13,8 @@ from palimpsest.wordlists import WATCH_LISTS, WordList
 _URL_RE = re.compile(r"https?://[^\s|\]<>}\"']+")
 _TOKEN_RE = re.compile(r"[^\W_]+(?:['’-][^\W_]+)*", re.UNICODE)
 _MAX_TYPO_DISTANCE = 2
+_TYPO_RELATIVE_DISTANCE = 0.25
+_MAX_TYPO_LENGTH_DIFF = 2
 _MIN_TYPO_LENGTH = 4
 
 
@@ -123,7 +125,10 @@ def _is_single_typo(old_tokens: list[str], new_tokens: list[str]) -> bool:
     return (
         min(len(a), len(b)) >= _MIN_TYPO_LENGTH
         and not any(c.isdigit() for c in a + b)
-        and _levenshtein(a, b) <= _MAX_TYPO_DISTANCE
+        and a[0] == b[0]
+        and abs(len(a) - len(b)) <= _MAX_TYPO_LENGTH_DIFF
+        and _levenshtein(a, b)
+        <= max(_MAX_TYPO_DISTANCE, round(_TYPO_RELATIVE_DISTANCE * max(len(a), len(b))))
     )
 
 
