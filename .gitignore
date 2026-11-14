@@ -29,3 +29,17 @@ infra/wiki/data/
 infra/wiki/.env
 infra/wiki/verification.local.json
 .direnv/
+
+# Local-only detector tests and evaluation data (kept out of the shared repo)
+/eval/
+/tests/test_*.py
+/tests/fixtures/
+/tests/js/palimpsest_flags*
+/tests/infra/test_linux_runtime.py
+/tools/language-gap-explorer/check_article_ui.py
+/tools/language-gap-explorer/test_article_page.py
+/tools/language-gap-explorer/test_flags_tab.py
+!/tests/test_api.py
+!/tests/test_page_consistency.py
+!/tools/language-gap-explorer/test_article_page.py
+!/tools/language-gap-explorer/test_flags_tab.py

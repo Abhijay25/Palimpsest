@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-# evalrun RUN PROMPT SOURCE_MODE [extra prepare args...] : Hydrogen LOW over the 125-case g03 set.
-cd "$(dirname "$0")/../.." || exit 1
-set -a; . ./.env; set +a
-export PALIMPSEST_USE_GEMINI=1 GEMINI_THINKING_LEVEL=LOW GEMINI_CONCURRENCY=8
-run=$1; prompt=$2; mode=$3; shift 3
-exec systemd-run --user --scope --quiet --slice=pal.slice --unit="pal-eval-$run" -p MemoryMax=900M -- nix develop -c sh -c "uv run python -m palimpsest prepare --cases ${CASES:-eval/cases/en_reverts3.jsonl eval/cases/en_controls3.jsonl eval/cases/fi_blind_reverts.jsonl eval/cases/fi_blind_controls.jsonl eval/cases/blp_silence.jsonl} --run eval/runs/$run --backend gemini --prompt $prompt --source-mode $mode $* && uv run python -m palimpsest ingest --run eval/runs/$run"

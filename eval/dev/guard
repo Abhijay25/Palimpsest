@@ -1,9 +1,0 @@
-#!/usr/bin/env bash
-# guard NAME MEMMAX CMD... : run CMD in its own capped scope inside pal.slice (3.2G total cap).
-set -euo pipefail
-name=$1; mem=$2; shift 2
-systemctl --user set-property --runtime pal.slice MemoryMax=4500M MemoryHigh=4200M MemorySwapMax=2G CPUQuota=500% >/dev/null 2>&1 || true
-active=$(systemctl --user list-units --type=scope --state=running --no-legend 'pal-*' | wc -l)
-if [ "$active" -ge 6 ]; then echo "guard: refusing '$name' — $active heavy jobs already running" >&2; exit 75; fi
-exec systemd-run --user --scope --quiet --slice=pal.slice --unit="pal-$name-$$" \
-  -p MemoryMax="$mem" -p MemorySwapMax=1G -- "$@"
