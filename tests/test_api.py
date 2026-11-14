@@ -345,6 +345,8 @@ def test_cherry_pick_gates_units_without_an_available_source(
 def test_audit_diff_returns_cherry_pick_flag_from_mocked_backend(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("PALIMPSEST_CHERRY_PICK", "1")
+
     async def judge(_: str) -> CherryPickAnalysis:
         return CherryPickAnalysis(
             is_cherry_picked=True,

@@ -1080,7 +1080,11 @@ async def audit_diff_logic(
         cherry_pick = await _await_cherry_pick(
             asyncio.create_task(
                 scan_cherry_picks(
-                    _cherry_pick_candidates(outcomes, refs_by_unit),
+                    # Off by default: 0/12 real misrepresented-source reverts caught
+                    # (eval/scout/b2); enable with PALIMPSEST_CHERRY_PICK=1.
+                    _cherry_pick_candidates(outcomes, refs_by_unit)
+                    if os.environ.get("PALIMPSEST_CHERRY_PICK") == "1"
+                    else [],
                     fetcher,
                     gemini_cherry_pick_judge(backend),
                 )
