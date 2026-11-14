@@ -3,9 +3,12 @@
 from collections.abc import Sequence
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+LANG_CODE_PATTERN = r"^[a-z]{2,3}(-[a-z0-9]{2,8})?$"
+LangCode = Annotated[str, Field(pattern=LANG_CODE_PATTERN)]
 
 
 class Verdict(StrEnum):
@@ -69,7 +72,7 @@ ExpectedLabel = Verdict | Literal["UNLABELLED"]
 
 class Case(BaseModel):
     case_id: str
-    lang: Literal["en", "fi"]
+    lang: LangCode
     bucket: str
     provenance: str
     page_title: str

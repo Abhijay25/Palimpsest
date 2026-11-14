@@ -167,3 +167,13 @@ def test_refs_for_changed_sentences_named_reuse() -> None:
     old = 'Old claim.<ref name="x">https://a.example/x</ref>'
     new = old + ' New claim.<ref name="x" /> Third.<ref name=y />'
     assert refs_for_changed_sentences(old, new) == ["https://a.example/x"]
+
+
+def test_language_without_watch_list_still_prefiltered() -> None:
+    result = prefilter(
+        "Der Bürgermeister unterschrieb.", "Der Bürgermeister bekämpfte.", "de"
+    )
+    assert not result.clean
+    assert "token change beyond single typo" in result.reasons
+    assert not prefilter("Er hat 5 Autos.", "Er hat 6 Autos.", "de").clean
+    assert prefilter("Er recieved Autos.", "Er received Autos.", "de").clean

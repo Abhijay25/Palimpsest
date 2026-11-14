@@ -4,7 +4,6 @@ import difflib
 import re
 import time
 from collections import Counter
-from typing import Literal
 
 import mwparserfromhell
 from pydantic import BaseModel
@@ -173,7 +172,7 @@ def _phrase_delta(old: str, new: str, words: WordList) -> list[str]:
 
 
 def _watch_reasons(
-    old_tokens: list[str], new_tokens: list[str], lang: Literal["en", "fi"]
+    old_tokens: list[str], new_tokens: list[str], lang: str
 ) -> list[str]:
     old_counts, new_counts = Counter(old_tokens), Counter(new_tokens)
     changed = list((old_counts - new_counts).elements()) + list(
@@ -181,7 +180,7 @@ def _watch_reasons(
     )
     old_joined, new_joined = " ".join(old_tokens), " ".join(new_tokens)
     reasons: list[str] = []
-    for category, words in WATCH_LISTS[lang].items():
+    for category, words in WATCH_LISTS.get(lang, {}).items():
         hits = sorted({t for t in changed if _token_hits(t, words)})
         hits += _phrase_delta(old_joined, new_joined, words)
         if hits:
@@ -206,7 +205,7 @@ def _is_single_typo(old_tokens: list[str], new_tokens: list[str]) -> bool:
     )
 
 
-def prefilter(old_text: str, new_text: str, lang: Literal["en", "fi"]) -> Stage0Result:
+def prefilter(old_text: str, new_text: str, lang: str) -> Stage0Result:
     start = time.perf_counter()
     reasons: list[str] = []
 

@@ -5,8 +5,6 @@ Finnish entries are stem prefixes (matched with ``startswith``) plus exact short
 would over-match as prefixes.
 """
 
-from typing import Literal
-
 from pydantic import BaseModel
 
 
@@ -650,4 +648,4 @@ FI_WATCH: WatchLists = {
     ),
 }
 
-WATCH_LISTS: dict[Literal["en", "fi"], WatchLists] = {"en": EN_WATCH, "fi": FI_WATCH}
+WATCH_LISTS: dict[str, WatchLists] = {"en": EN_WATCH, "fi": FI_WATCH}
