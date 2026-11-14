@@ -242,3 +242,18 @@ def test_usage_totals_are_recorded_from_response_metadata() -> None:
     caller._record_usage(_Fake())  # type: ignore[arg-type]  # minimal stand-in for the SDK response
     caller._record_usage(_Fake())  # type: ignore[arg-type]  # minimal stand-in for the SDK response
     assert caller.usage == {"calls": 2, "input": 200, "output": 40, "thinking": 14}
+
+
+def test_judge_defaults_to_low_thinking_and_env_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from palimpsest.backends.gemini import GeminiJudgeBackend
+
+    monkeypatch.delenv("GEMINI_THINKING_LEVEL", raising=False)
+    judge = GeminiJudgeBackend(client=object())  # type: ignore[arg-type]  # no call is made
+    assert judge._caller.thinking is not None
+    assert judge._caller.thinking.thinking_level == types.ThinkingLevel.LOW
+    monkeypatch.setenv("GEMINI_THINKING_LEVEL", "HIGH")
+    judge = GeminiJudgeBackend(client=object())  # type: ignore[arg-type]  # no call is made
+    assert judge._caller.thinking is not None
+    assert judge._caller.thinking.thinking_level == types.ThinkingLevel.HIGH

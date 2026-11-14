@@ -14,7 +14,7 @@ GEMINI_JUDGE_MODEL=gemini-4-hydrogen    # optional
 GEMINI_TRIAGE_MODEL=gemini-decision-1   # optional (GeminiTriageBackend)
 GEMINI_CONCURRENCY=8          # optional, parallel calls
 GEMINI_TIMEOUT_SECONDS=60     # optional, per call
-GEMINI_THINKING_LEVEL=LOW     # optional: MINIMAL|LOW|MEDIUM|HIGH|XHIGH
+GEMINI_THINKING_LEVEL=LOW     # optional: MINIMAL|LOW|MEDIUM|HIGH|XHIGH (judge default LOW, see eval/runs/g03_hydrogen_low)
 
 nix develop -c uv run python -m palimpsest prepare --cases c.jsonl --run runs/g1 --backend gemini
 nix develop -c uv run python -m palimpsest ingest --run runs/g1

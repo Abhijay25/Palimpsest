@@ -24,6 +24,8 @@ from palimpsest.stealth.triage import (
 )
 
 DEFAULT_JUDGE_MODEL: Final = "gemini-4-hydrogen"
+# g03: LOW and HIGH gave identical flag decisions on 124 edits; LOW is 2.4x cheaper in thinking tokens and p95 latency.
+DEFAULT_JUDGE_THINKING: Final = "LOW"
 # TODO: the Decisions API may expose its own endpoint/SDK surface. Until that is
 # documented and verified, triage goes through the same generate_content path.
 DEFAULT_TRIAGE_MODEL: Final = "gemini-decision-1"
@@ -208,6 +210,11 @@ class GeminiJudgeBackend:
             model or os.environ.get("GEMINI_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL
         )
         self._caller = _GeminiCaller(self.model, client, backoff_seconds)
+        if self._caller.thinking is None:
+            # The judge pins its own default instead of the SDK's; GEMINI_THINKING_LEVEL still overrides.
+            self._caller.thinking = types.ThinkingConfig(
+                thinking_level=types.ThinkingLevel(DEFAULT_JUDGE_THINKING)
+            )
         self._system = (PROMPTS_DIR / f"{prompt_version}.txt").read_text()
         self.latencies_ms: dict[str, float] = {}
 
