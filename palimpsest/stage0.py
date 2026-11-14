@@ -1,5 +1,6 @@
 """Stage 0: deterministic pre-filter. Conservative: unsure means NOT clean."""
 
+import difflib
 import re
 import time
 from collections import Counter
@@ -118,6 +119,21 @@ def refs_for_changed_sentences(old_wikitext: str, new_wikitext: str) -> list[str
                 if url not in urls:
                     urls.append(url)
     return urls
+
+
+_CITATION_RE = re.compile(r"<ref\b|\{\{\s*(?:cite|sfn)", re.IGNORECASE)
+
+
+def changed_region_has_citation(old_wikitext: str, new_wikitext: str) -> bool:
+    """True when words inserted or replaced in new_wikitext include a ref tag or cite/sfn template."""
+    old_words = old_wikitext.split()
+    new_words = new_wikitext.split()
+    matcher = difflib.SequenceMatcher(None, old_words, new_words, autojunk=False)
+    return any(
+        _CITATION_RE.search(" ".join(new_words[j1:j2]))
+        for tag, _, _, j1, j2 in matcher.get_opcodes()
+        if tag in ("insert", "replace")
+    )
 
 
 def _tokens(text: str) -> list[str]:

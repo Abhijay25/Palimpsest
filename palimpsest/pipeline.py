@@ -28,7 +28,7 @@ from palimpsest.schema import (
 )
 from palimpsest.scoring import score
 from palimpsest.sources import SourceFetcher, load_exa_api_key
-from palimpsest.stage0 import prefilter, strip_wikitext
+from palimpsest.stage0 import changed_region_has_citation, prefilter, strip_wikitext
 from palimpsest.stealth.models import ScanResult, StealthStatus
 from palimpsest.stealth.scanner import scan, worst_status
 
@@ -79,9 +79,16 @@ async def _window_for(
         return SourceWindow(
             url=None, status="fixed", text=case.source_window, latency_ms=0.0
         )
+    urls = case.changed_ref_urls or case.ref_urls
     if case.changed_ref_urls is not None and not case.changed_ref_urls:
-        return SourceWindow(url=None, status="uncited", text="", latency_ms=0.0)
-    urls = case.ref_urls if case.changed_ref_urls is None else case.changed_ref_urls
+        has_changed_citation = (
+            bool(case.ref_urls)
+            and case.old_wikitext is not None
+            and case.new_wikitext is not None
+            and changed_region_has_citation(case.old_wikitext, case.new_wikitext)
+        )
+        if not has_changed_citation:
+            return SourceWindow(url=None, status="uncited", text="", latency_ms=0.0)
     claim = strip_wikitext(case.new_text)
     best: tuple[SourceWindow, int] | None = None
     for url in urls[:MAX_SOURCE_URLS]:

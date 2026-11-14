@@ -121,6 +121,35 @@ def test_empty_changed_ref_urls_is_uncited(
     assert window.url is None
 
 
+def test_empty_changed_refs_with_ref_in_changed_region_falls_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("palimpsest.pipeline.load_exa_api_key", lambda: None)
+    _prime_cache(("https://a.example/a", LONG_A))
+    case = _case("c", None, ["https://a.example/a"])
+    case.new_text = "Alpha sentence covers apples and pears."
+    case.old_wikitext = "Intro."
+    case.new_wikitext = "Intro. Alpha sentence covers apples and pears.<ref>cite</ref>"
+    case.changed_ref_urls = []
+    window = _window_status(tmp_path, case)
+    assert window.status == "ok"
+
+
+def test_empty_changed_refs_without_ref_in_changed_region_stays_uncited(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("palimpsest.pipeline.load_exa_api_key", lambda: None)
+    _prime_cache(("https://a.example/a", LONG_A))
+    case = _case("c", None, ["https://a.example/a"])
+    case.old_wikitext = "Intro.<ref>cite</ref>"
+    case.new_wikitext = "Intro.<ref>cite</ref> Uncited addition."
+    case.changed_ref_urls = []
+    window = _window_status(tmp_path, case)
+    assert window.status == "uncited"
+
+
 def test_best_overlap_window_among_changed_urls(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
