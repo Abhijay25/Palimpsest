@@ -30,6 +30,7 @@ final class BlameApi extends ApiBase {
 	private const MAX_HISTORY_BYTES = 2097152;
 	private const MAX_TOKENS = 200000;
 	private const MAX_RESPONSE_BYTES = 2097152;
+	private const STALE_BUILD_JOB_SECONDS = 600;
 
 	public function __construct( ApiMain $main, string $moduleName, string $modulePrefix = '' ) {
 		parent::__construct( $main, $moduleName, $modulePrefix );
@@ -206,6 +207,21 @@ final class BlameApi extends ApiBase {
 			], [ 'pbj_id' => (string)$row->pbj_id ], __METHOD__ );
 			$row = $db->selectRow( 'palimpsestblame_job', '*', [ 'pbj_id' => (string)$row->pbj_id ], __METHOD__ );
 			$queueJob = true;
+		} elseif ( $row && $row->pbj_status === 'pending' ) {
+			// Re-push to recover a pending checkpoint whose queue entry was lost.
+			// The job class deduplicates identical unclaimed queue entries.
+			$queueJob = true;
+		} elseif ( $row && $row->pbj_status === 'running' &&
+			(int)wfTimestamp( TS_UNIX, $row->pbj_updated ) <= time() - self::STALE_BUILD_JOB_SECONDS ) {
+			$db->update( 'palimpsestblame_job', [ 'pbj_status' => 'pending', 'pbj_updated' => wfTimestampNow() ], [
+				'pbj_id' => (string)$row->pbj_id,
+				'pbj_status' => 'running',
+				'pbj_updated' => $row->pbj_updated,
+			], __METHOD__ );
+			$queueJob = $db->affectedRows() === 1;
+			if ( $queueJob ) {
+				$row = $db->selectRow( 'palimpsestblame_job', '*', [ 'pbj_id' => (string)$row->pbj_id ], __METHOD__ );
+			}
 		}
 		if ( !$row ) {
 			$active = (int)$db->selectField( 'palimpsestblame_job', 'COUNT(*)', [ 'pbj_status' => [ 'pending', 'running' ] ], __METHOD__ );
@@ -235,11 +251,7 @@ final class BlameApi extends ApiBase {
 		}
 		if ( !$row ) { throw new DomainException( 'job-checkpoint-create-failed' ); }
 		if ( $queueJob ) {
-			$services->getJobQueueGroup()->push( new BlameBuildJob( [
-				'job_id' => (string)$row->pbj_id,
-				'namespace' => $title->getNamespace(),
-				'title' => $title->getDBkey(),
-			] ) );
+			$services->getJobQueueGroup()->push( new BlameBuildJob( $title, [ 'job_id' => (string)$row->pbj_id ] ) );
 		}
 		return [
 			'schema_version' => 1,

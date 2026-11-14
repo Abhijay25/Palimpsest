@@ -10,15 +10,18 @@ use MediaWiki\Logger\LoggerFactory;
 use MediaWiki\MediaWikiServices;
 use MediaWiki\Revision\RevisionRecord;
 use MediaWiki\Revision\SlotRecord;
+use MediaWiki\Title\Title;
 use Throwable;
 
 final class BlameBuildJob extends Job {
 	private const MAX_REVISIONS = 2000;
 	private const MAX_HISTORY_BYTES = 16777216;
 	private const MAX_TOKENS = 200000;
+	private const STALE_CLAIM_SECONDS = 600;
+	protected $removeDuplicates = true;
 
-	public function __construct( array $params ) {
-		parent::__construct( 'palimpsestblamebuild', $params );
+	public function __construct( Title $title, array $params ) {
+		parent::__construct( 'palimpsestblamebuild', $title, $params );
 	}
 
 	public function run() {
@@ -27,6 +30,15 @@ final class BlameBuildJob extends Job {
 		$id = (string)( $this->params['job_id'] ?? '' );
 		$row = $db->selectRow( 'palimpsestblame_job', '*', [ 'pbj_id' => $id ], __METHOD__ );
 		if ( !$row || !in_array( $row->pbj_status, [ 'pending', 'running' ], true ) ) { return true; }
+		$now = wfTimestampNow();
+		$leaseTimestamp = $now;
+		$claimConditions = [ 'pbj_id' => $id, 'pbj_status' => $row->pbj_status ];
+		if ( $row->pbj_status === 'running' ) {
+			if ( (int)wfTimestamp( TS_UNIX, $row->pbj_updated ) > time() - self::STALE_CLAIM_SECONDS ) { return true; }
+			$claimConditions['pbj_updated'] = $row->pbj_updated;
+		}
+		$db->update( 'palimpsestblame_job', [ 'pbj_status' => 'running', 'pbj_updated' => $now ], $claimConditions, __METHOD__ );
+		if ( $db->affectedRows() !== 1 ) { return true; }
 		try {
 			$state = json_decode( $row->pbj_state, true, 64, JSON_THROW_ON_ERROR );
 			$history = [];
@@ -79,22 +91,24 @@ final class BlameBuildJob extends Job {
 					'pbj_result' => json_encode( $result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR ),
 					'pbj_error' => null,
 					'pbj_updated' => wfTimestampNow(),
-			], [ 'pbj_id' => $id ], __METHOD__ );
+				], [ 'pbj_id' => $id, 'pbj_status' => 'running', 'pbj_updated' => $leaseTimestamp ], __METHOD__ );
+				if ( $db->affectedRows() !== 1 ) { return true; }
 			} else {
 				$db->update( 'palimpsestblame_job', [
 					'pbj_status' => 'pending',
 					'pbj_processed' => $processed,
 					'pbj_state' => json_encode( [ 'cursor_revision_id' => $cursorId, 'processed' => $processed, 'bytes' => $bytes, 'tokens' => $tokens ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR ),
 					'pbj_updated' => wfTimestampNow(),
-				], [ 'pbj_id' => $id ], __METHOD__ );
-				$services->getJobQueueGroup()->push( new self( [ 'job_id' => $id, 'namespace' => $this->getTitle()->getNamespace(), 'title' => $this->getTitle()->getDBkey() ] ) );
+				], [ 'pbj_id' => $id, 'pbj_status' => 'running', 'pbj_updated' => $leaseTimestamp ], __METHOD__ );
+				if ( $db->affectedRows() !== 1 ) { return true; }
+				$services->getJobQueueGroup()->push( new self( $this->getTitle(), [ 'job_id' => $id ] ) );
 			}
 			return true;
 		} catch ( DomainException $e ) {
-			$db->update( 'palimpsestblame_job', [ 'pbj_status' => 'failed', 'pbj_error' => $e->getMessage(), 'pbj_updated' => wfTimestampNow() ], [ 'pbj_id' => $id ], __METHOD__ );
+			$db->update( 'palimpsestblame_job', [ 'pbj_status' => 'failed', 'pbj_error' => $e->getMessage(), 'pbj_updated' => wfTimestampNow() ], [ 'pbj_id' => $id, 'pbj_status' => 'running', 'pbj_updated' => $leaseTimestamp ], __METHOD__ );
 			return true;
 		} catch ( Throwable $e ) {
-			$db->update( 'palimpsestblame_job', [ 'pbj_status' => 'failed', 'pbj_error' => 'job-processing-failed', 'pbj_updated' => wfTimestampNow() ], [ 'pbj_id' => $id ], __METHOD__ );
+			$db->update( 'palimpsestblame_job', [ 'pbj_status' => 'failed', 'pbj_error' => 'job-processing-failed', 'pbj_updated' => wfTimestampNow() ], [ 'pbj_id' => $id, 'pbj_status' => 'running', 'pbj_updated' => $leaseTimestamp ], __METHOD__ );
 			LoggerFactory::getInstance( 'PalimpsestBlame' )->error( 'Build job failed', [ 'exception' => $e ] );
 			return true;
 		}
