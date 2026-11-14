@@ -69,7 +69,7 @@ def database_error(error):
 
 @app.get('/')
 def home():
-    return redirect(url_for('article_page',topic='Q2606233',lang='en'))
+    return redirect('/explore')
 
 @app.get('/articles')
 def index():
