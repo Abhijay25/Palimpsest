@@ -1,5 +1,6 @@
 """Stage 1: Exa-backed citation source windows with a JSON-file cache."""
 
+import datetime
 import hashlib
 import os
 import re
@@ -23,6 +24,8 @@ MIN_TEXT_CHARS: Final = 200
 MIN_WINDOW_CHARS: Final = 150
 MIN_OVERLAP: Final = 2
 DEFAULT_MAX_EXA_CALLS: Final = 400
+DEFAULT_DAILY_MAX_EXA_CALLS: Final = 2000
+REQUEST_MAX_EXA_CALLS: Final = 3
 _SENTENCE_SPLIT: Final = re.compile(r"(?<=[.!?])\s+")
 _TOKEN: Final = re.compile(r"\w+")
 _HEADING: Final = re.compile(r"^#{1,6}\s")
@@ -49,6 +52,40 @@ def load_exa_api_key() -> str | None:
     """Read EXA_API_KEY from .env / environment; empty string counts as missing."""
     load_dotenv()
     return os.environ.get("EXA_API_KEY") or None
+
+
+def _daily_max_exa_calls() -> int:
+    """EXA_DAILY_MAX_CALLS from the environment; unset or invalid falls back to the default."""
+    try:
+        return int(os.environ.get("EXA_DAILY_MAX_CALLS", DEFAULT_DAILY_MAX_EXA_CALLS))
+    except ValueError:
+        return DEFAULT_DAILY_MAX_EXA_CALLS
+
+
+class DailyCallCap:
+    """Process-wide Exa call cap that resets at UTC midnight."""
+
+    def __init__(
+        self,
+        max_calls: int | None = None,
+        today: Callable[[], datetime.date] = lambda: datetime.datetime.now(
+            datetime.UTC
+        ).date(),
+    ) -> None:
+        self._max_calls = _daily_max_exa_calls() if max_calls is None else max_calls
+        self._today = today
+        self._day = today()
+        self._count = 0
+
+    def try_acquire(self) -> bool:
+        today = self._today()
+        if today != self._day:
+            self._day = today
+            self._count = 0
+        if self._count >= self._max_calls:
+            return False
+        self._count += 1
+        return True
 
 
 def _max_exa_calls() -> int:
@@ -100,14 +137,25 @@ class SourceFetcher:
         api_key: str | None,
         cache_dir: Path,
         client: httpx.AsyncClient | None = None,
+        daily_cap: DailyCallCap | None = None,
     ) -> None:
         self._api_key = api_key or None
+        self._daily_cap = daily_cap
         self._cache_dir = cache_dir
         self._client = client
         self._max_calls = _max_exa_calls()
         self._budget_logged = False
+        self.budget_exhausted = False
         self.calls = 0
         self.cost_dollars = 0.0
+
+    def for_request(self, max_calls: int = REQUEST_MAX_EXA_CALLS) -> "SourceFetcher":
+        """Fresh per-request fetcher: own call budget, shared cache and daily cap."""
+        child = SourceFetcher(
+            self._api_key, self._cache_dir, self._client, self._daily_cap
+        )
+        child._max_calls = min(max_calls, self._max_calls)
+        return child
 
     def _cache_path(self, url: str) -> Path:
         return self._cache_dir / f"{hashlib.sha256(url.encode()).hexdigest()}.json"
@@ -129,7 +177,10 @@ class SourceFetcher:
         """Return page text from Exa, or None on any failure."""
         if self._api_key is None:
             return None
-        if self.calls >= self._max_calls:
+        if self.calls >= self._max_calls or (
+            self._daily_cap is not None and not self._daily_cap.try_acquire()
+        ):
+            self.budget_exhausted = True
             if not self._budget_logged:
                 self._budget_logged = True
                 print(

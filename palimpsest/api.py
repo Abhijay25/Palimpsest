@@ -26,7 +26,7 @@ from palimpsest.schema import (
     Verdict,
 )
 from palimpsest.scoring import ADMIN_FLAG_STATUSES, Route, route
-from palimpsest.sources import SourceFetcher, load_exa_api_key
+from palimpsest.sources import DailyCallCap, SourceFetcher, load_exa_api_key
 from palimpsest.stage0 import prefilter, refs_for_changed_sentences
 from palimpsest.stealth.models import ScanResult
 from palimpsest.stealth.scanner import TargetType, scan
@@ -45,8 +45,13 @@ app = FastAPI(title="Palimpsest", version="0.1.0")
 
 
 @cache
+def _shared_fetcher() -> SourceFetcher:
+    return SourceFetcher(load_exa_api_key(), CACHE_DIR, daily_cap=DailyCallCap())
+
+
 def get_fetcher() -> SourceFetcher:
-    return SourceFetcher(load_exa_api_key(), CACHE_DIR)
+    """Per-request fetcher: its own Exa budget, sharing the process-wide daily cap."""
+    return _shared_fetcher().for_request()
 
 
 @cache
@@ -122,6 +127,7 @@ class AuditDiffResponse(BaseModel):
     pipeline_stage_reached: Literal[0, 1, 2]
     stealth: StealthSummary
     latency_ms: LatencyMs
+    exa_budget_exhausted: bool
 
 
 class HealthResponse(BaseModel):
@@ -264,4 +270,5 @@ async def audit_diff(
             stage2=stage2_ms,
             total=(time.perf_counter() - started) * 1000,
         ),
+        exa_budget_exhausted=fetcher.budget_exhausted,
     )

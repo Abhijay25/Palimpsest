@@ -1,11 +1,12 @@
 import asyncio
+import datetime
 import json
 from pathlib import Path
 
 import httpx
 import pytest
 
-from palimpsest.sources import SourceFetcher, discourse_window
+from palimpsest.sources import DailyCallCap, SourceFetcher, discourse_window
 
 SENTENCES = [
     f"Sentence number {i} talks about topic{i} in some detail here."
@@ -169,3 +170,34 @@ def test_stub_page_window_is_unavailable(tmp_path: Path) -> None:
     fetcher = SourceFetcher("key", tmp_path, _client(httpx.MockTransport(handler)))
     result = asyncio.run(fetcher.window(URL, "Vaalit Helsinki Sauri"))
     assert result.status == "unavailable"
+
+
+def test_for_request_has_own_budget_of_three(tmp_path: Path) -> None:
+    calls: list[httpx.Request] = []
+    shared = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)))
+    first = shared.for_request()
+    for i in range(5):
+        asyncio.run(first.window(f"https://example.com/{i}", "topic6 detail"))
+    assert len(calls) == 3
+    assert first.budget_exhausted
+    second = shared.for_request()
+    asyncio.run(second.window("https://example.com/new", "topic6 detail"))
+    assert len(calls) == 4
+    assert not second.budget_exhausted
+
+
+def test_daily_cap_blocks_across_requests_and_resets_at_utc_midnight(
+    tmp_path: Path,
+) -> None:
+    day = [datetime.date(2026, 11, 14)]
+    cap = DailyCallCap(2, today=lambda: day[0])
+    calls: list[httpx.Request] = []
+    shared = SourceFetcher("key", tmp_path, _client(_ok_handler(calls)), cap)
+    for i in range(4):
+        asyncio.run(
+            shared.for_request().window(f"https://example.com/{i}", "topic6 detail")
+        )
+    assert len(calls) == 2
+    day[0] = datetime.date(2026, 11, 15)
+    asyncio.run(shared.for_request().window("https://example.com/9", "topic6 detail"))
+    assert len(calls) == 3
