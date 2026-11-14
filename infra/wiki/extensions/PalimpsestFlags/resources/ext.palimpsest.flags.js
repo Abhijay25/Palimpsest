@@ -41,7 +41,7 @@
 	}
 	function loading() { root.dataset.pfState = 'loading'; summary.replaceChildren( el( 'span', 'pf-brand', 'Palimpsest' ), el( 'span', 'pf-spinner' ), el( 'span', 'pf-loading-text', 'Checking this edit…' ) ); summary.setAttribute( 'aria-busy', 'true' ); window.setTimeout( function () { var t = summary.querySelector( '.pf-loading-text' ); if ( root.dataset.pfState === 'loading' && t ) { t.textContent = 'Checking this edit… reading the cited sources'; } }, 5000 ); }
 	function api( retry ) {
-		loading(); var controller = new AbortController(), timedOut = false, timer = window.setTimeout( function () { timedOut = true; controller.abort(); }, 35000 );
+		loading(); var controller = new AbortController(), timedOut = false, timer = window.setTimeout( function () { timedOut = true; controller.abort(); }, 75000 );
 		var params = new URLSearchParams( { action: 'palimpsestflags', format: 'json', formatversion: '2', oldid: String( cfg.oldid ), diff: String( cfg.diff ) } );
 		fetch( mw.util.wikiScript( 'api' ) + '?' + params, { credentials: 'same-origin', signal: controller.signal, headers: { Accept: 'application/json' } } ).then( function ( response ) { if ( !response.ok ) { throw new Error( 'http' ); } return response.json(); } ).then( function ( json ) {
 			window.clearTimeout( timer ); var data = json.palimpsestflags;
