@@ -19,3 +19,4 @@
 - Set a container's interpreter either as its entrypoint or as an explicit command, not both; mount the repository at `/repo` when test scripts derive paths from their repository-relative location.
 - For whitespace-sensitive edit fixtures, record explicit UTF-16 ranges and verify them by slicing the listed revisions. A generic character diff can choose a different equivalent whitespace boundary than the producer's token alignment.
 - Per-revision byte/token limits do not bound transitive attribution ancestry. Charge a global lineage-reference budget before copying ancestors into replacement tokens or events, and fail closed when it is exhausted.
+- Unique shared words can move across edit gaps or be restored after a reorder. Detect order inversions and test move/revert sequences so events and spans remain marked ambiguous.

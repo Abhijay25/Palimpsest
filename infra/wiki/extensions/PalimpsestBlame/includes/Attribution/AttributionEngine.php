@@ -7,7 +7,7 @@ use DomainException;
 
 /** Last-change attribution over source tokens; alignment ambiguity is exposed, not resolved by guess. */
 final class AttributionEngine {
-	public const VERSION = 'lcs-anchor-v2';
+	public const VERSION = 'lcs-anchor-v3';
 	public const MAX_DIFF_CELLS = 250000;
 	public const MAX_DERIVATION_REFERENCES = 250000;
 
@@ -234,6 +234,28 @@ final class AttributionEngine {
 			if ( preg_match( '/[\p{L}\p{N}\p{M}]/u', $value ) === 1 && ( $count > 1 || ( $cb[$value] ?? 0 ) > 1 ) && ( $cb[$value] ?? 0 ) > 0 ) {
 				$out[$value] = true;
 			}
+		}
+
+		// Unique shared tokens that reverse relative order have moved or been reused,
+		// even if the LCS chooses one of them as an apparently unchanged match.
+		$newPositions = [];
+		foreach ( $b as $index => $value ) {
+			if ( ( $cb[$value] ?? 0 ) === 1 && ( $ca[$value] ?? 0 ) === 1 ) { $newPositions[$value] = $index; }
+		}
+		$ordered = [];
+		foreach ( $a as $value ) {
+			if ( isset( $newPositions[$value] ) && !isset( $out[$value] ) ) { $ordered[] = [ 'value' => (string)$value, 'position' => $newPositions[$value] ]; }
+		}
+		$prefixMax = -1;
+		foreach ( $ordered as $item ) {
+			if ( $prefixMax > $item['position'] ) { $out[$item['value']] = true; }
+			$prefixMax = max( $prefixMax, $item['position'] );
+		}
+		$suffixMin = PHP_INT_MAX;
+		for ( $i = count( $ordered ) - 1; $i >= 0; $i-- ) {
+			$item = $ordered[$i];
+			if ( $suffixMin < $item['position'] ) { $out[$item['value']] = true; }
+			$suffixMin = min( $suffixMin, $item['position'] );
 		}
 		return $out;
 	}

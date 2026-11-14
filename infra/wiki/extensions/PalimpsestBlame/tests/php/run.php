@@ -69,6 +69,15 @@ check( $unicode[1]['utf16_start'] === 2 && $unicode[1]['utf16_end'] === 4, 'comb
 // Duplicate text and patience-anchor fallback never assert a unique alignment.
 $duplicate = $engine->analyze( [ [ 'id' => 40, 'text' => 'same same end' ], [ 'id' => 41, 'text' => 'same end' ] ] );
 check( (bool)array_filter( $duplicate['tokens'], static fn ( $t ) => $t['text'] === 'same' && $t['ambiguous'] ), 'repeated text is marked ambiguous' );
+$moveRevert = $engine->analyze( [
+	[ 'id' => 41, 'text' => 'red marker rests; red marker waits.' ],
+	[ 'id' => 42, 'text' => 'red marker waits; red marker rests.' ],
+	[ 'id' => 43, 'text' => 'red marker rests; red marker waits.' ],
+] );
+$moveEvents = array_slice( $moveRevert['events'], 1 );
+$restoredWords = array_values( array_filter( $moveRevert['tokens'], static fn ( $t ) => in_array( $t['text'], [ 'rests', 'waits' ], true ) ) );
+check( count( $moveEvents ) >= 2 && !in_array( false, array_column( $moveEvents, 'ambiguous' ), true ), 'moved and reverted wording marks both edit events ambiguous' );
+check( count( $restoredWords ) === 2 && !in_array( false, array_column( $restoredWords, 'ambiguous' ), true ), 'reordered words stay ambiguous after returning to their original positions' );
 $numericDuplicate = $engine->analyze( [ [ 'id' => 42, 'text' => 'score 2000 2000 points' ], [ 'id' => 43, 'text' => 'score 2000 points' ] ] );
 check( (bool)array_filter( $numericDuplicate['tokens'], static fn ( $t ) => $t['text'] === '2000' && $t['ambiguous'] ), 'numeric token keys remain strings during ambiguity checks' );
 
@@ -169,4 +178,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 17 isolated attribution, DSR, and link fixtures\n";
+echo "PASS: 18 isolated attribution, DSR, and link fixtures\n";
