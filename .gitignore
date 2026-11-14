@@ -7,3 +7,5 @@ data/
 cache/
 eval/runs/*/batches/
 eval/runs/*/results/
+eval/stealth/runs/*/batches/
+eval/stealth/runs/*/results/
