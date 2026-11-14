@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import copy
+from http.client import HTTPMessage
+from io import BytesIO
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from urllib.error import HTTPError
 
 from mediawiki_api import MediaWikiApiError, WikiApi
 from verify_live import assert_spans, validate_analyze_schema
@@ -35,7 +38,10 @@ class QueueOpener:
 
     def open(self, request, timeout):
         self.requests.append((request, timeout))
-        return Response(self.responses.pop(0))
+        response = self.responses.pop(0)
+        if isinstance(response, BaseException):
+            raise response
+        return Response(response)
 
 
 def ordinary_response(source_text: str) -> dict:
@@ -136,6 +142,27 @@ class LiveContractTests(unittest.TestCase):
         with self.assertRaisesRegex(MediaWikiApiError, "badtoken"):
             api.call({"action": "edit", "password": "must-not-appear"}, post=True)
         self.assertNotIn("must-not-appear", str(MediaWikiApiError("badtoken", "must-not-appear")))
+
+    def test_http_error_preserves_structured_action_api_code_without_logging_info(self) -> None:
+        headers = HTTPMessage()
+        headers.add_header("Content-Type", "application/json")
+        body = b'{"error":{"code":"mustbeposted","info":"Sensitive request detail"}}'
+        http_error = HTTPError("http://127.0.0.1/api.php", 405, "Method Not Allowed", headers, BytesIO(body))
+        api = WikiApi("http://127.0.0.1:48081/api.php", opener=QueueOpener(http_error))
+        with self.assertRaises(MediaWikiApiError) as raised:
+            api.call({"action": "palimpsestblame", "op": "build"})
+        self.assertEqual(raised.exception.code, "mustbeposted")
+        self.assertEqual(raised.exception.info, "Sensitive request detail")
+        self.assertNotIn("Sensitive request detail", str(raised.exception))
+
+    def test_http_error_with_non_json_body_falls_back_to_status_code(self) -> None:
+        headers = HTTPMessage()
+        headers.add_header("Content-Type", "text/html")
+        http_error = HTTPError("http://127.0.0.1/api.php", 403, "Forbidden", headers, BytesIO(b"<html>forbidden</html>"))
+        api = WikiApi("http://127.0.0.1:48081/api.php", opener=QueueOpener(http_error))
+        with self.assertRaises(MediaWikiApiError) as raised:
+            api.call({"action": "query"})
+        self.assertEqual(raised.exception.code, "http_403")
 
     def test_lineage_id_shape_rejects_revision_ids_instead_of_token_ids(self) -> None:
         fixture_path = Path(__file__).parent / "fixtures" / "chained_replacements.json"

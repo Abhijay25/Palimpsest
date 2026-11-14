@@ -261,10 +261,18 @@ def exercise_selection(page: Page, fixture_id: str, mobile: bool, screenshot: Pa
         page.screenshot(path=str(screenshot), full_page=True)
 
 
+def open_selected_timeline(page: Page, quote: str) -> None:
+    select_text(page, quote)
+    inspect_selected_text(page, mobile=False)
+    panel = page.locator("#palimpsest-blame")
+    expect(panel.locator(".pb-breakdown")).to_be_visible()
+    expect(panel).to_contain_text(quote)
+
+
 def verify_replacement_timeline(page: Page) -> None:
     doc = load_fixture("chained_replacements")
-    select_text(page, doc["expected"]["selection"]["text"])
-    inspect_selected_text(page, mobile=False)
+    quote = doc["expected"]["selection"]["text"]
+    open_selected_timeline(page, quote)
     panel = page.locator("#palimpsest-blame")
     expect(panel).to_contain_text("quick")
     expect(panel).to_contain_text("slow")
@@ -279,7 +287,7 @@ def verify_replacement_timeline(page: Page) -> None:
     if "action=blame" in page.url or not re.search(r"(?:[?&](?:diff|oldid)=|Special:Diff)", page.url):
         raise AssertionError(f"revision comparison link did not open the core MediaWiki diff: {page.url}")
     page.go_back(wait_until="domcontentloaded")
-    expect(panel).to_be_visible()
+    open_selected_timeline(page, quote)
 
     changes = panel.get_by_role("link", name=re.compile("view editor.?s changes", re.I))
     expect(changes.first).to_be_visible()
@@ -289,7 +297,7 @@ def verify_replacement_timeline(page: Page) -> None:
     if "action=blame" in page.url or special_page != "Contributions":
         raise AssertionError(f"editor history link did not open the core Contributions page: {page.url} ({special_page!r})")
     page.go_back(wait_until="domcontentloaded")
-    expect(panel).to_be_visible()
+    open_selected_timeline(page, quote)
 
     open_revision = panel.get_by_role("link", name="Open this revision")
     expect(open_revision.first).to_be_visible()
@@ -301,7 +309,6 @@ def verify_replacement_timeline(page: Page) -> None:
     if str(page.evaluate("window.mw?.config?.get('wgRevisionId')")) != revision_query["oldid"][0]:
         raise AssertionError("Open this revision loaded content at a different local revision ID")
     page.go_back(wait_until="domcontentloaded")
-    expect(panel).to_be_visible()
 
 
 def date_text_tomorrow_utc() -> str:

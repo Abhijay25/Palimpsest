@@ -91,18 +91,28 @@ def assert_write_guard(api_url: str, title: str, revision_id: int) -> None:
         raise AssertionError("ordinary fixture did not resolve to its expected snapshot")
 
     anonymous = WikiApi(api_url)
+    anonymous_token = anonymous.token("csrf")
     try:
         response = anonymous.call({
             "action": "palimpsestblame", "op": "build", "title": title,
-            "revision": revision_id,
+            "revision": revision_id, "token": anonymous_token,
         })
     except MediaWikiApiError as exc:
-        if exc.code not in {"mustbeposted", "mustpost", "badtoken", "permissiondenied"}:
-            raise AssertionError("GET build request failed for an unrelated reason") from exc
+        if exc.code != "mustpostparams":
+            raise AssertionError("valid-token GET build request did not fail at the POST-only parameter guard") from None
     else:
-        result = response.get("palimpsestblame", {})
-        if result.get("status") != "failed" or result.get("reason") not in {"post_required", "bad_token", "permission_denied"}:
-            raise AssertionError("GET build request was not rejected by its write guard")
+        raise AssertionError("valid-token GET build request was not rejected with mustpostparams")
+
+    try:
+        anonymous.call({
+            "action": "palimpsestblame", "op": "build", "title": title,
+            "revision": revision_id, "token": "invalid-token",
+        }, post=True)
+    except MediaWikiApiError as exc:
+        if exc.code != "badtoken":
+            raise AssertionError("invalid-token POST build request failed for an unrelated reason") from None
+    else:
+        raise AssertionError("invalid-token POST build request was accepted")
 
     # Status is non-mutating, but an unknown ID must never reveal job payload or
     # source text. The API may return a permission error or explicit not-found.

@@ -44,6 +44,16 @@ class WikiApi:
             with self.opener.open(request, timeout=self.timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
+            try:
+                error_payload = json.loads(exc.read().decode("utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                error_payload = None
+            if isinstance(error_payload, dict) and isinstance(error_payload.get("error"), dict):
+                error = error_payload["error"]
+                code = error.get("code")
+                info = error.get("info", "")
+                if isinstance(code, str) and code:
+                    raise MediaWikiApiError(code, str(info)) from None
             raise MediaWikiApiError(f"http_{exc.code}") from None
         except (URLError, TimeoutError, OSError) as exc:
             reason = getattr(exc, "reason", None)
