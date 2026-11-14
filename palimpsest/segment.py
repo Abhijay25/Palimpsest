@@ -117,9 +117,13 @@ def split_edit(
     new_wikitext: str | None,
 ) -> list[EditUnit]:
     use_wikitext = old_wikitext is not None and new_wikitext is not None
-    old_paras = _paragraphs(old_wikitext if old_wikitext is not None else old_text)
-    new_paras = _paragraphs(new_wikitext if new_wikitext is not None else new_text)
-    if not use_wikitext:
+    # Wikitext on both sides or plain text on both: never mix the two forms.
+    if old_wikitext is not None and new_wikitext is not None:
+        old_paras = _paragraphs(old_wikitext)
+        new_paras = _paragraphs(new_wikitext)
+    else:
+        old_paras = _paragraphs(old_text)
+        new_paras = _paragraphs(new_text)
         old_wikitext = new_wikitext = None
     if len(old_paras) <= 1 and len(new_paras) <= 1:
         return [

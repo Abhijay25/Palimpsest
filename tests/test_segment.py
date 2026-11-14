@@ -92,3 +92,14 @@ def test_large_article_splits_fast() -> None:
     elapsed = time.perf_counter() - start
     assert len(units) == 3
     assert elapsed < 0.05
+
+
+def test_single_wikitext_side_does_not_mix_with_plain_text() -> None:
+    old = _article(5)
+    new = _article(5, {2: "The mayor shamelessly pushed through the disastrous bill."})
+    # Wikitext markup makes every paragraph differ from the plain-text side.
+    new_wikitext = "\n\n".join(f"'''{p}'''" for p in new.split("\n\n"))
+    units = split_edit(old, new, None, new_wikitext)
+    assert len(units) == 1
+    assert units[0].old_text == PARA.format(n=2)
+    assert units[0].old_wikitext is None and units[0].new_wikitext is None
