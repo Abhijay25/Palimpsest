@@ -9,9 +9,10 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 from scripts.palimpsest_data.coverage import build_coverage, exit_for_report
+from scripts.palimpsest_data.cli import _manifest_for
 from scripts.palimpsest_data.dataset import fetch_assets
-from scripts.palimpsest_data.history import acquire_article, fetch_json, revision_record
-from scripts.palimpsest_data.io import DataError, atomic_json, canonical_json
+from scripts.palimpsest_data.history import GIB, acquire_article, acquire_corpus, fetch_json, revision_record
+from scripts.palimpsest_data.io import DataError, atomic_json, canonical_json, sha256_bytes
 from scripts.palimpsest_data.manifests import validate_corpus
 from scripts.palimpsest_data.support import discover_support
 from scripts.palimpsest_data.xml_export import export_article, export_article_stream, mediawiki_xml
@@ -52,6 +53,36 @@ class FakeApi:
 
 
 class DataPipelineTests(unittest.TestCase):
+    def test_all_pages_selects_full_manifest_without_implicit_default(self):
+        from argparse import Namespace
+        root = Path("/data")
+        self.assertEqual(_manifest_for(Namespace(sample_manifest=None, data_root=root, all_pages=False)),
+                         root / "dataset" / "manifests" / "sample-corpus.json")
+        self.assertEqual(_manifest_for(Namespace(sample_manifest=None, data_root=root, all_pages=True)),
+                         root / "dataset" / "manifests" / "full-corpus.json")
+
+    def test_full_acquisition_requires_opt_in_then_uses_fake_api(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        corpus = sample_corpus()
+        corpus["scope"] = "full"
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "full.json"
+            path.write_text(json.dumps(corpus))
+            with patch("scripts.palimpsest_data.history.validate_corpus", return_value=corpus):
+                with self.assertRaisesRegex(DataError, "requires explicit --all-pages"):
+                    acquire_corpus(path, Path(temp) / "history")
+                def api(url):
+                    from urllib.parse import parse_qs, urlparse
+                    page_id = int(parse_qs(urlparse(url).query)["pageids"][0])
+                    article = next(x for x in corpus["articles"] if x["source_page_id"] == page_id)
+                    return {"query": {"pages": [{"pageid": page_id, "revisions": [rev(article["anchor_revision_id"], article["dataset_timestamp"], "body")] }]}}
+                result = acquire_corpus(path, Path(temp) / "history", allow_full=True, api=api, sleep=lambda _: None,
+                                       interval=0, min_free_bytes=50 * GIB,
+                                       disk_usage=lambda _: SimpleNamespace(free=51 * GIB))
+                self.assertEqual(len(result["articles"]), 3)
+                self.assertTrue(all(x["exhausted"] and not x["gaps"] for x in result["articles"]))
+
     def test_sample_membership_validates_three_language_identity(self):
         self.assertEqual(validate_corpus(sample_corpus())["expected_counts"], {"fi": 1, "sv": 1, "en": 1})
 
@@ -180,6 +211,31 @@ class DataPipelineTests(unittest.TestCase):
             fetch_json("https://example.invalid", opener=fail, sleep=sleeps.append, retries=2, jitter=lambda: 0)
         self.assertEqual(len(sleeps), 2)
 
+    def test_low_disk_preserves_checkpoint_and_resumes_after_capacity_returns(self):
+        from types import SimpleNamespace
+        article = corpus_article(anchor=3005)
+        first_page = {"query": {"pages": [{"pageid": 101, "revisions": [
+            rev(3005, "2025-08-01T00:00:00Z", "5", 3004),
+            rev(3004, "2025-07-31T00:00:00Z", "4", 3003),
+            rev(3003, "2025-07-30T00:00:00Z", "3", 3002),
+            rev(3002, "2025-07-29T00:00:00Z", "2", 3001),
+            rev(3001, "2025-07-28T00:00:00Z", "1", 3000),
+        ]}]}, "continue": {"rvcontinue": "older"}}
+        second_page = {"query": {"pages": [{"pageid": 101, "revisions": [rev(3000, "2025-07-27T00:00:00Z", "0", 0)]}]}}
+        with tempfile.TemporaryDirectory() as temp:
+            history = Path(temp)
+            free_values = iter((10, 0))
+            with self.assertRaisesRegex(DataError, "insufficient free disk space"):
+                acquire_article(article, history, api=FakeApi([first_page, second_page]), sleep=lambda _: None,
+                                interval=0, min_free_bytes=5, disk_usage=lambda _: SimpleNamespace(free=next(free_values)))
+            checkpoint = json.loads((history / "fiwiki" / "101" / "state.json").read_text())
+            self.assertEqual(len(checkpoint["committed_batches"]), 1)
+            self.assertEqual(checkpoint["continuation"], {"rvcontinue": "older"})
+            resumed = acquire_article(article, history, api=FakeApi([second_page]), sleep=lambda _: None,
+                                      interval=0, min_free_bytes=5, disk_usage=lambda _: SimpleNamespace(free=10))
+            self.assertTrue(resumed["state"]["enumeration_exhausted"])
+            self.assertEqual(resumed["record_count"], 6)
+
     def test_xml_escapes_text_and_rejects_unavailable_nonhidden_content(self):
         article = corpus_article()
         record = {"source_revision_id": 3000, "source_parent_id": None, "timestamp": "2025-08-01T00:00:00Z",
@@ -220,6 +276,71 @@ class DataPipelineTests(unittest.TestCase):
             self.assertEqual(exit_for_report(report), 1)
             for lang in ("fi", "sv", "en"):
                 self.assertIsNone(report["per_language"][lang]["expected_revisions"])
+
+    def test_coverage_joins_exact_source_mapping_and_live_local_revisions(self):
+        corpus = sample_corpus()
+        text = "sample body"
+        digest = sha256_bytes(text.encode())
+        runtime = {"schema_version": 1, "initialized": {x: True for x in ("fi", "sv", "en")},
+                   "languages": {x: {"api_url": f"http://{x}/w/api.php"} for x in ("fi", "sv", "en")}}
+
+        def create_tree(root, forged=False):
+            for article in corpus["articles"]:
+                source = {"source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"],
+                          "source_revision_id": article["anchor_revision_id"], "source_parent_id": None,
+                          "timestamp": article["dataset_timestamp"], "author": {"kind": "named", "value": "Editor", "hidden": False},
+                          "comment": "edit", "comment_hidden": False, "minor": False,
+                          "content_model": "wikitext", "content_format": "text/x-wiki", "content": text,
+                          "computed_sha256": digest, "anchor_revision_id": article["anchor_revision_id"]}
+                batch = root / "history" / article["source_wiki"] / str(article["source_page_id"]) / "batch-000000.jsonl"
+                batch.parent.mkdir(parents=True)
+                batch.write_bytes(canonical_json(source) + b"\n")
+                from scripts.palimpsest_data.io import sha256_file
+                batch_digest = sha256_file(batch)
+                atomic_json(batch.parent / "state.json", {"anchor_validated": True, "enumeration_exhausted": True,
+                    "gap_analysis_complete": True, "unresolved_gaps": [], "committed_batches": [
+                        {"path": batch.name, "sha256": batch_digest, "count": 1}]})
+                mapping = {"source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"],
+                           "source_revision_id": article["anchor_revision_id"], "source_parent_id": None,
+                           "local_page_id": article["source_page_id"] + 1000, "local_revision_id": article["anchor_revision_id"] + 1000,
+                           "source_content_hash": "0" * 64 if forged else digest, "timestamp": source["timestamp"],
+                           "author": source["author"], "comment": source["comment"], "comment_hidden": False,
+                           "minor": False, "content_model": "wikitext", "content_format": "text/x-wiki",
+                           "status": "reconciled", "batch_checksum": batch_digest}
+                mp = root / "imports" / article["source_wiki"] / f"{article['source_page_id']}.jsonl"
+                mp.parent.mkdir(parents=True)
+                mp.write_bytes(canonical_json(mapping) + b"\n")
+
+        def local_api(mode="good"):
+            def api(url):
+                from urllib.parse import parse_qs, urlparse
+                parsed = urlparse(url)
+                title = parse_qs(parsed.query)["titles"][0]
+                lang = parsed.netloc.split(".")[0]
+                article = next(a for a in corpus["articles"] if a["title"] == title and a["language"] == lang)
+                content = "changed" if mode == "changed" else text
+                revisions = [] if mode == "missing" else [{"revid": article["anchor_revision_id"] + 1000,
+                    "parentid": 0, "timestamp": article["dataset_timestamp"], "user": "ImportedEditor", "comment": "edit",
+                    "slots": {"main": {"content": content, "contentmodel": "wikitext", "contentformat": "text/x-wiki"}}}]
+                return {"query": {"pages": [{"pageid": article["source_page_id"] + 1000, "revisions": revisions}]}}
+            return api
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            create_tree(root)
+            good = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime, api=local_api())
+            self.assertTrue(good["complete"], good["failures"])
+            forged_root = root / "forged"
+            create_tree(forged_root, forged=True)
+            forged = build_coverage(corpus, forged_root, project="fixture", runtime_manifest=runtime, api=local_api())
+            self.assertFalse(forged["complete"])
+            self.assertIn("mapping-source-identity-or-status-mismatch", {x["reason"] for x in forged["failures"]})
+            missing = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime, api=local_api("missing"))
+            self.assertFalse(missing["complete"])
+            self.assertIn("local-revision-missing-or-changed", {x["reason"] for x in missing["failures"]})
+            changed = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime, api=local_api("changed"))
+            self.assertFalse(changed["complete"])
+            self.assertIn("local-revision-missing-or-changed", {x["reason"] for x in changed["failures"]})
 
     def test_support_cycle_is_reported_and_terminates(self):
         graph = {"Template:A": "{{Template:B}}", "Template:B": "{{Template:A}}"}

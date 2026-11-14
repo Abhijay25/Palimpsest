@@ -10,7 +10,7 @@ from pathlib import Path
 from .container import run_parquet_worker
 from .coverage import build_coverage, write_coverage, exit_for_report
 from .dataset import fetch_assets
-from .history import acquire_corpus, probe_anchor_sample
+from .history import GIB, acquire_corpus, probe_anchor_sample
 from .importer import import_corpus
 from .io import DataError, atomic_json
 from .manifests import load_corpus
@@ -48,6 +48,7 @@ def parser() -> argparse.ArgumentParser:
     acquire.add_argument("--sample-manifest", type=Path)
     acquire.add_argument("--all-pages", action="store_true", help="explicitly opt into full S history acquisition")
     acquire.add_argument("--interval", type=float, default=1.0)
+    acquire.add_argument("--min-free-gib", type=float, default=2.0, help="free disk floor checked before acquisition and each committed batch (full scope requires at least 50 GiB)")
     probe = hs.add_parser("probe-anchors", help="verify real sample anchor IDs and immediate public history only")
     probe.add_argument("--sample-manifest", type=Path)
     probe.add_argument("--interval", type=float, default=1.0)
@@ -73,6 +74,8 @@ def parser() -> argparse.ArgumentParser:
 def _manifest_for(args, scope: str | None = None) -> Path:
     if getattr(args, "sample_manifest", None):
         return args.sample_manifest.resolve()
+    if scope is None and getattr(args, "all_pages", False):
+        scope = "full"
     name = "full-corpus.json" if scope == "full" else "sample-corpus.json"
     return args.data_root / "dataset" / "manifests" / name
 
@@ -100,8 +103,9 @@ def _run(args: argparse.Namespace) -> int:
             raise DataError("full history acquisition requires --all-pages")
         if corpus["scope"] == "sample" and args.all_pages:
             raise DataError("--all-pages cannot be combined with a sample manifest")
-        result = acquire_corpus(corpus_path, data_root / "history", sample_only=not args.all_pages, interval=args.interval,
-                                progress_path=data_root / "history" / f"acquisition-{corpus['scope']}.json")
+        result = acquire_corpus(corpus_path, data_root / "history", allow_full=args.all_pages, interval=args.interval,
+                                progress_path=data_root / "history" / f"acquisition-{corpus['scope']}.json",
+                                min_free_bytes=int(args.min_free_gib * GIB))
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if all(a.get("exhausted") and not a.get("error") for a in result["articles"]) else 1
     if args.command == "history" and args.history_command == "probe-anchors":

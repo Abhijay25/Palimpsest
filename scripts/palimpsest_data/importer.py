@@ -49,6 +49,9 @@ def c4_record(source: dict[str, Any], *, local_page_id: int | None = None,
         "source_parent_id": source.get("source_parent_id"), "local_page_id": local_page_id,
         "local_revision_id": local_revision_id, "source_content_hash": source.get("computed_sha256"),
         "timestamp": source["timestamp"], "author": source.get("author"),
+        "comment": source.get("comment"), "comment_hidden": source.get("comment_hidden", False),
+        "minor": source.get("minor", False), "content_model": source.get("content_model"),
+        "content_format": source.get("content_format"),
         "batch_checksum": source.get("batch_checksum"), "status": status, "errors": [error] if error else [],
     }
 
@@ -121,7 +124,7 @@ def map_revisions(source_records: list[dict[str, Any]], local_records: list[dict
 
 def fetch_local_page(api_url: str, title: str, *, api: Callable = fetch_json) -> tuple[int | None, list[dict[str, Any]]]:
     params = {"action": "query", "format": "json", "formatversion": 2, "prop": "revisions",
-              "titles": title, "rvprop": "ids|timestamp|content", "rvslots": "main", "rvlimit": "max",
+              "titles": title, "rvprop": "ids|timestamp|content|user|comment|flags|contentmodel|contentformat", "rvslots": "main", "rvlimit": "max",
               "rvdir": "newer"}
     all_rows: list[dict[str, Any]] = []
     continuation = None
@@ -142,8 +145,11 @@ def fetch_local_page(api_url: str, title: str, *, api: Callable = fetch_json) ->
         for rev in pages[0].get("revisions", []):
             main = (rev.get("slots") or {}).get("main") or rev
             content = main.get("content", main.get("*"))
-            all_rows.append({"revid": rev.get("revid"), "timestamp": rev.get("timestamp"),
-                             "content_hash": sha256_bytes(content.encode("utf-8")) if isinstance(content, str) else None})
+            all_rows.append({"revid": rev.get("revid"), "parentid": rev.get("parentid"), "timestamp": rev.get("timestamp"),
+                             "content_hash": sha256_bytes(content.encode("utf-8")) if isinstance(content, str) else None,
+                             "user": rev.get("user"), "comment": rev.get("comment"), "minor": "minor" in rev,
+                             "content_model": main.get("contentmodel") or rev.get("contentmodel"),
+                             "content_format": main.get("contentformat") or rev.get("contentformat")})
         continuation = data.get("continue")
         if not continuation:
             break

@@ -6,14 +6,15 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .io import DataError, atomic_json, iter_jsonl, read_json
+from .io import DataError, atomic_json, iter_jsonl, read_json, sha256_file
 from .history import iter_page_records
+from .importer import fetch_local_page
 from .manifests import EXPECTED, LANGS, validate_corpus
 
 
 def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
                    runtime_manifest: dict[str, Any] | None = None,
-                   code_revision: str | None = None) -> dict[str, Any]:
+                   code_revision: str | None = None, api=None) -> dict[str, Any]:
     corpus = validate_corpus(corpus)
     history_root = data_root / "history"
     import_root = data_root / "imports"
@@ -45,6 +46,12 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
                 unresolved_pages += 1
                 failures.append({"stage": "history", "language": lang, "page_id": article["source_page_id"], "reason": str(e)})
             ids = {int(x["source_revision_id"]) for x in rows}
+            source_batch_hashes: dict[int, str] = {}
+            for batch in state.get("committed_batches", []):
+                batch_path = page / batch["path"]
+                batch_digest = sha256_file(batch_path)
+                for batch_row in iter_jsonl([batch_path]):
+                    source_batch_hashes[int(batch_row["source_revision_id"])] = batch_digest
             anchor_ok = state.get("anchor_validated") and article["anchor_revision_id"] in ids
             if state.get("enumeration_exhausted") and anchor_ok:
                 acquired += 1
@@ -60,16 +67,69 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
                     unresolved_revisions += 1
             mapping_path = import_root / article["source_wiki"] / f"{article['source_page_id']}.jsonl"
             mapping = list(iter_jsonl([mapping_path])) if mapping_path.exists() else []
-            imported += bool(mapping) and all(x.get("status") in {"imported", "reconciled"} for x in mapping)
-            reconciled += bool(mapping) and all(x.get("status") == "reconciled" for x in mapping)
-            imported_revisions += sum(x.get("status") in {"imported", "reconciled"} for x in mapping)
-            reconciled_revisions += sum(x.get("status") == "reconciled" for x in mapping)
-            if len(mapping) != len(rows):
-                unresolved_revisions += abs(len(rows) - len(mapping)) or 1
-                failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "reason": "mapping-count-mismatch", "source_revisions": len(rows), "mapping_records": len(mapping)})
-            for row in mapping:
-                if row.get("status") != "reconciled":
-                    failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "revision_id": row.get("source_revision_id"), "reason": row.get("errors") or row.get("status")})
+            source_by_id = {int(x["source_revision_id"]): x for x in rows}
+            mapping_by_id: dict[int, list[dict[str, Any]]] = {}
+            for item in mapping:
+                try:
+                    mapping_by_id.setdefault(int(item["source_revision_id"]), []).append(item)
+                except (KeyError, TypeError, ValueError):
+                    failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "reason": "invalid-source-revision-key"})
+            valid: dict[int, dict[str, Any]] = {}
+            for source_id, source in source_by_id.items():
+                candidates = mapping_by_id.get(source_id, [])
+                if len(candidates) != 1:
+                    failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "revision_id": source_id, "reason": "mapping-missing-or-duplicate"})
+                    unresolved_revisions += 1
+                    continue
+                item = candidates[0]
+                expected = (source.get("source_wiki"), int(source.get("source_page_id", -1)), source.get("computed_sha256"), source.get("timestamp"), source.get("source_parent_id"), source.get("author"), source.get("comment"), source.get("comment_hidden", False), source.get("minor", False), source.get("content_model"), source.get("content_format"), source_batch_hashes.get(source_id))
+                observed = (item.get("source_wiki"), item.get("source_page_id"), item.get("source_content_hash"), item.get("timestamp"), item.get("source_parent_id"), item.get("author"), item.get("comment"), item.get("comment_hidden", False), item.get("minor", False), item.get("content_model"), item.get("content_format"), item.get("batch_checksum"))
+                if observed != expected or item.get("status") != "reconciled":
+                    failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "revision_id": source_id, "reason": "mapping-source-identity-or-status-mismatch"})
+                    unresolved_revisions += 1
+                    continue
+                valid[source_id] = item
+            extras = set(mapping_by_id) - set(source_by_id)
+            if extras:
+                failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "reason": "mapping-has-extra-source-revisions", "revision_ids": sorted(extras)[:20]})
+                unresolved_revisions += len(extras)
+            observed_local: dict[int, tuple[int, dict[int, dict[str, Any]]]] = {}
+            if valid and runtime_manifest:
+                lang_config = (runtime_manifest.get("languages") or {}).get(lang) or {}
+                api_url = lang_config.get("api_url")
+                if not api_url:
+                    failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "reason": "runtime-api-url-missing"})
+                else:
+                    local_id, local_rows = fetch_local_page(api_url, article["title"], api=api) if api else fetch_local_page(api_url, article["title"])
+                    local_by_id = {int(x["revid"]): x for x in local_rows if type(x.get("revid")) is int}
+                    observed_local[article["source_page_id"]] = (local_id or -1, local_by_id)
+                    local_keys: set[int] = set()
+                    for source_id, item in valid.items():
+                        local_rev_id = item.get("local_revision_id")
+                        local = local_by_id.get(local_rev_id) if type(local_rev_id) is int else None
+                        source = source_by_id[source_id]
+                        author = source.get("author") or {}
+                        expected_user = author.get("value")
+                        if expected_user and author.get("kind") == "named":
+                            expected_user = "Imported" + expected_user
+                        source_parent = source.get("source_parent_id")
+                        expected_local_parent = valid.get(source_parent, {}).get("local_revision_id") if source_parent else None
+                        parent_matches = (source_parent is None and (local or {}).get("parentid") in (None, 0)) or (source_parent is not None and (local or {}).get("parentid") == expected_local_parent)
+                        author_matches = author.get("hidden") or author.get("kind") == "unknown" or (local or {}).get("user") == expected_user
+                        metadata_matches = ((source.get("comment_hidden", False) or (local or {}).get("comment") == source.get("comment"))
+                                            and (local or {}).get("minor", False) == source.get("minor", False)
+                                            and (local or {}).get("content_model") == source.get("content_model")
+                                            and (local or {}).get("content_format") == source.get("content_format"))
+                        if item.get("local_page_id") != local_id or local is None or local.get("timestamp") != item.get("timestamp") or local.get("content_hash") != item.get("source_content_hash") or local_rev_id in local_keys or not parent_matches or not author_matches or not metadata_matches:
+                            failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "revision_id": source_id, "reason": "local-revision-missing-or-changed"})
+                            unresolved_revisions += 1
+                        else:
+                            local_keys.add(local_rev_id)
+            good = len(valid) == len(rows) and len(mapping) == len(rows) and not extras
+            imported += bool(good)
+            reconciled += bool(good and runtime_manifest and observed_local)
+            imported_revisions += len(valid)
+            reconciled_revisions += len(valid) if good and runtime_manifest and observed_local and not any(f.get("page_id") == article["source_page_id"] and f.get("reason") == "local-revision-missing-or-changed" for f in failures) else 0
             support_path = data_root / "support" / article["source_wiki"] / f"{article['source_page_id']}.json"
             if not support_path.exists():
                 rendering_unresolved.append({"source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"], "reason": "support-inventory-missing"})

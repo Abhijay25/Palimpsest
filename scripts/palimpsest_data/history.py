@@ -4,6 +4,7 @@ import datetime as dt
 import hashlib
 import json
 import random
+import shutil
 import time
 import urllib.error
 import urllib.parse
@@ -17,6 +18,15 @@ from .manifests import WIKIS, validate_corpus
 API = "https://{lang}.wikipedia.org/w/api.php"
 MAX_RETRIES = 5
 MAX_REVISION_BATCH = 5
+GIB = 1024 ** 3
+FULL_HISTORY_MIN_FREE_BYTES = 50 * GIB
+
+
+def ensure_free_space(path: Path, minimum_bytes: int, *, disk_usage: Callable = shutil.disk_usage) -> int:
+    free = disk_usage(path).free
+    if free < minimum_bytes:
+        raise DataError(f"insufficient free disk space at {path}: {free} bytes available, {minimum_bytes} required")
+    return free
 
 
 def utc_now() -> str:
@@ -201,7 +211,8 @@ def _save_batch(path: Path, records: list[dict[str, Any]]) -> str:
 
 
 def acquire_article(article: dict[str, Any], history_dir: Path, *, api: Callable = fetch_json,
-                    sleep: Callable = time.sleep, interval: float = 1.0) -> dict[str, Any]:
+                    sleep: Callable = time.sleep, interval: float = 1.0,
+                    min_free_bytes: int = 0, disk_usage: Callable = shutil.disk_usage) -> dict[str, Any]:
     wiki = article["source_wiki"]
     page_dir = history_dir / wiki / str(article["source_page_id"])
     page_dir.mkdir(parents=True, exist_ok=True)
@@ -315,6 +326,7 @@ def acquire_article(article: dict[str, Any], history_dir: Path, *, api: Callable
             known[key] = fingerprint
             new_batch.append(rec)
         if new_batch:
+            ensure_free_space(history_dir, min_free_bytes, disk_usage=disk_usage)
             batch_index = len(state["committed_batches"])
             batch_path = page_dir / f"batch-{batch_index:06d}.jsonl"
             digest = _save_batch(batch_path, new_batch)
@@ -347,27 +359,37 @@ def acquire_article(article: dict[str, Any], history_dir: Path, *, api: Callable
     return {"state": state, "record_count": len(known)}
 
 
-def acquire_corpus(corpus_path: Path, history_dir: Path, *, sample_only: bool = False,
+def acquire_corpus(corpus_path: Path, history_dir: Path, *, allow_full: bool = False,
                    api: Callable = fetch_json, sleep: Callable = time.sleep, interval: float = 1.0,
-                   progress_path: Path | None = None) -> dict[str, Any]:
+                   progress_path: Path | None = None, min_free_bytes: int = 2 * GIB,
+                   disk_usage: Callable = shutil.disk_usage) -> dict[str, Any]:
     corpus = validate_corpus(json.loads(corpus_path.read_text(encoding="utf-8")))
-    if corpus["scope"] != "sample" and not sample_only:
-        # Full remains explicit: caller must opt in by providing --all-pages.
-        raise DataError("full history acquisition requires explicit --all-pages; sample-only is the default guard")
+    if corpus["scope"] == "full" and not allow_full:
+        raise DataError("full history acquisition requires explicit --all-pages")
+    if min_free_bytes < 0:
+        raise DataError("minimum free disk floor must be nonnegative")
+    if corpus["scope"] == "full" and min_free_bytes < FULL_HISTORY_MIN_FREE_BYTES:
+        raise DataError(f"full history requires a disk floor of at least {FULL_HISTORY_MIN_FREE_BYTES} bytes (50 GiB)")
+    history_dir.mkdir(parents=True, exist_ok=True)
+    ensure_free_space(history_dir, min_free_bytes, disk_usage=disk_usage)
     previous = read_json(progress_path) if progress_path and progress_path.exists() else {}
     saved = {(x.get("source_wiki"), x.get("source_page_id")): x for x in previous.get("articles", [])}
     results = []
     for article in corpus["articles"]:
         try:
-            result = acquire_article(article, history_dir, api=api, sleep=sleep, interval=interval)
+            result = acquire_article(article, history_dir, api=api, sleep=sleep, interval=interval,
+                                    min_free_bytes=min_free_bytes, disk_usage=disk_usage)
+            result["state"].pop("attempt_failures", None)
+            result["state"]["unresolved_gaps"] = [g for g in result["state"].get("unresolved_gaps", []) if g.get("kind") != "acquisition-failure"]
+            atomic_json(_page_dir(history_dir, article) / "state.json", result["state"])
             results.append({"source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"], "anchor_revision_id": article["anchor_revision_id"], "revisions": result["record_count"], "exhausted": result["state"]["enumeration_exhausted"], "gaps": result["state"]["unresolved_gaps"]})
         except DataError as e:
             page_dir = _page_dir(history_dir, article)
             state_path = page_dir / "state.json"
             state = read_json(state_path) if state_path.exists() else {"schema_version": 1, "source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"], "anchor_revision_id": article["anchor_revision_id"], "continuation": None, "committed_batches": [], "anchor_validated": False, "enumeration_exhausted": False, "gap_analysis_complete": False, "unresolved_gaps": [], "seen_continuations": []}
-            state.setdefault("unresolved_gaps", []).append({"kind": "acquisition-failure", "reason": str(e)})
+            state.setdefault("attempt_failures", []).append({"at": utc_now(), "reason": str(e)})
             atomic_json(state_path, state)
-            results.append({"source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"], "anchor_revision_id": article["anchor_revision_id"], "exhausted": False, "error": str(e), "gaps": state["unresolved_gaps"]})
+            results.append({"source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"], "anchor_revision_id": article["anchor_revision_id"], "exhausted": False, "error": str(e), "gaps": state["unresolved_gaps"], "attempt_failures": state["attempt_failures"]})
         saved[(article["source_wiki"], article["source_page_id"])] = results[-1]
         progress = {"schema_version": 1, "scope": corpus["scope"], "release": corpus["release"],
                     "articles": [saved[k] for k in sorted(saved)]}
