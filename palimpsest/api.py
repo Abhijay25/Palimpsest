@@ -7,6 +7,7 @@ from typing import Annotated, Final, Literal
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import AfterValidator, BaseModel, Field
 
 from palimpsest.backends.gemini import GeminiJudgeBackend
@@ -174,13 +175,10 @@ def stealth_scan(req: StealthScanRequest) -> ScanResult:
     return scan(req.text, req.target_type, old_text=req.old_text)
 
 
-@app.post("/api/v1/audit-diff", response_model=AuditDiffResponse)
-async def audit_diff(
+def _scan_request(
     req: AuditDiffRequest,
-    fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
-    backend: Annotated[GeminiJudgeBackend | None, Depends(get_judge_backend)],
-) -> AuditDiffResponse:
-    started = time.perf_counter()
+) -> tuple[ScanResult, ScanResult, ScanResult, list[str] | None]:
+    """CPU-bound scans for one request; run off the event loop."""
     diff_scan = scan(
         req.new_wikitext or req.new_text,
         "WIKIPEDIA_DIFF",
@@ -188,13 +186,26 @@ async def audit_diff(
     )
     old_scan = scan(req.old_text, "WIKIPEDIA_DIFF")
     new_scan = scan(req.new_text, "WIKIPEDIA_DIFF")
-    stealth_ms = (
-        diff_scan.scan_latency_ms + old_scan.scan_latency_ms + new_scan.scan_latency_ms
-    )
     changed_refs = (
         refs_for_changed_sentences(req.old_wikitext, req.new_wikitext)
         if req.old_wikitext and req.new_wikitext
         else None
+    )
+    return diff_scan, old_scan, new_scan, changed_refs
+
+
+@app.post("/api/v1/audit-diff", response_model=AuditDiffResponse)
+async def audit_diff(
+    req: AuditDiffRequest,
+    fetcher: Annotated[SourceFetcher, Depends(get_fetcher)],
+    backend: Annotated[GeminiJudgeBackend | None, Depends(get_judge_backend)],
+) -> AuditDiffResponse:
+    started = time.perf_counter()
+    diff_scan, old_scan, new_scan, changed_refs = await run_in_threadpool(
+        _scan_request, req
+    )
+    stealth_ms = (
+        diff_scan.scan_latency_ms + old_scan.scan_latency_ms + new_scan.scan_latency_ms
     )
     case = Case(
         case_id=f"{req.lang_code}:{req.page_title}:{req.new_revision_id}",
@@ -210,7 +221,7 @@ async def audit_diff(
         changed_ref_urls=changed_refs,
         expected="UNLABELLED",
     )
-    stage0 = prefilter(case.old_text, case.new_text, case.lang)
+    stage0 = await run_in_threadpool(prefilter, case.old_text, case.new_text, case.lang)
     pc = PreparedCase(
         case=case,
         stage0=stage0,

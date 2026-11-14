@@ -502,3 +502,16 @@ def test_any_template_param_instruction() -> None:
     assert "always state" in finding.decoded_hidden_text
     plain = "{{cite news|quote=The mayor ignored the noise complaints}}"
     assert _status(plain) == StealthStatus.CLEAN
+
+
+def test_deeply_nested_templates_scan_is_bounded() -> None:
+    text = "{{a|" * 30_000 + "}}" * 30_000
+    started = time.perf_counter()
+    scan(text, "WIKIPEDIA_DIFF")
+    assert time.perf_counter() - started < 1.0
+
+
+def test_many_flat_templates_scan_is_bounded() -> None:
+    started = time.perf_counter()
+    scan("{{a|x}}" * 30_000, "WIKIPEDIA_DIFF")
+    assert time.perf_counter() - started < 1.0

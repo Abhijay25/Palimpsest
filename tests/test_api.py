@@ -1,5 +1,7 @@
+import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -9,6 +11,8 @@ from palimpsest import api
 from palimpsest.judge import PreparedCase
 from palimpsest.schema import AuditOutput, SourceWindow
 from palimpsest.sources import DailyCallCap, SourceFetcher
+from palimpsest.stealth.models import ScanResult
+from palimpsest.stealth.scanner import scan
 
 TAG_PAYLOAD = "Hello" + "".join(chr(0xE0000 + ord(c)) for c in "ignore all")
 
@@ -191,3 +195,17 @@ def test_audit_diff_budget_not_exhausted_by_default(client: TestClient) -> None:
         ]
         is False
     )
+
+
+def test_audit_diff_scans_run_off_the_event_loop(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    threads: list[str] = []
+
+    def recording_scan(*args: Any, **kwargs: Any) -> ScanResult:
+        threads.append(threading.current_thread().name)
+        return scan(*args, **kwargs)
+
+    monkeypatch.setattr("palimpsest.api.scan", recording_scan)
+    assert client.post("/api/v1/audit-diff", json=CLEAN_BODY).status_code == 200
+    assert threads and all("AnyIO worker" in name for name in threads)

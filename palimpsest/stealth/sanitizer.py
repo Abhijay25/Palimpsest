@@ -1,6 +1,7 @@
 import re
 import unicodedata
 from functools import lru_cache
+from typing import Final
 
 from pydantic import BaseModel
 
@@ -76,6 +77,8 @@ _HIDDEN_ATTR = re.compile(
 )
 _QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
 _TEMPLATE = re.compile(r"\{\{[^{}]*\}\}")
+MAX_TEMPLATE_PASSES: Final = 20
+MAX_TEMPLATE_SCAN_CHARS: Final = 200_000
 _INTERWIKI = re.compile(r"\[\[[a-z]{2,3}(?:-[a-z]+)*:[^\]\n]*\]\]")
 
 _COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -705,16 +708,24 @@ def _split_param(piece: str) -> tuple[str, str]:
 
 
 def _template_params(text: str) -> list[tuple[int, int, str]]:
-    """Return (start, end, value) of every template parameter, innermost first."""
+    """Return (start, end, value) of every template parameter, innermost first.
+
+    Cost is bounded: only the first MAX_TEMPLATE_SCAN_CHARS characters are scanned and at
+    most MAX_TEMPLATE_PASSES nesting levels are peeled; anything beyond is not reported.
+    """
     params: list[tuple[int, int, str]] = []
-    while True:
-        matches = list(_TEMPLATE.finditer(text))
-        if not matches:
-            return params
-        for m in matches:
-            for start, piece in _split_pipes(m.group()[2:-2], m.start() + 2)[1:]:
-                params.append((start, start + len(piece), _split_param(piece)[1]))
-            text = text[: m.start()] + " " * len(m.group()) + text[m.end() :]
+    text = text[:MAX_TEMPLATE_SCAN_CHARS]
+
+    def blank(m: re.Match[str]) -> str:
+        for start, piece in _split_pipes(m.group()[2:-2], m.start() + 2)[1:]:
+            params.append((start, start + len(piece), _split_param(piece)[1]))
+        return " " * len(m.group())
+
+    for _ in range(MAX_TEMPLATE_PASSES):
+        if not _TEMPLATE.search(text):
+            break
+        text = _TEMPLATE.sub(blank, text)
+    return params
 
 
 def _media_params(text: str) -> list[tuple[int, int, str]]:
