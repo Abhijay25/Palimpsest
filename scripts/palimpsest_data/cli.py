@@ -48,7 +48,7 @@ def parser() -> argparse.ArgumentParser:
     acquire.add_argument("--sample-manifest", type=Path)
     acquire.add_argument("--all-pages", action="store_true", help="explicitly opt into full S history acquisition")
     acquire.add_argument("--interval", type=float, default=1.0)
-    acquire.add_argument("--min-free-gib", type=float, default=2.0, help="free disk floor checked before acquisition and each committed batch (full scope requires at least 50 GiB)")
+    acquire.add_argument("--min-free-gib", type=float, help="free disk floor checked before acquisition and each committed batch (default: 2 GiB sample, 50 GiB full)")
     probe = hs.add_parser("probe-anchors", help="verify real sample anchor IDs and immediate public history only")
     probe.add_argument("--sample-manifest", type=Path)
     probe.add_argument("--interval", type=float, default=1.0)
@@ -103,9 +103,10 @@ def _run(args: argparse.Namespace) -> int:
             raise DataError("full history acquisition requires --all-pages")
         if corpus["scope"] == "sample" and args.all_pages:
             raise DataError("--all-pages cannot be combined with a sample manifest")
+        min_free_gib = args.min_free_gib if args.min_free_gib is not None else (50.0 if corpus["scope"] == "full" else 2.0)
         result = acquire_corpus(corpus_path, data_root / "history", allow_full=args.all_pages, interval=args.interval,
                                 progress_path=data_root / "history" / f"acquisition-{corpus['scope']}.json",
-                                min_free_bytes=int(args.min_free_gib * GIB))
+                                min_free_bytes=int(min_free_gib * GIB))
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if all(a.get("exhausted") and not a.get("error") for a in result["articles"]) else 1
     if args.command == "history" and args.history_command == "probe-anchors":

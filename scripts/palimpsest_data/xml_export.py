@@ -20,6 +20,23 @@ def _tag(parent: ET.Element, name: str, text: str | None = None, **attrs: str) -
     return node
 
 
+def _sha1_base36(hex_digest: str | None) -> str | None:
+    if not hex_digest:
+        return None
+    if len(hex_digest) != 40:
+        raise DataError("source SHA-1 must be a 40-character hexadecimal digest")
+    try:
+        value = int(hex_digest, 16)
+    except ValueError as e:
+        raise DataError("source SHA-1 must be a 40-character hexadecimal digest") from e
+    alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+    out = "0" if value == 0 else ""
+    while value:
+        value, remainder = divmod(value, 36)
+        out = alphabet[remainder] + out
+    return out
+
+
 def mediawiki_xml(article: dict[str, Any], revisions: Iterable[dict[str, Any]]) -> bytes:
     records = sorted(revisions, key=lambda r: (r["timestamp"], r["source_revision_id"]))
     if not records:
@@ -66,21 +83,22 @@ def mediawiki_xml(article: dict[str, Any], revisions: Iterable[dict[str, Any]]) 
             _tag(rev, "minor")
         model = rec.get("content_model") or "wikitext"
         content_format = rec.get("content_format") or "text/x-wiki"
-        slot = _tag(rev, "slots")
-        main = _tag(slot, "slot", role="main")
-        _tag(main, "model", model)
-        _tag(main, "format", content_format)
+        sha1_base36 = _sha1_base36(rec.get("source_sha1"))
+        if sha1_base36:
+            _tag(rev, "sha1", sha1_base36)
+        _tag(rev, "model", model)
+        _tag(rev, "format", content_format)
         text_attrs = {}
-        if rec.get("source_sha1"):
-            text_attrs["sha1"] = str(rec["source_sha1"])
+        if sha1_base36:
+            text_attrs["sha1"] = sha1_base36
         if rec.get("content_hidden"):
-            _tag(main, "text", None, deleted="deleted")
+            _tag(rev, "text", None, deleted="deleted")
         else:
             if rec.get("content") is None:
                 raise DataError(f"revision {rec['source_revision_id']} has unavailable, non-hidden content and cannot be exported")
             content = rec["content"]
             text_attrs["bytes"] = str(len(content.encode("utf-8")))
-            _tag(main, "text", content, **text_attrs)
+            _tag(rev, "text", content, **text_attrs)
     xml = ET.tostring(root, encoding="utf-8", xml_declaration=True)
     try:
         ET.fromstring(xml)
@@ -126,18 +144,22 @@ def _stream_revision(out, rec: dict[str, Any]) -> None:
         out.write(b"      <minor />\n")
     model = _escape_xml(str(rec.get("content_model") or "wikitext"))
     content_format = _escape_xml(str(rec.get("content_format") or "text/x-wiki"))
-    out.write(f'      <slots><slot role="main"><model>{model}</model><format>{content_format}</format>'.encode())
+    sha1_base36 = _sha1_base36(rec.get("source_sha1"))
+    if sha1_base36:
+        out.write(f"      <sha1>{sha1_base36}</sha1>\n".encode())
+    out.write(f"      <model>{model}</model>\n      <format>{content_format}</format>\n".encode())
     if rec.get("content_hidden"):
-        out.write(b'<text deleted="deleted" />')
+        out.write(b'      <text deleted="deleted" />\n')
     else:
         content = rec.get("content")
         if content is None:
             raise DataError(f"revision {rec['source_revision_id']} has unavailable, non-hidden content and cannot be exported")
         attrs = f' bytes="{len(content.encode("utf-8"))}"'
-        if rec.get("source_sha1"):
-            attrs += f' sha1="{html.escape(str(rec["source_sha1"]), quote=True)}"'
+        if sha1_base36:
+            attrs += f' sha1="{sha1_base36}"'
         out.write(f"<text{attrs}>{_escape_xml(content)}</text>".encode())
-    out.write(b"</slot></slots>\n    </revision>\n")
+        out.write(b"\n")
+    out.write(b"    </revision>\n")
 
 
 def export_article_stream(path: Path, article: dict[str, Any], batch_paths: list[Path], *, only_revision_ids: set[int] | None = None) -> str:

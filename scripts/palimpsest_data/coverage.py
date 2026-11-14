@@ -22,6 +22,9 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
     failures: list[dict[str, Any]] = []
     rendering_dependencies: dict[tuple[str, int, int], dict[str, Any]] = {}
     rendering_unresolved: list[dict[str, Any]] = []
+    runtime_identity_ok = bool(runtime_manifest and runtime_manifest.get("schema_version") == 1
+                               and runtime_manifest.get("project") == project
+                               and Path(runtime_manifest.get("data_root", "")).expanduser().resolve() == data_root.resolve())
     for lang in LANGS:
         articles = [a for a in corpus["articles"] if a["language"] == lang]
         acquired = imported = reconciled = acquired_revisions = imported_revisions = reconciled_revisions = 0
@@ -94,7 +97,7 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
                 failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "reason": "mapping-has-extra-source-revisions", "revision_ids": sorted(extras)[:20]})
                 unresolved_revisions += len(extras)
             observed_local: dict[int, tuple[int, dict[int, dict[str, Any]]]] = {}
-            if valid and runtime_manifest:
+            if valid and runtime_identity_ok:
                 lang_config = (runtime_manifest.get("languages") or {}).get(lang) or {}
                 api_url = lang_config.get("api_url")
                 if not api_url:
@@ -111,7 +114,7 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
                         author = source.get("author") or {}
                         expected_user = author.get("value")
                         if expected_user and author.get("kind") == "named":
-                            expected_user = "Imported" + expected_user
+                            expected_user = "Imported>" + expected_user
                         source_parent = source.get("source_parent_id")
                         expected_local_parent = valid.get(source_parent, {}).get("local_revision_id") if source_parent else None
                         parent_matches = (source_parent is None and (local or {}).get("parentid") in (None, 0)) or (source_parent is not None and (local or {}).get("parentid") == expected_local_parent)
@@ -160,7 +163,11 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
         rendering_unresolved.extend({"reason": "support-import-unreconciled", "source_wiki": x.get("source_wiki"), "source_page_id": x.get("source_page_id"), "source_revision_id": x.get("source_revision_id"), "errors": x.get("errors")} for x in support_unreconciled)
     release = corpus["release"]
     full_membership = corpus["scope"] == "sample" or corpus["expected_counts"] == EXPECTED
-    runtime_ready = bool(runtime_manifest and runtime_manifest.get("schema_version") == 1 and all(runtime_manifest.get("initialized", {}).get(lang) is True for lang in LANGS))
+    if runtime_manifest and not runtime_identity_ok:
+        failures.append({"stage": "runtime", "reason": "runtime-project-or-data-root-mismatch",
+                         "expected_project": project, "observed_project": runtime_manifest.get("project"),
+                         "expected_data_root": str(data_root.resolve()), "observed_data_root": runtime_manifest.get("data_root")})
+    runtime_ready = bool(runtime_identity_ok and all(runtime_manifest.get("initialized", {}).get(lang) is True for lang in LANGS))
     sample_verified = corpus["scope"] == "sample" and all(
         per_language[lang]["acquired_articles"] == per_language[lang]["expected_articles"]
         and per_language[lang]["reconciled_articles"] == per_language[lang]["expected_articles"]

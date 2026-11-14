@@ -249,13 +249,21 @@ class DataPipelineTests(unittest.TestCase):
 
     def test_xml_escapes_text_and_rejects_unavailable_nonhidden_content(self):
         article = corpus_article()
+        source_hash = hashlib.sha1(b"A < B & C").hexdigest()
         record = {"source_revision_id": 3000, "source_parent_id": None, "timestamp": "2025-08-01T00:00:00Z",
                   "author": {"kind": "named", "value": "A&B", "hidden": False}, "comment": "<edit>",
                   "comment_hidden": False, "minor": False, "content_model": "wikitext", "content_format": "text/x-wiki",
-                  "content": "A < B & C", "content_hidden": False}
+                  "content": "A < B & C", "content_hidden": False, "source_sha1": source_hash}
         xml = mediawiki_xml(article, [record])
-        ET.fromstring(xml)
+        root = ET.fromstring(xml)
+        ns = {"m": "http://www.mediawiki.org/xml/export-0.11/"}
+        revision = root.find(".//m:revision", ns)
+        self.assertIsNotNone(revision.find("m:model", ns))
+        self.assertIsNotNone(revision.find("m:format", ns))
+        self.assertEqual(revision.find("m:sha1", ns).text, revision.find("m:text", ns).attrib["sha1"])
+        self.assertEqual(len(revision.find("m:sha1", ns).text), 31)
         self.assertIn(b"A &lt; B &amp; C", xml)
+        self.assertNotIn(b"<slots>", xml)
         record["content"] = None
         with self.assertRaisesRegex(DataError, "unavailable, non-hidden"):
             mediawiki_xml(article, [record])
@@ -295,6 +303,9 @@ class DataPipelineTests(unittest.TestCase):
         runtime = {"schema_version": 1, "initialized": {x: True for x in ("fi", "sv", "en")},
                    "languages": {x: {"api_url": f"http://{x}/w/api.php"} for x in ("fi", "sv", "en")}}
 
+        def runtime_for(root):
+            return {**runtime, "project": "fixture", "data_root": str(root)}
+
         def create_tree(root, forged=False):
             for article in corpus["articles"]:
                 source = {"source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"],
@@ -331,7 +342,7 @@ class DataPipelineTests(unittest.TestCase):
                 article = next(a for a in corpus["articles"] if a["title"] == title and a["language"] == lang)
                 content = "changed" if mode == "changed" else text
                 revisions = [] if mode == "missing" else [{"revid": article["anchor_revision_id"] + 1000,
-                    "parentid": 0, "timestamp": article["dataset_timestamp"], "user": "ImportedEditor", "comment": "edit",
+                    "parentid": 0, "timestamp": article["dataset_timestamp"], "user": "Imported>Editor", "comment": "edit",
                     "slots": {"main": {"content": content, "contentmodel": "wikitext", "contentformat": "text/x-wiki"}}}]
                 return {"query": {"pages": [{"pageid": article["source_page_id"] + 1000, "revisions": revisions}]}}
             return api
@@ -339,17 +350,17 @@ class DataPipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             create_tree(root)
-            good = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime, api=local_api())
+            good = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime_for(root), api=local_api())
             self.assertTrue(good["complete"], good["failures"])
             forged_root = root / "forged"
             create_tree(forged_root, forged=True)
-            forged = build_coverage(corpus, forged_root, project="fixture", runtime_manifest=runtime, api=local_api())
+            forged = build_coverage(corpus, forged_root, project="fixture", runtime_manifest=runtime_for(forged_root), api=local_api())
             self.assertFalse(forged["complete"])
             self.assertIn("mapping-source-identity-or-status-mismatch", {x["reason"] for x in forged["failures"]})
-            missing = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime, api=local_api("missing"))
+            missing = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime_for(root), api=local_api("missing"))
             self.assertFalse(missing["complete"])
             self.assertIn("local-revision-missing-or-changed", {x["reason"] for x in missing["failures"]})
-            changed = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime, api=local_api("changed"))
+            changed = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime_for(root), api=local_api("changed"))
             self.assertFalse(changed["complete"])
             self.assertIn("local-revision-missing-or-changed", {x["reason"] for x in changed["failures"]})
 
