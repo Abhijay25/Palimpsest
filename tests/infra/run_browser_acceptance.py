@@ -87,6 +87,9 @@ def main() -> int:
             raise RuntimeError("browser suite did not produce isolated persistence evidence for fi, sv and en")
         run([*common, "down"], env=env, timeout=300)
         run([*common, "setup"], env=env, timeout=1800)
+        configure_browser_host(data_root, json.loads(manifest.read_text(encoding="utf-8")))
+        run([*common, "down"], env=env, timeout=300)
+        run([*common, "up"], env=env, timeout=300)
         run([*base_run, "--verify-state", "/test-data/browser-state.json"], env=env, timeout=1800)
     finally:
         if setup_attempted:
