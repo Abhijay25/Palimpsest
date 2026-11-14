@@ -14,3 +14,4 @@
 - DiscussionTools reply links are server-rendered before their click handlers bind. Wait for `html.ext-discussiontools-init-ready` (set after controller initialization) before clicking Reply.
 - Vector may render duplicate watch/unwatch anchors; use a scoped accessible control instead of a strict broad selector.
 - Linux Docker cannot route `host.docker.internal:host-gateway` to a service bound only on host loopback. Run the browser container with host networking and use `127.0.0.1`; retain Docker Desktop's host alias on macOS.
+- PHP `array_count_values()` converts numeric-string keys to integers. Cast keys back to strings before regex/string operations, and include numeric-token fixtures in attribution checks.

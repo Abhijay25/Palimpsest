@@ -67,6 +67,8 @@ check( $unicode[1]['utf16_start'] === 2 && $unicode[1]['utf16_end'] === 4, 'comb
 // Duplicate text and patience-anchor fallback never assert a unique alignment.
 $duplicate = $engine->analyze( [ [ 'id' => 40, 'text' => 'same same end' ], [ 'id' => 41, 'text' => 'same end' ] ] );
 check( (bool)array_filter( $duplicate['tokens'], static fn ( $t ) => $t['text'] === 'same' && $t['ambiguous'] ), 'repeated text is marked ambiguous' );
+$numericDuplicate = $engine->analyze( [ [ 'id' => 42, 'text' => 'score 2000 2000 points' ], [ 'id' => 43, 'text' => 'score 2000 points' ] ] );
+check( (bool)array_filter( $numericDuplicate['tokens'], static fn ( $t ) => $t['text'] === '2000' && $t['ambiguous'] ), 'numeric token keys remain strings during ambiguity checks' );
 
 $longOld = implode( ' ', array_map( static fn ( $i ) => 'word' . $i, range( 1, 900 ) ) );
 $longNew = preg_replace( '/word450/', 'changed450', $longOld );
@@ -134,4 +136,4 @@ $extension = ( new ParsoidTextMapper() )->map(
 );
 check( in_array( 'generated-or-transcluded-content', $extension['unmapped_reasons'], true ), 'slash-qualified extension output remains unmapped' );
 
-echo "PASS: 14 isolated attribution, DSR, and link fixtures\n";
+echo "PASS: 15 isolated attribution, DSR, and link fixtures\n";

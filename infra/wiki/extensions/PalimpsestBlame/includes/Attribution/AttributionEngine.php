@@ -195,7 +195,8 @@ final class AttributionEngine {
 
 	private static function ambiguousValues( array $a, array $b ): array {
 		$ca = array_count_values( $a ); $cb = array_count_values( $b ); $out = [];
-		foreach ( $ca as $value => $count ) {
+		foreach ( $ca as $rawValue => $count ) {
+			$value = (string)$rawValue;
 			if ( preg_match( '/[\p{L}\p{N}\p{M}]/u', $value ) === 1 && ( $count > 1 || ( $cb[$value] ?? 0 ) > 1 ) && ( $cb[$value] ?? 0 ) > 0 ) {
 				$out[$value] = true;
 			}
