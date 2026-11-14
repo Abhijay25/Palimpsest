@@ -8,7 +8,13 @@ from typing import Final
 
 from palimpsest.judge import PreparedCase
 from palimpsest.schema import AuditOutput, CaseResult, FlaggedSpan, Verdict
-from palimpsest.scoring import FLAGS, Metrics
+from palimpsest.scoring import (
+    ADMIN_THRESHOLD,
+    FLAGS,
+    REVIEW_THRESHOLD,
+    Metrics,
+    route,
+)
 from palimpsest.stealth.models import StealthStatus
 
 NO_LINK_BUCKET_MARKERS: Final = ("spec", "synthetic", "wnc")
@@ -100,8 +106,18 @@ def _verdict_badge(result: CaseResult | None) -> str:
     )
 
 
+def _route_badge(result: CaseResult | None) -> str:
+    if result is None:
+        return ""
+    queue = route(result)
+    css = {"admin": "fail", "review": "warn", "none": ""}[queue]
+    return f' <span class="badge {css}">route: {queue}</span>'
+
+
 def _model_block(model: str, result: CaseResult | None, new_text: str) -> str:
-    parts = [f'<div class="model"><b>{_e(model)}</b> {_verdict_badge(result)}']
+    parts = [
+        f'<div class="model"><b>{_e(model)}</b> {_verdict_badge(result)}{_route_badge(result)}'
+    ]
     if result is not None and result.output is None:
         parts.append(f'<div class="meta">{_e(result.parse_error or "")}</div>')
     if result is not None and result.output is not None:
@@ -218,6 +234,10 @@ def _metrics_table(metrics: dict[str, Metrics]) -> str:
         ("Stage 0 / 1 p50 ms", ""),
         ("Stealth flagged", ""),
         ("Stealth admin flags", ""),
+        ("Admin false alarm rate", ""),
+        ("Admin recall", ""),
+        ("Review rate", ""),
+        ("Unlabelled admin / review", ""),
     ]
     head = "".join(f"<th>{_e(m)}</th>" for m in metrics)
 
@@ -248,12 +268,24 @@ def _metrics_table(metrics: dict[str, Metrics]) -> str:
         cells(lambda m: f"{m.stage0_ms_p50:.1f} / {m.stage1_ms_p50:.0f}"),
         cells(lambda m: pct(m.stealth_flag_rate)),
         cells(lambda m: str(m.stealth_flags)),
+        cells(lambda m: pct(m.admin_false_alarm_rate)),
+        cells(lambda m: pct(m.admin_recall)),
+        cells(lambda m: pct(m.review_rate)),
+        cells(lambda m: f"{m.unlabelled_admin} / {m.unlabelled_review}"),
     ]
     body = "".join(
         f"<tr><th>{_e(label)}</th>{value}</tr>"
         for (label, _), value in zip(rows, values)
     )
     return f"<table><tr><th></th>{head}</tr>{body}</table>"
+
+
+_ROUTING_LEGEND: Final = (
+    f'<p class="meta">Routing: flag with confidence &ge; {ADMIN_THRESHOLD:.2f} &rarr; admin, '
+    f"{REVIEW_THRESHOLD:.2f}&ndash;{ADMIN_THRESHOLD:.2f} &rarr; review, lower &rarr; none; "
+    "stealth critical/CSS/homoglyph &rarr; admin. Confidences are self-reported "
+    "(uncalibrated) for Claude stand-ins.</p>"
+)
 
 
 def _confusion(metrics: dict[str, Metrics]) -> str:
@@ -321,7 +353,8 @@ def render_report(
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
         f"<title>Palimpsest run report</title><style>{CSS}</style></head><body>"
-        f"<h1>Palimpsest run report</h1>{_metrics_table(metrics)}{_confusion(metrics)}"
+        f"<h1>Palimpsest run report</h1>{_metrics_table(metrics)}{_ROUTING_LEGEND}"
+        f"{_confusion(metrics)}"
         f"{changes}<h2>Cases ({len(prepared)})</h2>"
         '<p class="meta">Order: wrong vs expected, model disagreement, flagged, '
         f"EXPAND_CONTEXT, rest.</p>{cards}</body></html>"

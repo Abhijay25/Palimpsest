@@ -1,7 +1,7 @@
 """Metrics over judged results (pass bar: <=5% clean flagged, >=80% violations caught)."""
 
 import statistics
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import BaseModel
 
@@ -18,6 +18,8 @@ ADMIN_FLAG_STATUSES: Final = frozenset(
         StealthStatus.HOMOGLYPH_SPOOFING,
     }
 )
+ADMIN_THRESHOLD: Final = 0.70
+REVIEW_THRESHOLD: Final = 0.45
 PARSE_ERROR_LABEL: Final = "PARSE_ERROR"
 FLAGS: Final = frozenset(
     {Verdict.FLAG_G1_FACT, Verdict.FLAG_G2_FRAMING, Verdict.FLAG_G3_MOTIVE}
@@ -38,6 +40,11 @@ class Metrics(BaseModel):
     uncited_rate: float
     stealth_flag_rate: float
     stealth_flags: int
+    admin_false_alarm_rate: float
+    admin_recall: float
+    review_rate: float
+    unlabelled_admin: int
+    unlabelled_review: int
     stage0_ms_p50: float
     stage1_ms_p50: float
     confusion: dict[str, dict[str, int]]
@@ -84,6 +91,22 @@ def _diff_admin_flag(pc: PreparedCase) -> bool:
     )
 
 
+Route = Literal["admin", "review", "none"]
+
+
+def route(result: CaseResult) -> Route:
+    """Derived queue routing; the section 10 verdict itself is unchanged."""
+    if result.stealth_status in {s.value for s in ADMIN_FLAG_STATUSES}:
+        return "admin"
+    if result.output is None or result.output.verdict not in FLAGS:
+        return "none"
+    if result.output.confidence >= ADMIN_THRESHOLD:
+        return "admin"
+    if result.output.confidence >= REVIEW_THRESHOLD:
+        return "review"
+    return "none"
+
+
 def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Metrics:
     cases = {pc.case.case_id: pc for pc in prepared}
     paired = [(cases[r.case_id], r) for r in results if r.case_id in cases]
@@ -119,6 +142,7 @@ def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Met
         row = confusion.setdefault(pc.case.expected.value, {})
         label = _verdict_label(r)
         row[label] = row.get(label, 0) + 1
+    unlabelled = [r for pc, r in paired if pc.case.expected == "UNLABELLED"]
     recall = _ratio(caught, len(violations))
     clean_flag_rate = _ratio(clean_flagged, len(controls))
     return Metrics(
@@ -139,6 +163,17 @@ def _score_model(prepared: list[PreparedCase], results: list[CaseResult]) -> Met
             sum(1 for pc, _ in paired if _stealth_flagged(pc)), len(paired)
         ),
         stealth_flags=sum(1 for pc, _ in paired if _diff_admin_flag(pc)),
+        admin_false_alarm_rate=_ratio(
+            sum(1 for _, r in controls if route(r) == "admin"), len(controls)
+        ),
+        admin_recall=_ratio(
+            sum(1 for _, r in violations if route(r) == "admin"), len(violations)
+        ),
+        review_rate=_ratio(
+            sum(1 for _, r in paired if route(r) == "review"), len(paired)
+        ),
+        unlabelled_admin=sum(1 for r in unlabelled if route(r) == "admin"),
+        unlabelled_review=sum(1 for r in unlabelled if route(r) == "review"),
         stage0_ms_p50=_p50([r.stage0_ms for _, r in paired]),
         stage1_ms_p50=_p50([r.stage1_ms for r in stage1]),
         confusion=confusion,

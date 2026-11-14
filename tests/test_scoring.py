@@ -7,19 +7,20 @@ from palimpsest.schema import (
     Case,
     CaseResult,
     ExpandDirection,
+    ExpectedLabel,
     FlaggedSpan,
     Guideline,
     SourceWindow,
     Verdict,
 )
-from palimpsest.scoring import agreement, score
+from palimpsest.scoring import agreement, route, score
 from palimpsest.stage0 import Stage0Result
 from palimpsest.stealth.models import ScanResult, StealthStatus
 
 
 def _prepared(
     case_id: str,
-    expected: Verdict,
+    expected: ExpectedLabel,
     new_text: str = "He admitted it.",
     stage0_clean: bool = False,
 ) -> PreparedCase:
@@ -204,3 +205,65 @@ def test_stealth_flag_metrics() -> None:
     metrics = score(prepared, results)["m"]
     assert metrics.stealth_flags == 1
     assert metrics.stealth_flag_rate == 0.75
+
+
+def _conf_result(
+    case_id: str,
+    verdict: Verdict,
+    confidence: float,
+    stealth_status: str | None = None,
+) -> CaseResult:
+    output = _output(verdict).model_copy(update={"confidence": confidence})
+    result = _result(case_id, output)
+    result.stealth_status = stealth_status
+    return result
+
+
+def test_route_boundaries() -> None:
+    flag = Verdict.FLAG_G2_FRAMING
+    assert route(_conf_result("a", flag, 0.70)) == "admin"
+    assert route(_conf_result("a", flag, 0.69)) == "review"
+    assert route(_conf_result("a", flag, 0.45)) == "review"
+    assert route(_conf_result("a", flag, 0.44)) == "none"
+    assert route(_conf_result("a", Verdict.CLEAN_PASS, 0.99)) == "none"
+    assert route(_result("a", None, error="bad")) == "none"
+
+
+def test_route_stealth_override() -> None:
+    clean = Verdict.CLEAN_PASS
+    for status in (
+        "CRITICAL_AI_POISONING",
+        "CSS_CLOAKING_DETECTED",
+        "HOMOGLYPH_SPOOFING",
+    ):
+        assert route(_conf_result("a", clean, 0.1, status)) == "admin"
+    assert route(_conf_result("a", clean, 0.1, "BENIGN_NOTES_ONLY")) == "none"
+    assert route(_result("a", None, error="bad")) == "none"
+
+
+def test_routing_metrics() -> None:
+    prepared = [
+        _prepared("c1", Verdict.CLEAN_PASS),
+        _prepared("c2", Verdict.CLEAN_PASS),
+        _prepared("v1", Verdict.FLAG_G1_FACT),
+        _prepared("v2", Verdict.FLAG_G1_FACT),
+        _prepared("u1", "UNLABELLED"),
+        _prepared("u2", "UNLABELLED"),
+    ]
+    flag = Verdict.FLAG_G2_FRAMING
+    results = {
+        "m": [
+            _conf_result("c1", flag, 0.75),
+            _conf_result("c2", flag, 0.5),
+            _conf_result("v1", flag, 0.9),
+            _conf_result("v2", flag, 0.2),
+            _conf_result("u1", flag, 0.8),
+            _conf_result("u2", flag, 0.6),
+        ]
+    }
+    m = score(prepared, results)["m"]
+    assert m.admin_false_alarm_rate == 0.5
+    assert m.admin_recall == 0.5
+    assert m.review_rate == 2 / 6
+    assert m.unlabelled_admin == 1
+    assert m.unlabelled_review == 1
