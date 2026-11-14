@@ -94,13 +94,45 @@ def select_text(page: Page, quote: str, occurrence: int = 0) -> None:
 
 
 def inspect_selected_text(page: Page, mobile: bool) -> None:
+    button = page.get_by_role("button", name=re.compile(r"inspect (selected text|selection)|analyze selection", re.I))
+    expect(button).to_be_visible()
     if mobile:
-        button = page.get_by_role("button", name=re.compile(r"inspect (selected text|selection)|analyze selection", re.I))
-        expect(button).to_be_visible()
         button.tap()
         # Mobile browsers may drop the native Range when the inspect button is
         # tapped. The component must retain the user quote it captured earlier.
         page.evaluate("window.getSelection()?.removeAllRanges()")
+    else:
+        # A scripted Range does not synthesize the producer's mouseup/Inspect
+        # gesture. Exercise the same explicit action a reader must use.
+        button.click()
+
+
+def assert_no_partial_selection_analysis(page: Page, quote: str, warning: re.Pattern) -> None:
+    requests = []
+
+    def capture_analyze(request) -> None:
+        params = parse_qs(urlparse(request.url).query)
+        if request.post_data:
+            from urllib.parse import parse_qs as parse_form
+            for key, values in parse_form(request.post_data).items():
+                params.setdefault(key, values)
+        if params.get("action") == ["palimpsestblame"] and params.get("op") == ["analyze"]:
+            requests.append(params)
+
+    page.on("request", capture_analyze)
+    select_text(page, quote)
+    if page.evaluate("window.getSelection()?.toString() || ''") != quote:
+        raise AssertionError("browser did not retain the exact source quote before inspection")
+    page.get_by_role("button", name="Inspect selected article text").click()
+    page.wait_for_timeout(150)
+    if requests:
+        raise AssertionError(f"selection with unmapped or excessive fragments triggered partial attribution: {requests}")
+    if page.evaluate("window.getSelection()?.toString() || ''") != quote:
+        raise AssertionError("Inspect did not retain the complete native selection quote")
+    panel = page.locator("#palimpsest-blame")
+    expect(panel).to_contain_text(warning)
+    if panel.locator(".pb-breakdown").count():
+        raise AssertionError("selection with incomplete source mapping opened a partial timeline")
 
 
 def verify_inline_panel(page: Page, quote: str) -> None:
@@ -149,6 +181,20 @@ def verify_article_snapshot(page: Page, expected_visible_text: str, revision_id:
         raise AssertionError(f"rendered article revision {rendered_revision!r} differs from expected local revision {revision_id}")
 
 
+def verify_mobile_layout(page: Page) -> None:
+    metrics = page.evaluate(
+        """() => ({
+          innerWidth: window.innerWidth,
+          clientWidth: document.documentElement.clientWidth,
+          scrollWidth: document.documentElement.scrollWidth
+        })"""
+    )
+    if not 360 <= metrics["clientWidth"] <= 430 or abs(metrics["innerWidth"] - metrics["clientWidth"]) > 2:
+        raise AssertionError(f"mobile page is scaled to a desktop layout viewport: {metrics}")
+    if metrics["scrollWidth"] > metrics["clientWidth"] + 2:
+        raise AssertionError(f"mobile Blame view has horizontal overflow: {metrics}")
+
+
 def exercise_selection(page: Page, fixture_id: str, mobile: bool, screenshot: Path | None) -> None:
     doc = load_fixture(fixture_id)
     expected = doc["expected"]
@@ -174,14 +220,34 @@ def verify_replacement_timeline(page: Page) -> None:
     if compare.count() == 0:
         compare = panel.get_by_role("link", name=re.compile("compare with previous revision", re.I))
     expect(compare.first).to_be_visible()
+    with page.expect_navigation(wait_until="domcontentloaded"):
+        compare.first.click()
+    if "action=blame" in page.url or not re.search(r"(?:[?&](?:diff|oldid)=|Special:Diff)", page.url):
+        raise AssertionError(f"revision comparison link did not open the core MediaWiki diff: {page.url}")
+    page.go_back(wait_until="domcontentloaded")
+    expect(panel).to_be_visible()
+
     changes = panel.get_by_role("link", name=re.compile("view editor.?s changes", re.I))
     expect(changes.first).to_be_visible()
     with page.expect_navigation(wait_until="domcontentloaded"):
         changes.first.click()
-    if "action=blame" in page.url or not re.search(r"(?:[?&](?:diff|oldid)=|Special:Diff)", page.url):
-        raise AssertionError(f"core revision comparison link did not open a MediaWiki diff: {page.url}")
+    special_page = page.evaluate("window.mw?.config?.get('wgCanonicalSpecialPageName')")
+    if "action=blame" in page.url or special_page != "Contributions":
+        raise AssertionError(f"editor history link did not open the core Contributions page: {page.url} ({special_page!r})")
     page.go_back(wait_until="domcontentloaded")
-    expect(page.locator("#palimpsest-blame")).to_be_visible()
+    expect(panel).to_be_visible()
+
+    open_revision = panel.get_by_role("link", name="Open this revision")
+    expect(open_revision.first).to_be_visible()
+    with page.expect_navigation(wait_until="domcontentloaded"):
+        open_revision.first.click()
+    if "action=blame" in page.url or not re.search(r"[?&]oldid=\d+", page.url):
+        raise AssertionError(f"Open this revision did not open a core MediaWiki read view: {page.url}")
+    revision_query = parse_qs(urlparse(page.url).query)
+    if str(page.evaluate("window.mw?.config?.get('wgRevisionId')")) != revision_query["oldid"][0]:
+        raise AssertionError("Open this revision loaded content at a different local revision ID")
+    page.go_back(wait_until="domcontentloaded")
+    expect(panel).to_be_visible()
 
 
 def date_text_tomorrow_utc() -> str:
@@ -195,34 +261,41 @@ def verify_date_navigation(page: Page, expected_latest_text: str, latest_revisio
     expect(date_input).to_be_visible()
     tomorrow = date_text_tomorrow_utc()
     date_input.fill(f"Latest version before {tomorrow}")
-    apply = panel.get_by_role("button", name=re.compile("find|apply|show version|go", re.I)).last
-    apply.click()
+    panel.get_by_role("button", name="Interpret date query").click()
+    expect(panel.locator(".pb-date-preview")).to_contain_text("Strictly before this UTC day begins")
+    expect(panel.locator(".pb-date-preview")).to_contain_text("Bound:")
+    panel.get_by_role("button", name="Apply these bounds").click()
     expect(panel).to_contain_text("UTC")
-    expect(page.locator("#mw-content-text")).to_contain_text(expected_latest_text)
-    if int(page.evaluate("window.mw?.config?.get('wgRevisionId')") or -1) != int(latest_revision_id):
-        raise AssertionError("latest-before query did not synchronize the article revision")
+    before_result = panel.get_by_role("button", name=re.compile(r"revision " + str(latest_revision_id) + r"\b"))
+    expect(before_result).to_be_visible()
+    before_result.click()
+    verify_article_snapshot(page, expected_latest_text, latest_revision_id)
 
     date_input.fill("As of 15 March 2026")
-    apply.click()
-    expect(panel).to_contain_text(re.compile("before the earliest|no version|no revision", re.I))
+    panel.get_by_role("button", name="Interpret date query").click()
+    expect(panel.locator(".pb-date-preview")).to_contain_text("2026-03-15T23:59:59Z")
+    panel.get_by_role("button", name="Apply these bounds").click()
+    expect(panel).to_contain_text(re.compile("No revision matches these bounds", re.I))
+    if panel.get_by_role("button", name=re.compile(r"revision \d+")).count():
+        raise AssertionError("as-of before the earliest date offered a later version")
 
     date_input.fill(f"Between 1 January and {tomorrow}")
-    apply.click()
+    panel.get_by_role("button", name="Interpret date query").click()
+    expect(panel.locator(".pb-date-preview")).to_contain_text("inclusive UTC date range")
+    panel.get_by_role("button", name="Apply these bounds").click()
     range_result = panel.get_by_role("button", name=re.compile(str(latest_revision_id)))
-    if range_result.count() == 0:
-        range_result = panel.get_by_role("link", name=re.compile(str(latest_revision_id)))
     expect(range_result.first).to_be_visible()
     range_result.first.click()
-    if int(page.evaluate("window.mw?.config?.get('wgRevisionId')") or -1) != int(latest_revision_id):
-        raise AssertionError("choosing a range result did not synchronize article and attribution revisions")
+    verify_article_snapshot(page, expected_latest_text, latest_revision_id)
+
     invalid_inputs = (
-        ("2026-03-15T12:99:00Z", re.compile("invalid.*(time|minute)|(time|minute).*invalid", re.I)),
-        ("Between 31 March and 1 February 2026", re.compile("invalid|reversed|range", re.I)),
+        ("As of 31 February 2026", re.compile("real calendar date", re.I)),
+        ("Between 31 March and 1 February 2026", re.compile("start date must not be after the end date", re.I)),
     )
     for value, expected_error in invalid_inputs:
         date_input.fill(value)
-        apply.click()
-        expect(panel).to_contain_text(expected_error)
+        panel.get_by_role("button", name="Interpret date query").click()
+        expect(panel.locator(".pb-date-preview")).to_contain_text(expected_error)
 
 
 def verify_recovery(page: Page, expected_latest_text: str, expected_latest_revision_id: int) -> None:
@@ -244,6 +317,7 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
     mapped_fixture = load_fixture("rendered_mapped_selection")
     verify_article_snapshot(page, mapped_fixture["visible_text"], mapped["revision_id"])
     select_text(page, mapped_fixture["selection_text"])
+    inspect_selected_text(page, mobile=False)
     panel = page.locator("#palimpsest-blame")
     expect(panel).to_contain_text(mapped_fixture["selection_text"])
     verify_inline_panel(page, mapped_fixture["selection_text"])
@@ -271,12 +345,10 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
     expect(page.locator("#palimpsest-blame")).to_be_visible()
     verify_article_snapshot(page, "The mapped prefix UNMAPPED_SENTINEL mapped suffix.", generated["revision_id"])
     quote = generated_fixture["selection_text_template"]
-    select_text(page, quote)
-    panel = page.locator("#palimpsest-blame")
-    expect(panel).to_contain_text(quote)
-    verify_inline_panel(page, quote)
-    if not re.search(r"unmapped|partial|unsupported|not attributable", panel.inner_text(), re.I):
-        raise AssertionError("mixed mapped/generated selection has no explicit partial-coverage explanation")
+    assert_no_partial_selection_analysis(
+        page, quote,
+        re.compile(r"unmapped|no verified source|no partial analysis|cannot be mapped", re.I),
+    )
     annotated = page.evaluate(
         """(sentinel) => {
           const root = document.querySelector('#mw-content-text');
@@ -302,12 +374,9 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
     full_quote = " ".join(fragment_fixture["tokens"])
     page.goto(article_url(origin, fragmented["title"]) + "&action=blame", wait_until="domcontentloaded")
     verify_article_snapshot(page, full_quote, fragmented["revision_id"])
-    select_text(page, full_quote)
-    panel = page.locator("#palimpsest-blame")
-    expect(panel).to_contain_text(full_quote)
-    verify_inline_panel(page, full_quote)
     if len(fragment_fixture["tokens"]) <= 64:
         raise AssertionError("fragmented selection fixture no longer exceeds the known 64-fragment regression threshold")
+    assert_no_partial_selection_analysis(page, full_quote, re.compile(r"more than 64 separate verified source ranges.*no partial analysis", re.I))
 
     paragraph = browser_pages["paragraph_boundary_selection"]
     paragraph_fixture = load_fixture("paragraph_boundary_selection")
@@ -316,6 +385,7 @@ def verify_rendered_selection_cases(page: Page, origin: str, language_state: dic
     if int(page.evaluate("window.mw?.config?.get('wgRevisionId')") or -1) != int(paragraph["revision_id"]):
         raise AssertionError("paragraph-boundary fixture rendered a different local revision")
     select_text(page, paragraph_fixture["selection_text"])
+    inspect_selected_text(page, mobile=False)
     expect(page.locator("#palimpsest-blame")).to_contain_text(paragraph_fixture["selection_text"])
 
 
@@ -399,6 +469,7 @@ def verify_concurrent_snapshot(page: Page, origin: str, language: str, language_
 
     quote = load_fixture("cross_contributor_deletion")["expected"]["selection"]["text"]
     select_text(page, quote)
+    inspect_selected_text(page, mobile=False)
     verify_inline_panel(page, quote)
     expect(page.locator("#mw-content-text")).to_contain_text("green")
     if "black" in page.locator("#mw-content-text").inner_text():
@@ -480,6 +551,7 @@ def run_language(browser, language: str, language_state: dict, origin: str, auth
     mobile.on("pageerror", lambda error: page_errors.append(str(error)))
     mobile.goto(article_url(origin, cross["title"]) + "&action=blame", wait_until="domcontentloaded")
     expect(mobile.locator("#palimpsest-blame")).to_be_visible()
+    verify_mobile_layout(mobile)
     verify_article_snapshot(mobile, load_fixture("cross_contributor_deletion")["revisions"][-1]["text"], cross["revisions"][-1]["revision_id"])
     exercise_selection(
         mobile,
@@ -487,6 +559,7 @@ def run_language(browser, language: str, language_state: dict, origin: str, auth
         mobile=True,
         screenshot=screenshots / f"{language}-mobile.png" if screenshots else None,
     )
+    verify_mobile_layout(mobile)
 
     keyboard_page = context.new_page()
     keyboard_page.set_default_timeout(5000)

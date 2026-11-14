@@ -19,9 +19,9 @@
       {"text": "mark", "revision": "r1", "start": 17, "end": 21}
     ],
     "events": [
-      {"revision": "r2", "before": "quick", "after": "slow", "kind": "replacement", "ambiguous": false},
-      {"revision": "r3", "before": "slow", "after": "fast", "kind": "replacement", "ambiguous": false},
-      {"revision": "r4", "before": "old", "after": "", "kind": "deletion", "ambiguous": false}
+      {"revision": "r2", "before": "quick", "after": "slow", "before_range": [16, 21], "after_range": [16, 20], "kind": "replacement", "ambiguous": false},
+      {"revision": "r3", "before": "slow", "after": "fast", "before_range": [16, 20], "after_range": [16, 20], "kind": "replacement", "ambiguous": false},
+      {"revision": "r4", "before": "old ", "after": "", "before_range": [12, 16], "after_range": null, "kind": "deletion", "ambiguous": false}
     ],
     "excluded_from_selection_timeline": ["r5"],
     "lineage_id_shape": "local_revision_id:zero_based_token_index"

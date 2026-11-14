@@ -54,6 +54,26 @@ The rendered-link fixture covers a citation anchor and a relative link to a
 real synthetic article while Blame is open. The browser check follows both,
 then follows a core revision-diff link, to catch action-page base-path changes.
 
+The orchestrator's disposable-copy integrity pass should cover three producer
+controls before any sample claim: (1) remove an imported C4 revision record and
+expect `imported-revision-provenance-record-missing`; (2) change a local mapped
+revision hash/parent and re-canonicalize the bundle, then expect
+`provenance-record-does-not-match-local-revision`; (3) alter a bundle without
+updating its checksum and expect `provenance-bundle-checksum-mismatch`. Confirm
+the untouched sample pages still return ready responses. These controls belong
+on the copy because they change trusted provenance inputs.
+
+For cached-job privacy, build and warm a ready job in that copy, then suppress
+revision text, identity, and comment separately. Recheck status/analyze with
+the same pinned revision: hidden text must make cached history unavailable;
+hidden identity/comment must be null, with no value retained from the warm
+response. Check that no response includes cached source text or hidden metadata.
+
+The browser runner uses a real mouse drag for the partial-word round and touch
+emulation for selection retention after Inspect. Programmatic ranges elsewhere
+are followed by the visible Inspect button. It does not claim a physical iOS or
+Android gesture; record that separately if device validation is required.
+
 Native mobile text selection is not covered by desktop Chromium emulation. The
 browser suite can exercise touch-sized layouts and the deliberate inspect action,
 but a real iOS/Android selection gesture requires a separately recorded device

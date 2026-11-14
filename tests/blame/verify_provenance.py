@@ -143,12 +143,16 @@ def verify_page(api: WikiApi | None, data_root: Path, bundle: dict, page: dict) 
         for source_field in ("wiki", "page_id", "revision_id", "parent_id", "url"):
             expected_field = {
                 "wiki": source_wiki,
-                "page_id": item["source_page_id"],
+                "page_id": source_page_id,
                 "revision_id": item["source_revision_id"],
                 "parent_id": item["source_parent_id"],
                 "url": item["source_url"],
             }[source_field]
             equal(item, f"API source {source_field}", source.get(source_field), expected_field)
+        expected_source_user = item.get("source_user") if revision.get("user") is not None else None
+        expected_source_comment = item.get("comment") if revision.get("comment") is not None else None
+        equal(item, "API source user visibility", source.get("user"), expected_source_user)
+        equal(item, "API source comment visibility", source.get("comment"), expected_source_comment)
     return len(bundle_revisions)
 
 

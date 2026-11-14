@@ -73,6 +73,12 @@ class FixtureContractTests(unittest.TestCase):
                 self.assertIn(event["after"], after)
             else:
                 self.assertNotIn(event["before"].strip(), after)
+            if "before_range" in event:
+                self.assertEqual(utf16_slice(before, *event["before_range"]), event["before"], event)
+                if event["after_range"] is None:
+                    self.assertEqual(event["after"], "", event)
+                else:
+                    self.assertEqual(utf16_slice(after, *event["after_range"]), event["after"], event)
         untouched = expected["untouched_text"]
         self.assertTrue(all(untouched["text"] in text for text in revisions.values()))
         self.assertEqual(untouched["last_change"], "r1")
@@ -84,7 +90,16 @@ class FixtureContractTests(unittest.TestCase):
         self.assertEqual(final.count(expected["selection"]["text"]), 2)
         self.assertTrue(expected["ambiguity"]["required"])
         self.assertTrue(expected["ambiguity"]["must_not_claim_unique_original_author"])
-        self.assertTrue(all(event["ambiguous"] for event in expected["events"]))
+        revisions = {revision["alias"]: revision["text"] for revision in doc["revisions"]}
+        for event in expected["events"]:
+            parent = f"r{int(event['revision'][1:]) - 1}"
+            self.assertEqual(utf16_slice(revisions[parent], *event["before_range"]), event["before"])
+            self.assertEqual(utf16_slice(revisions[event["revision"]], *event["after_range"]), event["after"])
+        self.assertTrue(all(not event["ambiguous"] for event in expected["events"]))
+        page_events = {(event["revision"], event["before"], event["after"]) for event in expected["events"]}
+        selection_events = {(event["revision"], event["before"], event["after"]) for event in expected["selection"]["events"]}
+        self.assertTrue(selection_events.issubset(page_events))
+        self.assertEqual(selection_events, {("r2", "rests", "waits"), ("r3", "waits", "rests")})
 
     def test_chained_replacements_keep_selected_lineage_and_filter_unrelated_later_edit(self) -> None:
         doc = load_fixture("chained_replacements")
@@ -94,7 +109,8 @@ class FixtureContractTests(unittest.TestCase):
         self.assertEqual(utf16_slice(revisions[-1]["text"], expected["selection"]["start"], expected["selection"]["end"]), "the fast mark")
         self.assertEqual([event["before"] for event in expected["events"][:2]], ["quick", "slow"])
         self.assertEqual([event["after"] for event in expected["events"][:2]], ["slow", "fast"])
-        self.assertEqual(expected["events"][2]["before"], "old")
+        self.assertEqual(expected["events"][2]["before"], "old ")
+        self.assertEqual(utf16_slice(revisions[2]["text"], *expected["events"][2]["before_range"]), "old ")
         self.assertEqual(expected["excluded_from_selection_timeline"], ["r5"])
         self.assertIn("calm", revisions[-1]["text"])
         self.assertEqual(expected["lineage_id_shape"], "local_revision_id:zero_based_token_index")
@@ -119,8 +135,9 @@ class FixtureContractTests(unittest.TestCase):
         final = doc["revisions"][-1]["text"]
         selection = expected["selection"]
         self.assertEqual(utf16_slice(final, selection["start"], selection["end"]), selection["text"])
-        self.assertEqual(selection["text"], "e\u0301 \U0001f603")
+        self.assertEqual(selection["text"], "q\u0301 \U0001f603")
         self.assertIn("\u0301", selection["text"])
+        self.assertTrue(all(value not in final for value in expected["must_not_normalize_to"]))
         self.assertEqual(len("\U0001f603".encode("utf-16-le")) // 2, 2)
         for part in expected["last_change_segments"]:
             self.assertIn(part["text"], final)

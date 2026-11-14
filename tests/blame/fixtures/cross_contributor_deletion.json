@@ -22,8 +22,8 @@
       {"text": "seal", "revision": "r2", "start": 35, "end": 39}
     ],
     "events": [
-      {"revision": "r3", "before": "old ", "after": "", "kind": "deletion", "ambiguous": false},
-      {"revision": "r4", "before": "blue", "after": "green", "kind": "replacement", "ambiguous": false}
+      {"revision": "r3", "before": "old ", "after": "", "before_range": [12, 16], "after_range": null, "kind": "deletion", "ambiguous": false},
+      {"revision": "r4", "before": "blue", "after": "green", "before_range": [12, 16], "after_range": [12, 17], "kind": "replacement", "ambiguous": false}
     ],
     "untouched_text": {"text": "distant words stay.", "last_change": "r1"}
   }

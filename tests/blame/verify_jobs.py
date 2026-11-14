@@ -79,7 +79,9 @@ def assert_write_guard(api_url: str, title: str, revision_id: int) -> None:
     else:
         result = response.get("palimpsestblame", {})
         job = result.get("job", {})
-        if result.get("status") not in {"failed", "unavailable"} or result.get("reason") not in {"job_not_found", "permission_denied"}:
+        if result.get("status") != "unavailable" or result.get("reason") not in {
+            "job-does-not-match-page-and-pinned-revision", "permission_denied",
+        }:
             raise AssertionError("unknown job ID was not rejected explicitly")
         if any(key in job for key in ("source_text", "html", "revisions", "content")):
             raise AssertionError("job status leaked article content or revision metadata")
@@ -111,6 +113,8 @@ def verify_language(api_url: str, language_state: dict, auth: dict) -> dict:
     prepared = action_result(prepared_response)
     if prepared.get("buildable") is not True:
         raise AssertionError(f"205-revision fixture should advertise buildable=true; got {prepared.get('buildable')!r}")
+    if prepared.get("status") != "unavailable" or not str(prepared.get("reason", "")).startswith("synchronous-history-limit-exceeded;"):
+        raise AssertionError("buildable analyze response did not identify the synchronous history limit")
     target_revision = prepared.get("revision_id")
     if not isinstance(target_revision, int) or target_revision <= 0:
         raise AssertionError("buildable analyze response omitted its positive resolved top-level revision_id")

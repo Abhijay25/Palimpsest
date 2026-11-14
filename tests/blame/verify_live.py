@@ -108,6 +108,18 @@ def assert_expected_events(actual: list[dict], expected: list[dict], ids: dict[s
     observed = {event_signature(row, ids) for row in actual}
     if not wanted.issubset(observed):
         raise AssertionError(f"missing expected events: {wanted - observed}")
+    for fixture_event in expected:
+        if "before_range" not in fixture_event:
+            continue
+        signature = (ids[fixture_event["revision"]], fixture_event["before"], fixture_event["after"], fixture_event["ambiguous"])
+        event = next(row for row in actual if event_signature(row, ids) == signature)
+        before_start, before_end = fixture_event["before_range"]
+        if (event.get("old_start"), event.get("old_end")) != (before_start, before_end):
+            raise AssertionError(f"event {signature} source deletion/replacement offsets differ from independent fixture ranges")
+        after_range = fixture_event["after_range"]
+        expected_after = tuple(after_range) if after_range is not None else (None, None)
+        if (event.get("new_start"), event.get("new_end")) != expected_after:
+            raise AssertionError(f"event {signature} target replacement offsets differ from independent fixture ranges")
 
 
 def call_selection(api: WikiApi, title: str, revision_id: int, selection: dict) -> dict:
@@ -173,7 +185,11 @@ def verify_history(api: WikiApi, page_state: dict, fixture_id: str) -> dict:
         if "ambiguity" in expected:
             if not actual_selection.get("ambiguous"):
                 raise AssertionError("repeated/moved/reverted wording was presented as unambiguous")
-            assert_expected_events(actual_selection.get("events", []), expected["events"], ids)
+            assert_expected_events(
+                actual_selection.get("events", []),
+                expected["selection"].get("events", expected["events"]),
+                ids,
+            )
         elif "events" in expected:
             assert_expected_events(actual_selection.get("events", []), expected["events"], ids)
         for excluded_alias in expected.get("excluded_from_selection_timeline", []):
@@ -245,8 +261,15 @@ def verify_dates(api: WikiApi, page_state: dict) -> None:
             raise AssertionError("reversed date range failed for an unrelated API reason") from exc
     else:
         result = reversed_range.get("palimpsestblame", {})
-        if result.get("status") != "failed" or result.get("reason") != "reversed_range":
+        if result.get("status") != "unavailable" or result.get("reason") != "invalid-or-reversed-range":
             raise AssertionError("reversed date range was accepted or returned the wrong failure reason")
+
+    invalid_bound = api.call({
+        "action": "palimpsestblame", "op": "versions", "title": page_state["title"],
+        "mode": "asof", "to": "2026-03-15T12:99:00Z", "limit": 100,
+    }).get("palimpsestblame")
+    if not isinstance(invalid_bound, dict) or invalid_bound.get("status") != "unavailable" or invalid_bound.get("reason") != "invalid-date-bound":
+        raise AssertionError("invalid UTC bound was accepted or returned the wrong failure reason")
 
 
 def verify_cache_invalidation(api_url: str, page_state: dict, auth: dict, run_id: str) -> dict:
