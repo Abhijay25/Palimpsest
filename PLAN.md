@@ -35,3 +35,9 @@ Specs: `wikipedia_bias_osint_verification_spec.md` (verifier) and
 
 - MariaDB vector cache: the JSON file cache meets MVP needs; a database adds ops cost
   without improving accuracy until there is multi-instance deployment.
+
+## Decisions API (`gemini-decision-1`): under review
+
+The specs give it two roles. Neither is in the running pipeline, and this key cannot access the model.
+- Verifier rubric classifier (a second call per edit): not built. One Hydrogen call already returns verdict, spans and rewrite (14/14 on the g02 set at HIGH), so a second classifier would add a call per edit with no measured accuracy gap to close. Remove unless a gap appears.
+- Stealth triage of hidden-channel items: needed (s05ml: the deterministic layer escalates 4/23 attacks alone, triage the other 19, 0/71 benign escalated), but any capable model can do it; Haiku stands in today. Candidates to test: gemini-3.5-flash-lite, Hydrogen LOW. `GEMINI_TRIAGE_MODEL` defaults to `gemini-decision-1` until then.
