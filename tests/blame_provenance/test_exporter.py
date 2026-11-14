@@ -16,12 +16,12 @@ class ProvenanceExporterTests(unittest.TestCase):
         text = "Å name / emoji 😀 e\u0301 \u2028"
         for lang in ("fi", "sv", "en"):
             article = {"source_wiki": lang + "wiki", "language": lang, "source_page_id": 800,
-                       "anchor_revision_id": 900, "title": "Example " + lang, "source_url": "https://" + lang + ".wikipedia.org/?curid=800",
+                       "anchor_revision_id": 900, "title": "Example Ä " + lang, "source_url": "https://" + lang + ".wikipedia.org/?curid=800",
                        "wikidata_id": None, "dataset_timestamp": "2025-08-01T00:00:00Z"}
             articles.append(article)
             source = {"schema_version": 1, "source_wiki": lang + "wiki", "source_page_id": 800,
                       "source_revision_id": 900, "source_parent_id": None, "timestamp": article["dataset_timestamp"],
-                      "author": {"kind": "named", "value": "Editor", "hidden": hidden}, "comment": "summary",
+                      "author": {"kind": "named", "value": "Editor", "hidden": hidden}, "comment": "summary Å / 😀 \u2028",
                       "comment_hidden": False, "minor": False, "content_model": "wikitext", "content_format": "text/x-wiki",
                       "content": text, "content_hidden": False, "computed_sha1": hashlib.sha1(text.encode()).hexdigest(),
                       "source_sha1": hashlib.sha1(text.encode()).hexdigest(), "computed_sha256": sha256_bytes(text.encode()),
@@ -34,7 +34,7 @@ class ProvenanceExporterTests(unittest.TestCase):
             mapping = {"schema_version": 1, "source_wiki": lang + "wiki", "source_page_id": 800,
                        "source_revision_id": 900, "source_parent_id": None, "local_page_id": 1, "local_revision_id": 7,
                        "source_content_hash": source["computed_sha256"], "timestamp": source["timestamp"],
-                       "author": source["author"], "comment": "summary", "comment_hidden": False, "minor": False,
+                       "author": source["author"], "comment": "summary Å / 😀 \u2028", "comment_hidden": False, "minor": False,
                        "content_model": "wikitext", "content_format": "text/x-wiki", "batch_checksum": digest, "status": "reconciled"}
             target = root / "imports" / (lang + "wiki") / "800.jsonl"; target.parent.mkdir(parents=True)
             target.write_bytes(canonical_json(mapping) + b"\n")
@@ -51,7 +51,7 @@ class ProvenanceExporterTests(unittest.TestCase):
             calls[lang] += 1
             content = "altered during export" if race and calls[lang] > 1 else text
             return {"query": {"pages": [{"pageid": 1, "revisions": [{"revid": 7, "parentid": 0,
-                    "timestamp": records[lang]["timestamp"], "user": "Imported>Editor", "comment": "summary",
+                    "timestamp": records[lang]["timestamp"], "user": "Imported>Editor", "comment": "summary Å / 😀 \u2028",
                     "slots": {"main": {"content": content, "contentmodel": "wikitext", "contentformat": "text/x-wiki"}}}]}]}}
         return corpus, runtime, api
 

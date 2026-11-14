@@ -84,6 +84,7 @@ def main(argv=None):
     parser.add_argument("--data-root", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--install", action="store_true", help="also install each verified language bundle in that runtime's existing read-only config mount")
     args = parser.parse_args(argv)
     root = args.data_root.expanduser().resolve()
     output = args.output.expanduser().resolve() if args.output else root / "blame-provenance"
@@ -93,6 +94,8 @@ def main(argv=None):
         bundles = build_bundles(corpus, root, runtime)
         for lang, bundle in bundles.items():
             atomic_json(output / f"{lang}.json", bundle)
+            if args.install:
+                atomic_json(root / "config" / lang / f"{lang}.json", bundle)
             print(f"{lang}: {len(bundle['payload']['pages'])} verified pages, {sum(len(p['revisions']) for p in bundle['payload']['pages'])} revisions -> {output / (lang + '.json')}")
     except (DataError, OSError, ValueError, KeyError) as error:
         print(f"blame provenance: {error}", file=sys.stderr)

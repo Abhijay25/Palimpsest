@@ -17,3 +17,5 @@ Provenance bundle: read-only config directory $wgPalimpsestBlameProvenanceDirect
 Budgets initially: synchronous<=200 revisions, <=2MiB total source, <=200k tokens across revisions; bounded diff work and <=2MiB response. Larger work must have a real bounded resumable path or explicit unsupported limit; acceptance F08 requires exercising resume. Exact implementation limits may be tightened from measured resource evidence, not to bypass fixtures.
 
 Provenance clarification: revision.user is the observed local username for validation; source_user is an additive public original identity field. The source prefix relationship must be explained in UI. Root exporter tests live local state again after C5 before any bundle output.
+
+Runtime installation: exporter --install copies each bundle into existing <data-root>/config/{lang}/{lang}.json. Extension loader sets Directory=/etc/palimpsest, already read-only mounted per wiki/job. No additional Docker mount is needed; reset removes these runtime-specific mappings with config while retaining acquired source caches.
