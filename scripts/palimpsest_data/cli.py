@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .container import run_parquet_worker
-from .coverage import build_coverage, write_coverage, exit_for_report
+from .coverage import build_coverage, failed_coverage_report, write_coverage, exit_for_report
 from .dataset import fetch_assets
 from .history import GIB, acquire_corpus, probe_anchor_sample
 from .importer import import_corpus
@@ -151,8 +151,12 @@ def _run(args: argparse.Namespace) -> int:
         runtime_path = data_root / "runtime.json"
         runtime = json.loads(runtime_path.read_text(encoding="utf-8")) if runtime_path.exists() else None
         code = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, text=True, capture_output=True, check=False).stdout.strip() or "unknown"
-        report = build_coverage(corpus, data_root, project=args.project, runtime_manifest=runtime, code_revision=code)
         path = data_root / "coverage.json"
+        try:
+            report = build_coverage(corpus, data_root, project=args.project, runtime_manifest=runtime, code_revision=code)
+        except Exception as e:
+            report = failed_coverage_report(project=args.project, scope=args.scope, code_revision=code,
+                                            reason=f"{type(e).__name__}: {e}", corpus=corpus)
         write_coverage(path, report)
         print(json.dumps({"report": str(path), **report}, indent=2, sort_keys=True))
         return exit_for_report(report)

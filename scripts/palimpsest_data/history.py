@@ -53,12 +53,13 @@ def _retry_after(headers) -> float | None:
 
 def fetch_json(url: str, *, opener: Callable = urllib.request.urlopen,
                sleep: Callable = time.sleep, retries: int = MAX_RETRIES,
-               jitter: Callable = random.random, wait_on_rate_limit: bool = True) -> dict[str, Any]:
+               jitter: Callable = random.random, wait_on_rate_limit: bool = True,
+               timeout: float = 60.0) -> dict[str, Any]:
     last: Exception | None = None
     for attempt in range(retries):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Palimpsest/1.0 (public-history importer)", "Accept": "application/json"})
-            with opener(req, timeout=60) as response:
+            with opener(req, timeout=timeout) as response:
                 body = response.read()
                 status = getattr(response, "status", 200)
                 if status >= 500 or status == 429:

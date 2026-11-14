@@ -6,10 +6,11 @@ import subprocess
 import tempfile
 import unittest
 import urllib.error
+from argparse import Namespace
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-from scripts.palimpsest_data.coverage import build_coverage, exit_for_report
+from scripts.palimpsest_data.coverage import build_coverage, exit_for_report, write_coverage
 from scripts.palimpsest_data.cli import _manifest_for
 from scripts.palimpsest_data.dataset import fetch_assets
 from scripts.palimpsest_data.history import GIB, acquire_article, acquire_corpus, fetch_json, revision_record
@@ -297,6 +298,26 @@ class DataPipelineTests(unittest.TestCase):
             for lang in ("fi", "sv", "en"):
                 self.assertIsNone(report["per_language"][lang]["expected_revisions"])
 
+    def test_verify_exception_replaces_stale_complete_report(self):
+        from unittest.mock import patch
+        from scripts.palimpsest_data import cli
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "coverage.json").write_text('{"complete": true}\n', encoding="utf-8")
+            args = Namespace(project="fixture", data_root=root, command="verify", scope="sample",
+                             sample_manifest=root / "sample.json")
+            with patch.object(cli, "load_corpus", return_value={"scope": "sample"}), \
+                 patch.object(cli, "build_coverage", side_effect=RuntimeError("unexpected verifier failure")), \
+                 patch.object(cli.subprocess, "run", return_value=Namespace(stdout="abc123\n")):
+                result = cli._run(args)
+            report = json.loads((root / "coverage.json").read_text(encoding="utf-8"))
+            self.assertEqual(result, 1)
+            self.assertFalse(report["runtime_ready"])
+            self.assertFalse(report["sample_verified"])
+            self.assertFalse(report["complete"])
+            self.assertEqual(report["failures"][0]["reason"], "verification-failed")
+
     def test_coverage_joins_exact_source_mapping_and_live_local_revisions(self):
         corpus = sample_corpus()
         text = "sample body"
@@ -338,8 +359,12 @@ class DataPipelineTests(unittest.TestCase):
             def api(url):
                 from urllib.parse import parse_qs, urlparse
                 parsed = urlparse(url)
-                title = parse_qs(parsed.query)["titles"][0]
+                query = parse_qs(parsed.query)
                 lang = parsed.netloc.split(".")[0]
+                if query.get("meta") == ["siteinfo"]:
+                    observed_lang = "xx" if mode == "wrong-language" and lang == "fi" else lang
+                    return {"query": {"general": {"lang": observed_lang, "wikiid": f"mw_fixture_{lang}"}}}
+                title = query["titles"][0]
                 article = next(a for a in corpus["articles"] if a["title"] == title and a["language"] == lang)
                 content = "changed" if mode == "changed" else text
                 revisions = [] if mode == "missing" else [{"revid": article["anchor_revision_id"] + 1000,
@@ -364,6 +389,28 @@ class DataPipelineTests(unittest.TestCase):
             changed = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime_for(root), api=local_api("changed"))
             self.assertFalse(changed["complete"])
             self.assertIn("local-revision-missing-or-changed", {x["reason"] for x in changed["failures"]})
+            for mode, expected_reason in (("offline", "siteinfo-query-failed"),
+                                          ("wrong-language", "runtime-language-mismatch")):
+                def failing_or_wrong_api(url, mode=mode):
+                    from urllib.parse import parse_qs, urlparse
+                    parsed = urlparse(url)
+                    if mode == "offline":
+                        raise OSError("local API unavailable")
+                    query = parse_qs(parsed.query)
+                    lang = parsed.netloc.split(".")[0]
+                    if query.get("meta") == ["siteinfo"]:
+                        observed = "xx" if lang == "fi" else lang
+                        return {"query": {"general": {"lang": observed, "wikiid": f"mw_fixture_{lang}"}}}
+                    return local_api()(url)
+                bad = build_coverage(corpus, root, project="fixture", runtime_manifest=runtime_for(root), api=failing_or_wrong_api)
+                self.assertFalse(bad["runtime_ready"])
+                self.assertFalse(bad["sample_verified"])
+                self.assertFalse(bad["complete"])
+                self.assertIn(expected_reason, {x["reason"] for x in bad["failures"]})
+                report_path = root / f"coverage-{mode}.json"
+                report_path.write_text('{"complete": true}\n', encoding="utf-8")
+                write_coverage(report_path, bad)
+                self.assertFalse(json.loads(report_path.read_text(encoding="utf-8"))["complete"])
             missing_batch_root = root / "missing-batch"
             create_tree(missing_batch_root)
             missing_batch = next((missing_batch_root / "history").glob("**/batch-*.jsonl"))

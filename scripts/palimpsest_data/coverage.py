@@ -5,11 +5,39 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from .io import DataError, atomic_json, iter_jsonl, read_json, sha256_file
-from .history import iter_page_records
+from .history import fetch_json, iter_page_records
 from .importer import fetch_local_page
 from .manifests import EXPECTED, LANGS, validate_corpus
+
+
+def _local_api_json(url: str) -> dict[str, Any]:
+    """Use a bounded request for local verification; source acquisition keeps its normal retries."""
+    return fetch_json(url, retries=1, sleep=lambda _delay: None,
+                      wait_on_rate_limit=False, timeout=8.0)
+
+
+def failed_coverage_report(*, project: str, scope: str, code_revision: str,
+                           reason: str, corpus: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Fresh failure document for an unexpected verification exception."""
+    return {
+        "schema_version": 1, "code_revision": code_revision or "unknown", "project": project,
+        "scope": scope, "release": (corpus or {}).get("release"),
+        "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "runtime_ready": False, "sample_verified": False,
+        "per_language": {lang: {"expected_articles": (corpus or {}).get("expected_counts", {}).get(lang), "acquired_articles": 0,
+                                 "imported_articles": 0, "reconciled_articles": 0,
+                                 "expected_revisions": None, "acquired_revisions": 0,
+                                 "imported_revisions": 0, "reconciled_revisions": 0,
+                                 "unresolved_pages": 0, "unresolved_revisions": 0}
+                         for lang in LANGS},
+        "rendering": {"status": "incomplete", "dependencies": [], "dependency_count": 0,
+                      "imported_dependency_revisions": 0, "unresolved": [], "complete": False},
+        "failures": [{"stage": "verification", "reason": "verification-failed", "detail": reason}],
+        "complete": False,
+    }
 
 
 def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
@@ -25,6 +53,35 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
     runtime_identity_ok = bool(runtime_manifest and runtime_manifest.get("schema_version") == 1
                                and runtime_manifest.get("project") == project
                                and Path(runtime_manifest.get("data_root", "")).expanduser().resolve() == data_root.resolve())
+    runtime_live: dict[str, bool] = {lang: False for lang in LANGS}
+    if runtime_identity_ok:
+        for lang in LANGS:
+            lang_config = (runtime_manifest.get("languages") or {}).get(lang) or {}
+            api_url = lang_config.get("api_url")
+            if not api_url:
+                failures.append({"stage": "runtime", "language": lang, "reason": "runtime-api-url-missing"})
+                continue
+            siteinfo_url = api_url + ("&" if "?" in api_url else "?") + urlencode({
+                "action": "query", "meta": "siteinfo", "siprop": "general",
+                "format": "json", "formatversion": 2,
+            })
+            try:
+                payload = (api(siteinfo_url) if api else _local_api_json(siteinfo_url))
+                general = payload.get("query", {}).get("general", {})
+                if general.get("lang") != lang:
+                    failures.append({"stage": "runtime", "language": lang, "reason": "runtime-language-mismatch",
+                                     "expected_language": lang, "observed_language": general.get("lang")})
+                elif general.get("wikiid") != f"mw_{project}_{lang}":
+                    failures.append({"stage": "runtime", "language": lang, "reason": "runtime-wikiid-mismatch",
+                                     "expected_wikiid": f"mw_{project}_{lang}", "observed_wikiid": general.get("wikiid")})
+                else:
+                    runtime_live[lang] = True
+            except Exception as e:
+                failures.append({"stage": "runtime", "language": lang, "reason": "siteinfo-query-failed", "detail": str(e)})
+    elif runtime_manifest:
+        failures.append({"stage": "runtime", "reason": "runtime-project-or-data-root-mismatch",
+                         "expected_project": project, "observed_project": runtime_manifest.get("project"),
+                         "expected_data_root": str(data_root.resolve()), "observed_data_root": runtime_manifest.get("data_root")})
     for lang in LANGS:
         articles = [a for a in corpus["articles"] if a["language"] == lang]
         acquired = imported = reconciled = acquired_revisions = imported_revisions = reconciled_revisions = 0
@@ -102,42 +159,55 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
                 failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "reason": "mapping-has-extra-source-revisions", "revision_ids": sorted(extras)[:20]})
                 unresolved_revisions += len(extras)
             observed_local: dict[int, tuple[int, dict[int, dict[str, Any]]]] = {}
-            if valid and runtime_identity_ok:
+            page_local_ok = True
+            if valid and runtime_identity_ok and runtime_live[lang]:
                 lang_config = (runtime_manifest.get("languages") or {}).get(lang) or {}
                 api_url = lang_config.get("api_url")
                 if not api_url:
                     failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "reason": "runtime-api-url-missing"})
+                    page_local_ok = False
                 else:
-                    local_id, local_rows = fetch_local_page(api_url, article["title"], api=api) if api else fetch_local_page(api_url, article["title"])
-                    local_by_id = {int(x["revid"]): x for x in local_rows if type(x.get("revid")) is int}
-                    observed_local[article["source_page_id"]] = (local_id or -1, local_by_id)
-                    local_keys: set[int] = set()
-                    for source_id, item in valid.items():
-                        local_rev_id = item.get("local_revision_id")
-                        local = local_by_id.get(local_rev_id) if type(local_rev_id) is int else None
-                        source = source_by_id[source_id]
-                        author = source.get("author") or {}
-                        expected_user = author.get("value")
-                        if expected_user and author.get("kind") == "named":
-                            expected_user = "Imported>" + expected_user
-                        source_parent = source.get("source_parent_id")
-                        expected_local_parent = valid.get(source_parent, {}).get("local_revision_id") if source_parent else None
-                        parent_matches = (source_parent is None and (local or {}).get("parentid") in (None, 0)) or (source_parent is not None and (local or {}).get("parentid") == expected_local_parent)
-                        author_matches = author.get("hidden") or author.get("kind") == "unknown" or (local or {}).get("user") == expected_user
-                        metadata_matches = ((source.get("comment_hidden", False) or (local or {}).get("comment") == source.get("comment"))
-                                            and (local or {}).get("minor", False) == source.get("minor", False)
-                                            and (local or {}).get("content_model") == source.get("content_model")
-                                            and (local or {}).get("content_format") == source.get("content_format"))
-                        if item.get("local_page_id") != local_id or local is None or local.get("timestamp") != item.get("timestamp") or local.get("content_hash") != item.get("source_content_hash") or local_rev_id in local_keys or not parent_matches or not author_matches or not metadata_matches:
-                            failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "revision_id": source_id, "reason": "local-revision-missing-or-changed"})
-                            unresolved_revisions += 1
-                        else:
-                            local_keys.add(local_rev_id)
+                    page_query_succeeded = False
+                    try:
+                        local_id, local_rows = fetch_local_page(api_url, article["title"], api=api or _local_api_json)
+                        page_query_succeeded = True
+                    except Exception as e:
+                        local_id, local_rows = None, []
+                        page_local_ok = False
+                        runtime_live[lang] = False
+                        failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"],
+                                         "reason": "local-page-query-failed", "detail": str(e)})
+                    if page_query_succeeded:
+                        local_by_id = {int(x["revid"]): x for x in local_rows if type(x.get("revid")) is int}
+                        observed_local[article["source_page_id"]] = (local_id or -1, local_by_id)
+                        local_keys: set[int] = set()
+                        for source_id, item in valid.items():
+                            local_rev_id = item.get("local_revision_id")
+                            local = local_by_id.get(local_rev_id) if type(local_rev_id) is int else None
+                            source = source_by_id[source_id]
+                            author = source.get("author") or {}
+                            expected_user = author.get("value")
+                            if expected_user and author.get("kind") == "named":
+                                expected_user = "Imported>" + expected_user
+                            source_parent = source.get("source_parent_id")
+                            expected_local_parent = valid.get(source_parent, {}).get("local_revision_id") if source_parent else None
+                            parent_matches = (source_parent is None and (local or {}).get("parentid") in (None, 0)) or (source_parent is not None and (local or {}).get("parentid") == expected_local_parent)
+                            author_matches = author.get("hidden") or author.get("kind") == "unknown" or (local or {}).get("user") == expected_user
+                            metadata_matches = ((source.get("comment_hidden", False) or (local or {}).get("comment") == source.get("comment"))
+                                                and (local or {}).get("minor", False) == source.get("minor", False)
+                                                and (local or {}).get("content_model") == source.get("content_model")
+                                                and (local or {}).get("content_format") == source.get("content_format"))
+                            if item.get("local_page_id") != local_id or local is None or local.get("timestamp") != item.get("timestamp") or local.get("content_hash") != item.get("source_content_hash") or local_rev_id in local_keys or not parent_matches or not author_matches or not metadata_matches:
+                                page_local_ok = False
+                                failures.append({"stage": "import", "language": lang, "page_id": article["source_page_id"], "revision_id": source_id, "reason": "local-revision-missing-or-changed"})
+                                unresolved_revisions += 1
+                            else:
+                                local_keys.add(local_rev_id)
             good = len(valid) == len(rows) and len(mapping) == len(rows) and not extras
             imported += bool(good)
-            reconciled += bool(good and runtime_manifest and observed_local)
+            reconciled += bool(good and runtime_manifest and observed_local and page_local_ok)
             imported_revisions += len(valid)
-            reconciled_revisions += len(valid) if good and runtime_manifest and observed_local and not any(f.get("page_id") == article["source_page_id"] and f.get("reason") == "local-revision-missing-or-changed" for f in failures) else 0
+            reconciled_revisions += len(valid) if good and runtime_manifest and observed_local and page_local_ok else 0
             support_path = data_root / "support" / article["source_wiki"] / f"{article['source_page_id']}.json"
             if not support_path.exists():
                 rendering_unresolved.append({"source_wiki": article["source_wiki"], "source_page_id": article["source_page_id"], "reason": "support-inventory-missing"})
@@ -168,12 +238,9 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
         rendering_unresolved.extend({"reason": "support-import-unreconciled", "source_wiki": x.get("source_wiki"), "source_page_id": x.get("source_page_id"), "source_revision_id": x.get("source_revision_id"), "errors": x.get("errors")} for x in support_unreconciled)
     release = corpus["release"]
     full_membership = corpus["scope"] == "sample" or corpus["expected_counts"] == EXPECTED
-    if runtime_manifest and not runtime_identity_ok:
-        failures.append({"stage": "runtime", "reason": "runtime-project-or-data-root-mismatch",
-                         "expected_project": project, "observed_project": runtime_manifest.get("project"),
-                         "expected_data_root": str(data_root.resolve()), "observed_data_root": runtime_manifest.get("data_root")})
-    runtime_ready = bool(runtime_identity_ok and all(runtime_manifest.get("initialized", {}).get(lang) is True for lang in LANGS))
-    sample_verified = corpus["scope"] == "sample" and all(
+    runtime_ready = bool(runtime_identity_ok and all(runtime_manifest.get("initialized", {}).get(lang) is True for lang in LANGS)
+                         and all(runtime_live.values()))
+    sample_verified = runtime_ready and corpus["scope"] == "sample" and all(
         per_language[lang]["acquired_articles"] == per_language[lang]["expected_articles"]
         and per_language[lang]["reconciled_articles"] == per_language[lang]["expected_articles"]
         and per_language[lang]["unresolved_pages"] == 0 and per_language[lang]["unresolved_revisions"] == 0
@@ -185,7 +252,7 @@ def build_coverage(corpus: dict[str, Any], data_root: Path, *, project: str,
     rendering = {"status": "complete" if rendering_complete else "incomplete", "dependencies": sorted(rendering_dependencies.values(), key=lambda x: (x["source_wiki"], x["title"] or "")),
                  "dependency_count": len(rendering_dependencies), "imported_dependency_revisions": len(support_mappings),
                  "unresolved": rendering_unresolved, "complete": rendering_complete}
-    complete = full_membership and history_complete and imports_complete and all(per_language[x]["unresolved_pages"] == 0 and per_language[x]["unresolved_revisions"] == 0 for x in LANGS)
+    complete = runtime_ready and full_membership and history_complete and imports_complete and all(per_language[x]["unresolved_pages"] == 0 and per_language[x]["unresolved_revisions"] == 0 for x in LANGS)
     return {
         "schema_version": 1, "code_revision": code_revision or "unknown", "project": project,
         "scope": corpus["scope"], "release": release, "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
