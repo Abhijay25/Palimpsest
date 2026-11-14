@@ -17,6 +17,7 @@ eval/stealth/runs/p*/prepared.jsonl
 .local/
 *.py[cod]
 .pytest_cache/
+.venv-divergence/
 node_modules/
 playwright-report/
 test-results/

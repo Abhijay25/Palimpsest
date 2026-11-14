@@ -1,6 +1,8 @@
 # Palimpsest
 HackJunction 2026 Project
 
+An optional [NeoWiki divergence explorer](tools/divergence-explorer/README.md) visualizes historical differences between language editions. Run it independently with the included real-data sample; no wiki runtime or API key is required.
+
 Local MediaWiki infrastructure for the team, with separate Finnish, Swedish and English wikis and one persistent MariaDB server. The approved baseline includes Vector 2022, local accounts, source/visual editing, history/diffs, discussions, watchlists, uploads, references, Lua and online Commons. See the [scope](docs/infra/spec.md) for the feature matrix and boundaries.
 
 This feature branch adds native **Blame**: select article wording to inspect contributing revisions and replaced/deleted wording inline, or find a local version by UTC date. Start with a small local prototype; Hostinger and full-corpus scale-up are deferred. See the [Blame setup and limits](docs/blame/README.md), [specification](docs/blame/spec.md) and [verification evidence](docs/blame/verification.md).
