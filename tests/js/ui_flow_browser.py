@@ -81,6 +81,34 @@ def main():
         assert page.locator("#mw-content-text > .mw-parser-output").count() == 1, "action-only page must receive a peer article container"
         assert "alpha beta" in page.locator(".mw-parser-output").inner_text()
 
+        page.keyboard.press("Tab")
+        assert page.evaluate("document.activeElement.dataset.pbStart") == "0", "Tab should reach the first attributed phrase"
+        page.keyboard.press("Enter")
+        page.wait_for_selector(".pb-breakdown")
+        assert page.evaluate("document.activeElement.classList.contains('pb-close')"), "opening a breakdown should focus its Close history control"
+        page.keyboard.press("Escape")
+        assert page.locator(".pb-breakdown").count() == 0
+        assert page.evaluate("document.activeElement.dataset.pbStart") == "0", "Escape should return focus to the phrase that opened history"
+        page.evaluate("window.__escapePrevented = null; document.addEventListener('keydown', event => { if (event.key === 'Escape') window.__escapePrevented = event.defaultPrevented; });")
+        page.keyboard.press("Escape")
+        assert page.evaluate("window.__escapePrevented") is False, "Escape without an active breakdown must not be intercepted"
+
+        page.keyboard.press("Tab")
+        assert page.evaluate("document.activeElement.dataset.pbStart") == "6", "Tab should advance to the second attributed phrase"
+        page.keyboard.press("Space")
+        page.wait_for_selector(".pb-breakdown")
+        page.evaluate(
+            """() => {
+                const oldPhrase = document.querySelector('[data-pb-start="6"]');
+                const replacement = oldPhrase.cloneNode(true);
+                oldPhrase.replaceWith(replacement);
+                window.__freshPhrase = replacement;
+            }"""
+        )
+        page.keyboard.press("Escape")
+        assert page.locator(".pb-breakdown").count() == 0
+        assert page.evaluate("document.activeElement === window.__freshPhrase"), "Escape should resolve focus to the fresh phrase node with the same verified range"
+
         drag_points = page.evaluate(
             """() => {
                 const text = document.querySelector('[data-pb-start="0"]').firstChild;

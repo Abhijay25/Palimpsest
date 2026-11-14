@@ -29,6 +29,7 @@
 	var renderedRevision = null;
 	var retainedArticleSelection = null;
 	var returnFocus = null;
+	var returnFocusAnchor = null;
 	var selectedText = '';
 	var article = document.querySelector( '#mw-content-text .mw-parser-output' );
 	var language = document.documentElement.lang || 'unknown';
@@ -275,6 +276,28 @@
 		panel.appendChild( message );
 	}
 
+	function rememberReturnFocus( node ) {
+		returnFocus = node;
+		var mapping = H.validOffsetElement( node );
+		returnFocusAnchor = mapping ? { start: mapping.start, end: mapping.end, text: node.textContent } : null;
+	}
+
+	function resolveReturnFocus() {
+		if ( returnFocus && returnFocus.isConnected ) {
+			return returnFocus;
+		}
+		if ( returnFocusAnchor && article ) {
+			var candidates = article.querySelectorAll( '[data-pb-start][data-pb-end]' );
+			for ( var i = 0; i < candidates.length; i++ ) {
+				var mapping = H.validOffsetElement( candidates[ i ] );
+				if ( mapping && mapping.start === returnFocusAnchor.start && mapping.end === returnFocusAnchor.end && candidates[ i ].textContent === returnFocusAnchor.text ) {
+					return candidates[ i ];
+				}
+			}
+		}
+		return root.querySelector( '.pb-action-bar button' );
+	}
+
 	document.addEventListener( 'selectionchange', function () {
 		var nativeSelection = window.getSelection();
 		if ( nativeSelection && !nativeSelection.isCollapsed ) {
@@ -483,7 +506,7 @@
 				return;
 			}
 			selection.statement = selection.statement || nearestStatement( window.getSelection() );
-			returnFocus = inspect;
+			rememberReturnFocus( inspect );
 			startAnalysis( selection );
 		} );
 		bar.appendChild( inspect );
@@ -565,7 +588,7 @@
 				if ( !intersects ) {
 					selection = { exactText: node.textContent, ranges: [ { start: mapping.start, end: mapping.end } ], unmapped: [], statement: node.closest( 'p, li, blockquote, h1, h2, h3, h4, h5, h6, dt, dd, figcaption' ) };
 				}
-				returnFocus = node;
+				rememberReturnFocus( node );
 				startAnalysis( selection );
 			};
 			node.addEventListener( 'click', activate );
@@ -654,17 +677,7 @@
 		var close = element( 'button', 'pb-button pb-close', 'Close history' );
 		close.type = 'button';
 		close.addEventListener( 'click', function () {
-			panel.remove();
-			restoreRootPosition();
-			renderFull( currentData );
-			if ( returnFocus && returnFocus.isConnected ) {
-				returnFocus.focus();
-			} else {
-				var inspect = root.querySelector( '.pb-action-bar button' );
-				if ( inspect ) {
-					inspect.focus();
-				}
-			}
+			closeBreakdown( panel );
 		} );
 		header.appendChild( close );
 		panel.appendChild( header );
@@ -680,6 +693,33 @@
 		buildDateForm();
 		close.focus();
 	}
+
+	function closeBreakdown( panel ) {
+		if ( !panel || !panel.isConnected ) {
+			return;
+		}
+		panel.remove();
+		restoreRootPosition();
+		renderFull( currentData );
+		var focusTarget = resolveReturnFocus();
+		returnFocus = null;
+		returnFocusAnchor = null;
+		if ( focusTarget ) {
+			focusTarget.focus();
+		}
+	}
+
+	document.addEventListener( 'keydown', function ( event ) {
+		if ( event.key !== 'Escape' ) {
+			return;
+		}
+		var panel = root.querySelector( '.pb-breakdown' );
+		if ( !panel ) {
+			return;
+		}
+		event.preventDefault();
+		closeBreakdown( panel );
+	} );
 
 	function appendContributors( panel, data ) {
 		var section = element( 'section', 'pb-contributors' );
