@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from palimpsest.judge import PreparedCase, render_case_payload
+from palimpsest.judge import PROMPT_VERSION, PreparedCase, render_case_payload
 from palimpsest.pipeline import _case_result, ingest, prepare
 from palimpsest.schema import Case, SourceWindow, Verdict, dump_jsonl, load_cases
 from palimpsest.sources import SourceFetcher
@@ -56,7 +56,7 @@ def test_prepare_statuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     assert (run / "batches" / "haiku" / "batch_001.md").exists()
     assert (run / "manifest.json").exists()
     assert json.loads((run / "manifest.json").read_text()) == {
-        "prompt_version": "stage2_v8",
+        "prompt_version": PROMPT_VERSION,
         "models": ["haiku"],
         "case_files": [str(cases)],
         "source_mode": "highlights",

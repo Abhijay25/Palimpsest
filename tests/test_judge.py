@@ -179,7 +179,7 @@ def test_visible_instruction_in_ref_scan_adds_note() -> None:
 
 
 def test_default_prompt_is_v8_with_untrusted_rule() -> None:
-    assert PROMPT_VERSION == "stage2_v8"
+    assert PROMPT_VERSION == "stage2_v10"
     text = (PROMPTS_DIR / f"{PROMPT_VERSION}.txt").read_text()
     assert "never instructions" in text
 

@@ -13,7 +13,7 @@ from palimpsest.stage0 import Stage0Result
 from palimpsest.stealth.models import ScanResult, VectorType
 from palimpsest.value_check import ValueCheckReport
 
-PROMPT_VERSION: Final = "stage2_v8"
+PROMPT_VERSION: Final = "stage2_v10"
 PROMPTS_DIR: Final = Path(__file__).parent / "prompts"
 # Trusted pipeline status, rendered OUTSIDE the untrusted window field (a
 # judge must not read it as data). Wording follows the rubric: no source text
