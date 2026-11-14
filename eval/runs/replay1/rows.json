@@ -1,0 +1,1888 @@
+[
+ {
+  "lang": "en",
+  "page_title": "Newmarket Bus Terminal",
+  "rev_id": 1334711900,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 1.6,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "WWJZ",
+  "rev_id": 1274710320,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 19.5,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "WWJZ",
+  "rev_id": 1283295408,
+  "label": "corrected",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "FACT"
+  ],
+  "points_at_change": false,
+  "seconds": 13.5,
+  "flags": [
+   {
+    "kind": "FACT",
+    "tier": "review",
+    "anchor_text": "County Route 630",
+    "reason": "The edit changes the location from \"CR-530\" to \"County Route 630 in Pemberton Township, New Jersey\", a specific factual alteration not verified by the cited text, which only states \"Please click on the respective station link below to view information about the station\"."
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "WWJZ",
+  "rev_id": 1272242698,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 10.2,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "John Bennett (field hockey)",
+  "rev_id": 1302437118,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 7.2,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "John Bennett (field hockey)",
+  "rev_id": 1304977840,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.0,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Zoran Terzić",
+  "rev_id": 1277730743,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.2,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Zoran Terzić",
+  "rev_id": 1260719506,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 1.0,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Zoran Terzić",
+  "rev_id": 1282162964,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FACT",
+   "MOTIVE",
+   "OUT_OF_SYNC"
+  ],
+  "points_at_change": true,
+  "seconds": 28.3,
+  "flags": [
+   {
+    "kind": "MOTIVE",
+    "tier": "admin",
+    "anchor_text": "due to sanctions against Russia",
+    "reason": "The cited source states that the Russian team did not play any official matches, but it does not mention sanctions against Russia as the cause."
+   },
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "WVC",
+    "reason": "The edit changes Fenerbahçe to WVC; the cited source gives Fenerbahçe."
+   },
+   {
+    "kind": "OUT_OF_SYNC",
+    "tier": "admin",
+    "anchor_text": "OK",
+    "reason": "The edit changes Russia to OK, but the section 'Introduction' still says Russia."
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "DeWanda Wise",
+  "rev_id": 1257833928,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 12.1,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "DeWanda Wise",
+  "rev_id": 1297719101,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.7,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Order of precedence in British Columbia",
+  "rev_id": 1273102693,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.7,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "SYNTAX",
+  "rev_id": 1379103457,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 0.7,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Linlang (2006 TV series)",
+  "rev_id": 1374187037,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.5,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "New Rural Reconstruction Movement",
+  "rev_id": 1260915475,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 1.0,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Samantha Strauss",
+  "rev_id": 1284143714,
+  "label": "stood",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "CITED_PAGE"
+  ],
+  "points_at_change": false,
+  "seconds": 13.4,
+  "flags": [
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://tvblackbox.com.au/page/2025/02/07/watch-binge-unveils-first-look-trailer-for-new-australian-drama-the-last-anniversary/",
+    "reason": "Cited site did not respond (it may be down)"
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "Samantha Strauss",
+  "rev_id": 1304102614,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 8.7,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Samantha Strauss",
+  "rev_id": 1318763522,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 17.8,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "The Coroner",
+  "rev_id": 1368711236,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.8,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "National identification card (Taiwan)",
+  "rev_id": 1276113819,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FACT"
+  ],
+  "points_at_change": false,
+  "seconds": 7.7,
+  "flags": [
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "the Taiwan government subsequently postponed moving to the new digital format.",
+    "reason": "The source states that the Executive Yuan suspended the issuance of eID cards in January 2021, prior to the May 2023 court decision, rather than subsequently postponing it after 2023."
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "National identification card (Taiwan)",
+  "rev_id": 1303045418,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FACT",
+   "OUT_OF_SYNC"
+  ],
+  "points_at_change": false,
+  "seconds": 18.1,
+  "flags": [
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "Uniform",
+    "reason": "The edit changes Identity to Uniform; Wikidata (P279) gives Identity."
+   },
+   {
+    "kind": "OUT_OF_SYNC",
+    "tier": "admin",
+    "anchor_text": "Uniform",
+    "reason": "The edit changes Identity to Uniform, but the section 'Introduction' still says Identity."
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "I'll Never Stop",
+  "rev_id": 1266381304,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 16.3,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "I'll Never Stop",
+  "rev_id": 1360922753,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 5.8,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Frank E. X. Dance",
+  "rev_id": 1292933007,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 0.9,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Peter Orphoot",
+  "rev_id": 1288298447,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.7,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Peter Orphoot",
+  "rev_id": 1292932953,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 0.6,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Black Rider (TV series)",
+  "rev_id": 1303968413,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 1.6,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Black Rider (TV series)",
+  "rev_id": 1297815064,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.9,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Black Rider (TV series)",
+  "rev_id": 1269930518,
+  "label": "corrected",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "HIDDEN_TEXT"
+  ],
+  "points_at_change": false,
+  "seconds": 2.5,
+  "flags": [
+   {
+    "kind": "HIDDEN_TEXT",
+    "tier": "review",
+    "anchor_text": "| alt                  = An image of Ruru Madrid looking down and holding a handgun in his left hand and a machete in his right hand, with a halo of gun bullets over his head and wings made up of guns over his back. The series title is displayed on the lower side of the image.",
+    "reason": "Template parameter or attribute text that may not render; pending triage."
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "Light Bringer (novel)",
+  "rev_id": 1303711537,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 5.0,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Light Bringer (novel)",
+  "rev_id": 1303707112,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.6,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Light Bringer (novel)",
+  "rev_id": 1354733938,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.5,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Felice Herrig",
+  "rev_id": 1265197649,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 6.8,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Keith Faber",
+  "rev_id": 1335361184,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING",
+   "MOTIVE"
+  ],
+  "points_at_change": true,
+  "seconds": 10.2,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "A member of the Nazi Republican Party of America",
+    "reason": "Replaces 'A Republican' with an unsourced, damaging, and contentious claim about a living person and political party (WP:BLP)."
+   },
+   {
+    "kind": "MOTIVE",
+    "tier": "admin",
+    "anchor_text": "he has consistently worked to inflame hysteria toward anything not conforming to white Christian values",
+    "reason": "Adds an unsourced, pejorative motive and intent in Wikipedia's objective voice."
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "Keith Faber",
+  "rev_id": 1335144099,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING",
+   "MOTIVE"
+  ],
+  "points_at_change": true,
+  "seconds": 7.2,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "who has turned into an hard right Nazi",
+    "reason": "Adds an unsourced, damaging, and contentious claim about an identifiable living person (WP:BLP)."
+   },
+   {
+    "kind": "MOTIVE",
+    "tier": "admin",
+    "anchor_text": "for political points",
+    "reason": "Adds an unsourced motive for the subject's actions."
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "He is a piece of garbage and should be elected out of office forever",
+    "reason": "Inserts personal insults and non-encyclopedic editorializing."
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "Albert J. Goddard",
+  "rev_id": 1311203171,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 0.8,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Jesús Made",
+  "rev_id": 1314155194,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "CITED_PAGE",
+   "FACT",
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 37.2,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "one of the most exciting prospects in baseball",
+    "reason": "Adds promotional, unverifiable superlative praise in Wikipedia's voice."
+   },
+   {
+    "kind": "FACT",
+    "tier": "review",
+    "anchor_text": "consider a top 5 prospect",
+    "reason": "Adds an unattributed rank claim without source support."
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "He’s extremely talented defender",
+    "reason": "Adds evaluative praise in Wikipedia's voice."
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "impressive start",
+    "reason": "Uses evaluative, non-neutral phrasing ('impressive') in Wikipedia's voice without attribution."
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "even more impressive",
+    "reason": "Uses evaluative, non-neutral phrasing ('even more impressive') in Wikipedia's voice without attribution."
+   },
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://archive.today/20241127144724/https://www.jsonline.com/story/sports/mlb/brewers/2024/11/27/brewers-prospect-rankings-17-year-old-jesus-made-is-no-1/76338319007/",
+    "reason": "Cited page is no longer available"
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "Red Line (Chennai Metro)",
+  "rev_id": 1361655620,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "CITATION_DATE",
+   "OUT_OF_SYNC"
+  ],
+  "points_at_change": true,
+  "seconds": 11.8,
+  "flags": [
+   {
+    "kind": "CITATION_DATE",
+    "tier": "review",
+    "anchor_text": "December 2028",
+    "reason": "Future date: December 2028. (13 places)"
+   },
+   {
+    "kind": "CITATION_DATE",
+    "tier": "review",
+    "anchor_text": "March 2027",
+    "reason": "Future date: March 2027. (6 places)"
+   },
+   {
+    "kind": "CITATION_DATE",
+    "tier": "review",
+    "anchor_text": "December 2026",
+    "reason": "Future date: December 2026. (12 places)"
+   },
+   {
+    "kind": "OUT_OF_SYNC",
+    "tier": "admin",
+    "anchor_text": "December",
+    "reason": "The edit changes October to December, but the section 'Phase II' still says October."
+   }
+  ]
+ },
+ {
+  "lang": "en",
+  "page_title": "Red Line (Chennai Metro)",
+  "rev_id": 1357562857,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 2.5,
+  "flags": []
+ },
+ {
+  "lang": "en",
+  "page_title": "Red Line (Chennai Metro)",
+  "rev_id": 1360898759,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "CITATION_DATE",
+   "FACT",
+   "OUT_OF_SYNC"
+  ],
+  "points_at_change": true,
+  "seconds": 11.8,
+  "flags": [
+   {
+    "kind": "CITATION_DATE",
+    "tier": "review",
+    "anchor_text": "December 2028",
+    "reason": "Future date: December 2028. (13 places)"
+   },
+   {
+    "kind": "CITATION_DATE",
+    "tier": "review",
+    "anchor_text": "March 2027",
+    "reason": "Future date: March 2027. (6 places)"
+   },
+   {
+    "kind": "CITATION_DATE",
+    "tier": "review",
+    "anchor_text": "December 2026",
+    "reason": "Future date: December 2026. (11 places)"
+   },
+   {
+    "kind": "OUT_OF_SYNC",
+    "tier": "admin",
+    "anchor_text": "December",
+    "reason": "The edit changes October to December, but the section 'Phase II' still says October."
+   },
+   {
+    "kind": "FACT",
+    "tier": "review",
+    "anchor_text": "Decembber 2026",
+    "reason": "The edit changes expected station opening dates across the table to \"December 2028\" and \"December 2026\" (including the typo \"Decembber 2026\") without providing a supporting citation."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Jani Sievinen",
+  "rev_id": 22902911,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 6.1,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "Jani on niin monta kulta mitälia voittanut että voitit on",
+    "reason": "The edit appends ungrammatical, non-encyclopedic nonsense/test-edit text to the end of the paragraph, which is also unsupported by the cited source."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Hidasta elämää",
+  "rev_id": 24238398,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FACT",
+   "HIDDEN_TEXT"
+  ],
+  "points_at_change": true,
+  "seconds": 14.6,
+  "flags": [
+   {
+    "kind": "HIDDEN_TEXT",
+    "tier": "review",
+    "anchor_text": "https://hidastaelamaa.fi/puoti/unelmakarttakirja/",
+    "reason": "Zero-width characters present; stripped from human text. (2 places)"
+   },
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "2026",
+    "reason": "The edit changes 2022 to 2026; the cited source gives 2022."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Ulf Sundqvist",
+  "rev_id": 22841668,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FACT"
+  ],
+  "points_at_change": true,
+  "seconds": 17.8,
+  "flags": [
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "vuonna 2022",
+    "reason": "The edit states that Sundqvist died in 2022, which directly contradicts the cited source stating his death date as 22.4.2023."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Grenfell Towerin tulipalo",
+  "rev_id": 23435226,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.7,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Grenfell Towerin tulipalo",
+  "rev_id": 23477826,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 1.0,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Grenfell Towerin tulipalo",
+  "rev_id": 23449159,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.3,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Mihail Nikolajevitš Romanov",
+  "rev_id": 23015457,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING"
+  ],
+  "points_at_change": false,
+  "seconds": 14.6,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "ennenaikaisesti vain",
+    "reason": "Evaluative and scalar phrasing ('prematurely only') introduces editorializing tone rather than neutral encyclopedic reporting."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Alankomaiden jalkapallomaajoukkue",
+  "rev_id": 24128730,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 17.5,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Sakari Tamminen",
+  "rev_id": 23134803,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.3,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Antti Hyvönen",
+  "rev_id": 23907853,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FACT",
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 11.6,
+  "flags": [
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "Visa-Teko Linko",
+    "reason": "The edit changes the name of the subject's child to \"Visa-Teko Linko\" without providing a supporting source, which looks like a pun."
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "Nimensä Visa on saanut Otto-Wille Kuusiselta, jonka mielestä lapsen teko oli \"Visa Teko\".",
+    "reason": "The edit adds an unsourced, joke-like claim about the origin of the child's name: 'Nimensä Visa on saanut Otto-Wille Kuusiselta, jonka mielestä lapsen teko oli \"Visa Teko\".'"
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Ikosaedrinen symmetria",
+  "rev_id": 23825035,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 0.8,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Pirkanmaan urheilu",
+  "rev_id": 23976279,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.1,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Anders Wiklöf",
+  "rev_id": 23921009,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 6.5,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "euroviisulegendan",
+    "reason": "Evaluative, promotional label ('Eurovision legend') not supported by the citation window and inappropriate for neutral encyclopedic voice."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Stéphanos II Ghattas",
+  "rev_id": 24346548,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.4,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Jonas Siegenthaler",
+  "rev_id": 23291378,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 5.5,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Jonas Siegenthaler",
+  "rev_id": 23367547,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 16.0,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Aku",
+  "rev_id": 22940266,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.4,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Udo Kier",
+  "rev_id": 23694436,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 15.3,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Udo Kier",
+  "rev_id": 24032680,
+  "label": "stood",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "HIDDEN_TEXT"
+  ],
+  "points_at_change": false,
+  "seconds": 11.6,
+  "flags": [
+   {
+    "kind": "HIDDEN_TEXT",
+    "tier": "review",
+    "anchor_text": "https://web.archive.org/web/20211028171031/https://www.ebar.com/arts_&_culture/movies//307558",
+    "reason": "Visible added text contains instruction-like phrasing; pending triage. (3 places)"
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Udo Kier",
+  "rev_id": 23694440,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.0,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Kyllä isä osaa Espanjassa",
+  "rev_id": 24311047,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 5.7,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Kyllä isä osaa Espanjassa",
+  "rev_id": 24251285,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 10.7,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Kyllä isä osaa Espanjassa",
+  "rev_id": 24250571,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 8.3,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Tsiprasidoni",
+  "rev_id": 23210390,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 9.5,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Lunch atop a Skyscraper",
+  "rev_id": 24003608,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 2.7,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Suomenlinna",
+  "rev_id": 23039847,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 5.4,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "suomenlinna on mahtava matkailu kohde",
+    "reason": "Adds an uncapitalized, unpunctuated, promotional, and evaluative statement ('mahtava matkailu kohde' / 'awesome tourist destination') in an unencyclopedic tone."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Suomenlinna",
+  "rev_id": 23485382,
+  "label": "stood",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "MOTIVE"
+  ],
+  "points_at_change": false,
+  "seconds": 13.2,
+  "flags": [
+   {
+    "kind": "MOTIVE",
+    "tier": "review",
+    "anchor_text": "oli myös huomattava vaikutus siihen, että",
+    "reason": "The edit introduces an unverified causal claim attributing Helsinki's designation as capital in 1812 to the fortress, using the unattributed intensifier 'huomattava' (considerable) without an inline citation."
+   },
+   {
+    "kind": "MOTIVE",
+    "tier": "admin",
+    "anchor_text": "Se oli yksi syy siihen, miksi pääkaupunki siirrettiin Turusta Helsinkiin vuonna 1812.",
+    "reason": "Adds an unsourced causal claim explaining why the capital was moved from Turku to Helsinki in 1812."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Suomenlinna",
+  "rev_id": 23993245,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 5.1,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "2003",
+  "rev_id": 23450184,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.0,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Heikki Autto",
+  "rev_id": 23191143,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "CITED_PAGE",
+   "FACT",
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 23.2,
+  "flags": [
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://archive.today/20130429180702/http://www.heikkiautto.fi/lehtiartikkelit/heikki-auttosta-pohjoismaiden-konservatiivinuorten-johtaja.html",
+    "reason": "Cited page is no longer available"
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "\"Tööt Tööt!\"",
+    "reason": "Adds a joke/onomatopoeic nickname ('Tööt Tööt!') that is non-encyclopedic vandalism."
+   },
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "Auto",
+    "reason": "Alters the subject's surname from 'Autto' to 'Auto' (a pun/joke) without any source support."
+   },
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "Auto",
+    "reason": "The edit replaces the subject's surname 'Autto' with 'Auto' without source support."
+   },
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "Auto",
+    "reason": "The edit changes the surname 'Autto' to 'Auto', contradicting the cited source which lists the candidate as 'Autto Heikki'."
+   },
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "Auto",
+    "reason": "The subject's surname 'Autto' (confirmed in the citation as 'Autto, Heikki') was altered to 'Auto'."
+   },
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "201",
+    "reason": "The year '2010' from OLD_TEXT was altered to '201', introducing an erroneous date."
+   },
+   {
+    "kind": "FACT",
+    "tier": "admin",
+    "anchor_text": "Auto",
+    "reason": "Changed the subject's surname 'Autto' to 'Auto' ('car'), altering a factual name as part of a joke or vandalism."
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "Hän on myös täynnä bensiiniä.",
+    "reason": "Added a nonsensical and fabricated claim ('He is also full of gasoline') about an identifiable person."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Heikki Autto",
+  "rev_id": 23867169,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.6,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Heikki Autto",
+  "rev_id": 23819952,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 9.2,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Ali Leiniö",
+  "rev_id": 23046643,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 9.4,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Ali Leiniö",
+  "rev_id": 23959573,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 4.7,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "kosketti suomalaisia laajasti",
+    "reason": "Evaluative and unattributed claim about widespread emotional impact ('touched Finns widely') stated in Wikipedia's objective voice."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Ali Leiniö",
+  "rev_id": 23957814,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 2.9,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Harry Wallin",
+  "rev_id": 24241725,
+  "label": "reverted",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "CITED_PAGE"
+  ],
+  "points_at_change": false,
+  "seconds": 33.4,
+  "flags": [
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://archive.today/20150517121529/http://www.hs.fi/sunnuntai/a1431663970979",
+    "reason": "Cited page is no longer available (3 places)"
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Design from Finland -merkki",
+  "rev_id": 23198095,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "MOTIVE"
+  ],
+  "points_at_change": false,
+  "seconds": 14.5,
+  "flags": [
+   {
+    "kind": "MOTIVE",
+    "tier": "admin",
+    "anchor_text": "on syntynyt tarpeesta tehdä muotoilu menestystekijänä näkyväksi",
+    "reason": "States an unattributed purpose/motive for the creation of the mark without an inline citation."
+   },
+   {
+    "kind": "MOTIVE",
+    "tier": "admin",
+    "anchor_text": "jäsenyritysten toiveesta",
+    "reason": "States an unattributed reason/motive for the renewal of the mark without an inline citation."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Mouhijärvi (järvi)",
+  "rev_id": 23878438,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 5.2,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "kuuluu kuningas aleksi leinoselle",
+    "reason": "The edit replaces factual geographical information with a fabricated, nonsensical, and non-encyclopedic claim ('belongs to king aleksi leinonen')."
+   }
+  ]
+ },
+ {
+  "lang": "fi",
+  "page_title": "Dugongi",
+  "rev_id": 22999173,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.9,
+  "flags": []
+ },
+ {
+  "lang": "fi",
+  "page_title": "Dugongi",
+  "rev_id": 23210823,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 7.0,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Frankrikes bidrag i Eurovision Song Contest",
+  "rev_id": 57446038,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 2.8,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Frankrikes bidrag i Eurovision Song Contest",
+  "rev_id": 59320803,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.8,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Det papperslösa kontoret",
+  "rev_id": 56960412,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "CITED_PAGE",
+   "FACT",
+   "FRAMING",
+   "HIDDEN_TEXT"
+  ],
+  "points_at_change": false,
+  "seconds": 37.1,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "anmärkningsvärt profetisk",
+    "reason": "The phrase 'anmärkningsvärt profetisk' ('remarkably prophetic') is evaluative editorial commentary in Wikipedia's objective voice."
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "Betydande ytterligare förbättringar av kolintensiteten i pappers- och träproduktindustrin förväntas fram till 2030.",
+    "reason": "The source states that AF&PA members 'set a goal' to further reduce GHG emissions by 2030, whereas the edit reframes this in Wikipedia's objective voice as 'significant further improvements ... are expected', overstating certainty and omitting attribution."
+   },
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "hävdade",
+    "reason": "Verbet 'hävdade' är ett värdeladdat och tvivelväckande anföringsverb (WP:SAID) som bör ersättas med ett neutralt alternativ som 'uppgav' eller 'rapporterade'."
+   },
+   {
+    "kind": "FACT",
+    "tier": "review",
+    "anchor_text": "en av de minst hållbara och mest miljöskadliga sektorerna i världen",
+    "reason": "The source states that the production of rare earth metals is 'far from environmentally sustainable', but does not support the superlative ranking that the entire electronics-component industry is 'one of the least sustainable and most environmentally harmful sectors in the world'."
+   },
+   {
+    "kind": "HIDDEN_TEXT",
+    "tier": "review",
+    "anchor_text": "https://theconversation.com/the-digital-economys-environmental-footprint-is-threatening-the-planet-126636",
+    "reason": "Visible added text contains instruction-like phrasing; pending triage. (3 places)"
+   },
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://www.bloomberg.com/bw/stories/1975-06-30/the-office-of-the-futurebusinessweek-business-news-stock-market-and-financial-advice",
+    "reason": "Cited page is no longer available"
+   }
+  ]
+ },
+ {
+  "lang": "sv",
+  "page_title": "Det papperslösa kontoret",
+  "rev_id": 56802183,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 2.9,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Richtersveld",
+  "rev_id": 58451133,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.3,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Robert Johnson (skådespelare)",
+  "rev_id": 59149405,
+  "label": "corrected",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "CITED_PAGE"
+  ],
+  "points_at_change": false,
+  "seconds": 18.2,
+  "flags": [
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://www.svenskagravar.se/gravsatt/131661806",
+    "reason": "Cited page is no longer available"
+   },
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://sok.riksarkivet.se/bildvisning/A0041527_00358#?cv=357&xywh=807%2C1918%2C3841%2C1880",
+    "reason": "Cited site did not respond (it may be down)"
+   }
+  ]
+ },
+ {
+  "lang": "sv",
+  "page_title": "Rakel (kommunikationssystem)",
+  "rev_id": 56645265,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 7.8,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Härnösand",
+  "rev_id": 57621025,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.7,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "America's Next Top Model",
+  "rev_id": 59070097,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.7,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "America's Next Top Model",
+  "rev_id": 59069940,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 11.0,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Moa Svan",
+  "rev_id": 59343314,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.8,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Elias – den lilla räddningsbåten",
+  "rev_id": 58672584,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.9,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Strålfeniga fiskar",
+  "rev_id": 56832794,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.4,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Mike White",
+  "rev_id": 57270857,
+  "label": "corrected",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 15.0,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "och som White fått mycket god kritik för",
+    "reason": "Adds unattributed evaluative praise ('very good reviews') in Wikipedia's voice that is not supported by the cited Emmy Awards source."
+   }
+  ]
+ },
+ {
+  "lang": "sv",
+  "page_title": "Anna Kettner",
+  "rev_id": 56355824,
+  "label": "corrected",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "CITED_PAGE"
+  ],
+  "points_at_change": false,
+  "seconds": 6.3,
+  "flags": [
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://www.mitti.se/nyheter/det-tar-tid-att-forandra-en-stadsdel/repdpnqdc!NvF7ItuXTW4pRguAVueOyA/",
+    "reason": "Cited page is no longer available"
+   }
+  ]
+ },
+ {
+  "lang": "sv",
+  "page_title": "Anna Kettner",
+  "rev_id": 56351969,
+  "label": "stood",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "CITED_PAGE"
+  ],
+  "points_at_change": false,
+  "seconds": 15.2,
+  "flags": [
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://web.archive.org/web/20090601195045/http://www.socialdemokraterna.se/Webben-for-alla/Landsting/Stockholms-lan/Landstingspolitiker/Fakta-om-Anna-Kettner/",
+    "reason": "Cited page is no longer available"
+   }
+  ]
+ },
+ {
+  "lang": "sv",
+  "page_title": "Anna Kettner",
+  "rev_id": 56355725,
+  "label": "corrected",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "CITED_PAGE"
+  ],
+  "points_at_change": false,
+  "seconds": 4.5,
+  "flags": [
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://www.mitti.se/nyheter/det-tar-tid-att-forandra-en-stadsdel/repdpnqdc!NvF7ItuXTW4pRguAVueOyA/",
+    "reason": "Cited page is no longer available (2 places)"
+   }
+  ]
+ },
+ {
+  "lang": "sv",
+  "page_title": "Della Monde",
+  "rev_id": 56553006,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 0.7,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Willie Nelson",
+  "rev_id": 56963668,
+  "label": "corrected",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.8,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Drog",
+  "rev_id": 58937150,
+  "label": "reverted",
+  "error": null,
+  "flagged": "admin",
+  "kinds": [
+   "FRAMING"
+  ],
+  "points_at_change": true,
+  "seconds": 3.3,
+  "flags": [
+   {
+    "kind": "FRAMING",
+    "tier": "admin",
+    "anchor_text": "som hjälper dig att må bra",
+    "reason": "Adds non-encyclopedic second-person phrasing ('dig') and a subjective, promotional claim about illegal drugs."
+   }
+  ]
+ },
+ {
+  "lang": "sv",
+  "page_title": "Påskupploppen i Sverige 2022",
+  "rev_id": 59233407,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 6.1,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Påskupploppen i Sverige 2022",
+  "rev_id": 58975290,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.5,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Sound of Music (film)",
+  "rev_id": 59169237,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.2,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Rurik Ekroos",
+  "rev_id": 56592734,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 7.7,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Historiska museet i Lund",
+  "rev_id": 58149806,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 2.9,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Pennsylvania",
+  "rev_id": 56773282,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 2.8,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Knut Frænkel",
+  "rev_id": 56898242,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 0.4,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Roberta Flack",
+  "rev_id": 56946343,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.4,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Roberta Flack",
+  "rev_id": 56942825,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 10.6,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Roberta Flack",
+  "rev_id": 59691772,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.3,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Araméer",
+  "rev_id": 57670585,
+  "label": "reverted",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 4.0,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Hilma Kekkonen Orrell",
+  "rev_id": 58846769,
+  "label": "stood",
+  "error": null,
+  "flagged": "none",
+  "kinds": [],
+  "points_at_change": false,
+  "seconds": 3.5,
+  "flags": []
+ },
+ {
+  "lang": "sv",
+  "page_title": "Fredrik Stenfelt",
+  "rev_id": 58297947,
+  "label": "stood",
+  "error": null,
+  "flagged": "review",
+  "kinds": [
+   "CITED_PAGE"
+  ],
+  "points_at_change": false,
+  "seconds": 8.5,
+  "flags": [
+   {
+    "kind": "CITED_PAGE",
+    "tier": "review",
+    "anchor_text": "https://calmview.musikverk.se/CalmView/Record.aspx?src=CalmView.Performance&id=P12654&pos=215",
+    "reason": "Cited page is no longer available"
+   }
+  ]
+ }
+]

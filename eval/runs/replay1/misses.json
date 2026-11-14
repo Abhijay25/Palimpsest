@@ -1,0 +1,372 @@
+[
+ {
+  "lang": "en",
+  "page": "John Bennett (field hockey)",
+  "rev_id": 1302437118,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "The later edit simply added county/city names and a wikilink to the birth and death places in the newly added infobox.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "I'll Never Stop",
+  "rev_id": 1266381304,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The later edit simply added an internal wikilink to the newly added chart name 'European Hit Radio'.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "Frank E. X. Dance",
+  "rev_id": 1292933007,
+  "label": "reverted",
+  "catchable_from_edit": false,
+  "category": "OTHER",
+  "what_was_wrong": "The edit added a completely valid and accurate short description, and was only reverted because the user was discovered to be a banned sockpuppet.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "SYNTAX",
+  "rev_id": 1379103457,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The edit added a maintenance tag with an abbreviated, lowercase month name ('oct 2026') instead of the standard full month name ('October 2026').",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "WWJZ",
+  "rev_id": 1272242698,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "The subsequent editor made minor stylistic wording refinements to sentences that the first editor had only touched for basic copyediting.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "Samantha Strauss",
+  "rev_id": 1304102614,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "The later edit kept the original addition ('Logie award winning') intact and merely appended a new sentence about a separate award shortlist.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "Zoran Terzić",
+  "rev_id": 1260719506,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "VANDALISM_OR_TEST",
+  "what_was_wrong": "The edit inserted a spam link inside the date parameter of a maintenance template.",
+  "which_check_should_catch": "vandalism and spam detection"
+ },
+ {
+  "lang": "en",
+  "page": "WWJZ",
+  "rev_id": 1274710320,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "The later edit simply added an extra sourced sentence before the existing sentence without correcting or reverting an error introduced by the initial edit.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "Albert J. Goddard",
+  "rev_id": 1311203171,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The edit broke the image file markup by inserting a wikilink inside the filename and mistakenly listed 'Republican' as an occupation.",
+  "which_check_should_catch": "wikitext syntax and infobox field validation"
+ },
+ {
+  "lang": "en",
+  "page": "Peter Orphoot",
+  "rev_id": 1292932953,
+  "label": "reverted",
+  "catchable_from_edit": false,
+  "category": "OTHER",
+  "what_was_wrong": "The edit added a completely valid and accurate short description, and was only reverted because the editor was identified as a banned sockpuppet.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "Peter Orphoot",
+  "rev_id": 1288298447,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "A bot later updated the citation template formatting, added access-date and url-status parameters, and adjusted the archive-date format.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "Black Rider (TV series)",
+  "rev_id": 1297815064,
+  "label": "reverted",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The edit added trivial timeslot replacement details in the lead section, which goes against Wikipedia's television manual of style guidelines.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "Light Bringer (novel)",
+  "rev_id": 1303711537,
+  "label": "reverted",
+  "catchable_from_edit": false,
+  "category": "DISPUTE_OR_PREFERENCE",
+  "what_was_wrong": "The edit rearranged existing categories and added 'Category:American fantasy novels' to a science fiction/science fantasy novel.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "fi",
+  "page": "Grenfell Towerin tulipalo",
+  "rev_id": 23477826,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "The later edit changed the wikilink target from Great Britain (the island, Iso-Britannia) to the United Kingdom (Yhdistynyt kuningaskunta) and slightly rephrased the Finnish sentence for better flow.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "en",
+  "page": "Red Line (Chennai Metro)",
+  "rev_id": 1357562857,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "FACTUAL_SWAP",
+  "what_was_wrong": "The editor changed the sourced line length in the infobox without updating or changing the cited reference, and also introduced broken template syntax in the explanatory footnote.",
+  "which_check_should_catch": "value check against source and syntax check"
+ },
+ {
+  "lang": "fi",
+  "page": "Sakari Tamminen",
+  "rev_id": 23134803,
+  "label": "corrected",
+  "catchable_from_edit": true,
+  "category": "UNSOURCED_CLAIM",
+  "what_was_wrong": "The editor changed the subject's country of residence from Portugal to Italy (and broke a wikilink by piping Italy to Portugal) without providing a new source, while leaving the existing citation about moving to Portugal.",
+  "which_check_should_catch": "value check against source"
+ },
+ {
+  "lang": "fi",
+  "page": "Ikosaedrinen symmetria",
+  "rev_id": 23825035,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "Nothing was wrong with the edit; a later bot edit merely added an Internet Archive URL to the book citation.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "fi",
+  "page": "Udo Kier",
+  "rev_id": 23694436,
+  "label": "corrected",
+  "catchable_from_edit": true,
+  "category": "REMOVED_CONTENT",
+  "what_was_wrong": "The edit accidentally deleted the death year (2025) from the lead sentence while adding the place of death, leaving only the day and month.",
+  "which_check_should_catch": "syntax and completeness check on biographical dates"
+ },
+ {
+  "lang": "fi",
+  "page": "Kyllä isä osaa Espanjassa",
+  "rev_id": 24251285,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "The edit generalized the infobox release date to just the year 2026 (probably because the newly added source didn't specify the exact day), and a later editor restored the specific date of 25.12.2026.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "fi",
+  "page": "Kyllä isä osaa Espanjassa",
+  "rev_id": 24250571,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "A later editor merely expanded the article further and made minor stylistic and formatting improvements, such as italicizing a film title in the infobox and slightly rephrasing sentences.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "fi",
+  "page": "Pirkanmaan urheilu",
+  "rev_id": 23976279,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The added text contained a minor Finnish spelling error, writing 'lukuun ottamatta' as a single compound word 'lukuunottamatta'.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "fi",
+  "page": "Ali Leiniö",
+  "rev_id": 23046643,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "UNSOURCED_CLAIM",
+  "what_was_wrong": "The edit added a specific birth year (1977) that cannot be definitively deduced from the cited news article, which likely only gave the subject's age at the time of publication.",
+  "which_check_should_catch": "value check against source"
+ },
+ {
+  "lang": "fi",
+  "page": "Dugongi",
+  "rev_id": 22999173,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "UNSOURCED_CLAIM",
+  "what_was_wrong": "The edit added an unsourced and factually incorrect claim (with broken punctuation) that herbivorous dugongs also eat fish.",
+  "which_check_should_catch": "unsourced factual claim and grammar check"
+ },
+ {
+  "lang": "fi",
+  "page": "Ali Leiniö",
+  "rev_id": 23957814,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "UNSOURCED_CLAIM",
+  "what_was_wrong": "The edit added an unsourced claim of death for a biography, including a specific date of death, without providing any citation.",
+  "which_check_should_catch": "unsourced claim detection"
+ },
+ {
+  "lang": "fi",
+  "page": "Dugongi",
+  "rev_id": 23210823,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "UNSOURCED_CLAIM",
+  "what_was_wrong": "The edit added several new factual claims about threats, diseases, and reproductive vulnerability right before an existing citation without adding a source for the new claims.",
+  "which_check_should_catch": "check new claims against existing citation"
+ },
+ {
+  "lang": "sv",
+  "page": "America's Next Top Model",
+  "rev_id": 59070097,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The later edit simply merged two pre-existing duplicate reference tags using a named reference.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "Rakel (kommunikationssystem)",
+  "rev_id": 56645265,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The later edit only changed the capitalization and bolding of an acronym's expansion that was already present in the article before this edit.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "America's Next Top Model",
+  "rev_id": 59069940,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "The later edit simply trimmed redundant words ('den ursprungliga reality-tv-seriens' to 'seriens' and removed 'slutligen') for slightly tighter prose.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "Elias – den lilla räddningsbåten",
+  "rev_id": 58672584,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The editor added an incomplete episode list section with only a single unsourced item, which a later editor replaced during a full rewrite.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "Moa Svan",
+  "rev_id": 59343314,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "REMOVED_CONTENT",
+  "what_was_wrong": "The edit unexplainedly removed multiple paragraphs of sourced biographical information under the misleading summary of changing old facts.",
+  "which_check_should_catch": "unexplained removal of sourced content"
+ },
+ {
+  "lang": "sv",
+  "page": "Della Monde",
+  "rev_id": 56553006,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The editor added an 'update needed' maintenance template without including a timestamp parameter, which a bot or later editor automatically added.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "Strålfeniga fiskar",
+  "rev_id": 56832794,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "REFINEMENT",
+  "what_was_wrong": "A later editor removed the redundant pronoun 'de' ('they') to slightly improve the sentence flow in Swedish.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "Påskupploppen i Sverige 2022",
+  "rev_id": 58975290,
+  "label": "reverted",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The editor added an unlinked plain-text entry to the 'See also' section for a topic without an existing Wikipedia article.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "Willie Nelson",
+  "rev_id": 56963668,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The added discography entry was formatted as plain text rather than using the standard music template used throughout the rest of the list.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "Araméer",
+  "rev_id": 57670585,
+  "label": "reverted",
+  "catchable_from_edit": false,
+  "category": "DISPUTE_OR_PREFERENCE",
+  "what_was_wrong": "The edit added a modern ethnic flag (adopted in 1982) to the top of an article about the ancient Aramaean people, which is a matter of editorial dispute and relevance regarding modern Syriac-Aramean identity versus the historical Bronze/Iron Age tribes.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "fi",
+  "page": "Stéphanos II Ghattas",
+  "rev_id": 24346548,
+  "label": "corrected",
+  "catchable_from_edit": false,
+  "category": "STYLE_FORMAT",
+  "what_was_wrong": "The later edit simply removed pre-existing wikilinks on dates and years for formatting reasons.",
+  "which_check_should_catch": "none"
+ },
+ {
+  "lang": "sv",
+  "page": "Påskupploppen i Sverige 2022",
+  "rev_id": 59233407,
+  "label": "reverted",
+  "catchable_from_edit": true,
+  "category": "DISPUTE_OR_PREFERENCE",
+  "what_was_wrong": "The editor unilaterally changed the name of the event in the infobox and lead sentence so that it no longer matched the article title and talk page consensus.",
+  "which_check_should_catch": "lead and infobox title consistency check against page title"
+ }
+]
