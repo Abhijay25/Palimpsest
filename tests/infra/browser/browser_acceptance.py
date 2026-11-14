@@ -91,11 +91,15 @@ def save_source(page: Page, root: str, title: str, content: str, summary: str) -
 def save_visual(page: Page, root: str, title: str, marker: str) -> None:
     page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&veaction=edit"), wait_until="domcontentloaded")
     welcome = page.get_by_role("dialog", name=re.compile("^Welcome to", re.I))
-    if welcome.count() and welcome.first.is_visible():
-        start_editing = welcome.get_by_role("button", name="Start editing", exact=True)
-        expect(start_editing).to_be_visible()
-        start_editing.click()
-        expect(welcome).not_to_be_visible(timeout=30_000)
+    expect(welcome).to_be_visible(timeout=30_000)
+    start_editing = welcome.get_by_role("button", name="Start editing", exact=True)
+    expect(start_editing).to_be_visible()
+    start_editing.click()
+    expect(welcome).not_to_be_visible(timeout=30_000)
+    page.wait_for_function(
+        "() => { const container = document.querySelector('#mw-page-container'); return !!container && !container.inert; }",
+        timeout=30_000,
+    )
     surface = page.locator('.ve-ce-rootNode[role="textbox"][contenteditable="true"]')
     expect(surface).to_be_visible(timeout=60_000)
     expect(page.locator(".ve-ui-toolbar")).to_be_visible()
@@ -104,7 +108,9 @@ def save_visual(page: Page, root: str, title: str, marker: str) -> None:
     page.keyboard.press("Enter")
     page.keyboard.type(marker)
     expect(surface).to_contain_text(marker, timeout=30_000)
-    save_button = page.get_by_role("button", name=re.compile(r"^Save(?:…|\.\.\.)?$", re.I))
+    save_button = page.locator(".ve-ui-toolbar").get_by_role(
+        "button", name=re.compile(r"^Save(?: changes)?(?:…|\.\.\.)?$", re.I)
+    )
     expect(save_button.last).to_be_visible()
     expect(save_button.last).to_be_enabled(timeout=30_000)
     save_button.last.click()
