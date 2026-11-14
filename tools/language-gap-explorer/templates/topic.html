@@ -1,1 +1,1 @@
-{% extends 'base.html' %}{% block title %}{{ title }} · Language Gap Explorer{% endblock %}{% block content %}{% include 'topic_body.html' %}{% endblock %}
+{% extends 'base.html' %}{% block title %}{{ title }} · Language Gap Explorer{% endblock %}{% block content %}{% set article_tab = 'language' %}{% set tab_lang = current_lang or source %}{% include 'article_tab_control.html' %}<link rel="stylesheet" href="{{ url_for('static',filename='flags/flags.css') }}">{% include 'topic_body.html' %}{% endblock %}

@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -27,4 +28,40 @@ class FlagsTabTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False), patch('flags_routes.fetch_revision',side_effect=[{'parent_id':21,'title':'Example','wikitext':'new'}, {'wikitext':'old'}]), patch('flags_routes.requests.post',return_value=Response()) as post:
             first=response_payload(ref,{},True);second=response_payload(ref,{},False)
         self.assertEqual(first['status'],'ok');self.assertEqual(second['status'],'ok');post.assert_called_once();self.assertIn('mw-diff-inline-added',first['diff_html'])
+    def test_fresh_audit_bypasses_cache_and_forwards_detector_header(self):
+        from flags_routes import response_payload
+        ref=RevisionRef('en',22,'Example',parent_id=21)
+        class Response:
+            def raise_for_status(self): pass
+            def json(self): return {'flags':[]}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False), patch('flags_routes.fetch_revision',side_effect=[{'parent_id':21,'title':'Example','wikitext':'new'}, {'wikitext':'old'}]), patch('flags_routes.requests.post',return_value=Response()) as post:
+            response_payload(ref,{},True,True)
+        self.assertEqual(post.call_args.kwargs['headers'],{'X-Palimpsest-Fresh':'1'})
+    def test_history_cache_has_ten_minute_ttl_and_live_history_has_required_fields(self):
+        from revision_text import HISTORY_TTL_SECONDS,cached_history,fetch_history,history_cache_path
+        class Reply:
+            def __enter__(self): return self
+            def __exit__(self,*_args): return False
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False):
+            path=history_cache_path('en',7);path.parent.mkdir(parents=True);path.write_text(json.dumps({'cached_at':100,'revisions':[{'revision':1}]}),encoding='utf-8')
+            self.assertIsNotNone(cached_history('en',7,100+HISTORY_TTL_SECONDS))
+            self.assertIsNone(cached_history('en',7,101+HISTORY_TTL_SECONDS))
+            reply=Reply();reply.read=lambda *_args: b'{"query":{"pages":{"7":{"title":"Example","revisions":[{"revid":9,"parentid":8,"timestamp":"2025-01-01T00:00:00Z","user":"Editor","comment":"note","size":42}]}}}}'
+            with patch('revision_text.urlopen',return_value=reply) as open_url:
+                rows=fetch_history('en',7,9,'Example')
+        self.assertEqual(rows[0]['user'],'Editor');self.assertEqual(rows[0]['comment'],'note')
+        self.assertIn('rvprop=ids%7Ctimestamp%7Cuser%7Ccomment%7Csize',open_url.call_args.args[0].full_url)
+    def test_page_proxy_contract_and_fresh_header(self):
+        from flags_routes import page_response_payload
+        ref=RevisionRef('en',22,'Example')
+        class Response:
+            def raise_for_status(self): pass
+            def json(self): return {'status':'ok','flags':[{'kind':'OUT_OF_SYNC','evidence':[{'source':'page','quote':'Other sentence','section':'Lead'}]}]}
+        context={'articles':{'en':{'text':'Current sentence.'}}}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False), patch('flags_routes.fetch_revision',return_value={'wikitext':'Current sentence.'}), patch('flags_routes.requests.post',return_value=Response()) as post:
+            result=page_response_payload(ref,context,True,True)
+        self.assertEqual(result['status'],'ok');self.assertIn('Current sentence.',result['page_html'])
+        self.assertEqual(post.call_args.args[0].rsplit('/',1)[-1],'audit-page')
+        self.assertEqual(post.call_args.kwargs['json'],{'lang_code':'en','page_title':'Example','revision_id':22,'wikitext':'Current sentence.'})
+        self.assertEqual(post.call_args.kwargs['headers'],{'X-Palimpsest-Fresh':'1'})
 if __name__=='__main__': unittest.main()

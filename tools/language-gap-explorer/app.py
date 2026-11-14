@@ -90,22 +90,31 @@ def index():
 @app.get('/wiki/<topic>')
 def article_page(topic):
     from article_render import render_article
-    if not re.fullmatch(r'Q\d+',topic): abort(404)
+    from flags_routes import fixture_context
+    fixture=fixture_context(topic)
+    if fixture is None and not re.fullmatch(r'Q\d+',topic): abort(404)
     lang=request.args.get('lang')
     if lang is not None and lang not in LANGS: abort(400)
-    with connect() as db, db.cursor() as c:
-        c.execute('SELECT * FROM article WHERE wikidata_id=%s',(topic,))
-        articles={a['lang']:a for a in c.fetchall()}
+    if fixture is not None:
+        articles={code:dict(value,page_id=0,rev_id=0,date_modified='offline fixture',url='')
+                  for code,value in fixture['articles'].items()}
+    else:
+        with connect() as db, db.cursor() as c:
+            c.execute('SELECT * FROM article WHERE wikidata_id=%s',(topic,))
+            articles={a['lang']:a for a in c.fetchall()}
     if not articles: abort(404)
     if lang and lang not in articles: abort(404,description='This language is absent from the local snapshot.')
     lang=lang or next(l for l in ('en','fi','sv') if l in articles)
     article=articles[lang]
     body,contents=render_article(article['text'],lang,article['title'])
     target=next(l for l in ('fi','en','sv') if l!=lang)
-    from pipeline import latest
-    article_run,article_findings=latest(topic)
-    from watchlist import overview
-    watch_notices,_=overview(topic)
+    if fixture is not None:
+        article_run,article_findings,watch_notices=None,[],[]
+    else:
+        from pipeline import latest
+        article_run,article_findings=latest(topic)
+        from watchlist import overview
+        watch_notices,_=overview(topic)
     if topic=='Q2606233':
         from review_view import section_groups
         article_findings,_=section_groups(article_findings,session.get('showcase_languages',['en','fi','sv']))
