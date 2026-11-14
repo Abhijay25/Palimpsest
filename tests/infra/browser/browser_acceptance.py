@@ -105,15 +105,16 @@ def save_visual(page: Page, root: str, title: str, base_content: str, marker: st
     expect(page.locator(".ve-ui-toolbar")).to_be_visible()
     # Put the caret in the document, then type at a human-like pace. VisualEditor
     # can update the editable DOM ahead of its document model during rapid input.
-    surface.click(position={"x": 8, "y": 8})
+    surface.locator("p").first.click(position={"x": 8, "y": 8})
     page.keyboard.press("Control+End")
-    page.keyboard.press("Enter")
-    page.keyboard.type(marker, delay=50)
+    page.keyboard.type(f" {marker}", delay=50)
     expect(surface).to_contain_text(marker, timeout=30_000)
     page.wait_for_function("""marker => {
         const model = window.ve?.init?.target?.getSurface?.()?.getModel?.();
         const data = model?.getDocument?.().getData?.();
-        const text = Array.isArray(data) ? data.filter(item => typeof item === 'string').join('') : '';
+        const text = Array.isArray(data) ? data.map(item =>
+            typeof item === 'string' ? item : Array.isArray(item) ? item[0] : ''
+        ).join('') : '';
         return !!model && model.hasBeenModified() && text.includes(marker);
     }""", arg=marker, timeout=30_000)
     save_button = page.locator(".ve-ui-toolbar").get_by_role(
@@ -136,7 +137,7 @@ def save_visual(page: Page, root: str, title: str, base_content: str, marker: st
             let modified = null;
             let modelData = null;
             try { modified = model.hasBeenModified(); } catch (_) {}
-            try { modelText = model.getDocument().getData().filter(item => typeof item === 'string').join(''); } catch (_) {}
+            try { modelText = model.getDocument().getData().map(item => typeof item === 'string' ? item : Array.isArray(item) ? item[0] : '').join(''); } catch (_) {}
             try { modelData = JSON.stringify(model.getDocument().getData()).slice(0, 500); } catch (_) {}
             return {
                 rootCount: roots.length,
