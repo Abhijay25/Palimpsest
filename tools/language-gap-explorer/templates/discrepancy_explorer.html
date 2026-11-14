@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Explore divergence · NeoWiki</title><meta name="review-token" content="{{ session.get('review_token','') }}">
+  <meta name="description" content="Explore how differences between Wikipedia language editions evolve over time.">
+  <link rel="stylesheet" href="{{ url_for('static',filename='discrepancy-explorer.css') }}">
+
+
+<link rel="stylesheet" href="{{ url_for('static',filename='constellation.css') }}"><script src="{{ url_for('static',filename='constellation.js') }}" defer></script></head>
+<body>
+<a class="skip" href="#main">Skip to explorer</a>
+<svg class="icon-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+ <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></symbol>
+ <symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+ <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+ <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+ <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+ <symbol id="i-link" viewBox="0 0 24 24"><path d="M14 4h6v6m0-6L10 14M10 5H5v14h14v-5"/></symbol>
+ <symbol id="i-book" viewBox="0 0 24 24"><path d="M3 4h7l2 2 2-2h7v15h-7l-2 2-2-2H3zM12 6v15"/></symbol>
+ <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol><symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol><symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+ <symbol id="i-left" viewBox="0 0 24 24"><path d="m14 5-7 7 7 7"/></symbol>
+ <symbol id="i-right" viewBox="0 0 24 24"><path d="m10 5 7 7-7 7"/></symbol>
+</defs></svg>
+<header class="site-header">
+ <a href="/explore" class="brand" aria-label="NeoWiki explorer"><svg viewBox="0 0 36 36" aria-hidden="true"><path d="M5 9h19v22H5zM11 5h19v22M17 1h18v21"/><path d="M10 15h9m-9 5h9m-9 5h5"/></svg><span>NeoWiki</span></a>
+ <span class="header-description">Divergence explorer</span>
+ <button id="edit-query" class="graph-query" type="button" hidden><span id="query-summary"></span><span id="query-languages"></span><svg class="icon"><use href="#i-down"/></svg></button>
+ <button id="open-search" type="button" class="icon-button" aria-label="Search articles and questions" aria-expanded="false" aria-controls="explorer-search" hidden><svg class="icon"><use href="#i-search"/></svg></button>
+ <button id="guide-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="reading-guide">About this view</button>
+</header>
+<main id="main">
+ <section class="prompt-screen" id="prompt-screen" aria-label="Choose what to explore">
+  <form class="query-builder" id="query-form" aria-label="View divergence in a topic for selected languages">
+   <div class="prompt-line"><span>View divergence in</span><div class="topic-field"><label class="sr-only" for="topic-search">Wikipedia article or topic group</label><div class="search-shell"><input id="topic-search" autocomplete="off" aria-controls="topic-results" aria-expanded="false" role="combobox" placeholder="a topic or Wikipedia page"><button type="button" id="topic-toggle" class="icon-button" aria-label="Browse sample topics"><svg class="icon"><use href="#i-down"/></svg></button></div><div class="search-results" id="topic-results" role="listbox" hidden></div></div></div>
+   <div class="prompt-line second-line"><span>for</span><div class="languages-field"><span id="languages-label" class="sr-only">Compare language editions</span><div class="language-control" aria-labelledby="languages-label"><span id="language-placeholder">choose languages</span><div id="language-pills"></div><button type="button" class="icon-button add-language" id="add-language" aria-label="Add a language" aria-expanded="false"><svg class="icon"><use href="#i-plus"/></svg></button></div><div id="language-menu" class="language-menu" hidden><label for="language-search">Find a language</label><input type="search" id="language-search" placeholder="Search languages"><div id="language-options"></div></div></div><button class="primary explore-button" type="submit" aria-label="Explore timeline"><svg class="icon"><use href="#i-arrow"/></svg></button></div>
+  </form>
+  <p class="prompt-description">The same question. Across languages. Over time.</p>
+  <div class="example-prompts"><span>Explore real data</span><button data-example="Q134949" type="button">Winter War <small>EN · FI · SV</small></button></div>
+  <p class="prompt-note">Choose a dataset article and the language editions you want to compare.</p>
+ </section>
+
+ <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
+ <section id="constellation-screen" class="constellation-screen" aria-label="Semantic divergence explorer" hidden>
+  <div class="explorer-heading"><div><h1>Where do the accounts differ?</h1><p id="article-description"></p></div><div class="observation-heading"><strong id="period-heading"></strong><span id="period-description"></span></div></div>
+  <div class="explorer-navigation"><nav id="zoom-breadcrumb" aria-label="Visualization level"></nav><button id="zoom-out" type="button"><svg class="icon"><use href="#i-minus"/></svg>Zoom out</button></div>
+  <p id="canvas-instruction" class="canvas-instruction">Each dot is one question. Select one to read its evidence.</p>
+  <div id="explorer-search" class="explorer-search" hidden><form id="canvas-search-form" role="search"><label class="sr-only" for="canvas-search-input">Search articles or questions</label><select id="search-scope" aria-label="Search scope"><option value="questions">These questions</option><option value="articles">Articles</option></select><input id="canvas-search-input" type="search" maxlength="240" autocomplete="off" placeholder="Search questions or source evidence…"><button type="submit" class="search-action">Search</button><button type="button" id="close-search" class="icon-button" aria-label="Close search"><svg class="icon"><use href="#i-close"/></svg></button></form><p id="search-feedback" role="status"></p><div id="article-search-results"></div></div>
+  <div id="constellation-canvas" class="constellation-canvas" tabindex="0" role="region" aria-label="Questions and assessed periods" aria-busy="false"></div>
+  <div id="canvas-tooltip" class="canvas-tooltip" role="tooltip" hidden></div>
+  <div id="canvas-message" class="canvas-message" role="status"></div>
+  <div class="explorer-bottom"><div id="category-legend" class="category-legend"></div><div class="observation-controls"><button id="previous-observation" type="button" class="icon-button" aria-label="Previous assessed observation"><svg class="icon"><use href="#i-left"/></svg></button><label for="observation-select" class="sr-only">Assessed date</label><select id="observation-select"></select><button id="next-observation" type="button" class="icon-button" aria-label="Next assessed observation"><svg class="icon"><use href="#i-right"/></svg></button><span id="question-total"></span></div><p class="sampling-note" id="sampling-note">Only observed findings are shown. Gaps have not been assessed.</p></div>
+ </section>
+ <aside id="reading-guide" class="reading-guide" hidden><button type="button" id="close-guide" class="text-button">Close</button><h2>One question, across editions</h2><p>Zoom out to see months, then years. Each blob counts distinct questions observed in that period, once across passages and language pairs. A question can recur in several months, so monthly counts do not add up to the yearly count.</p><p>Select a month to see its questions. Each equal-size dot represents one provisional underlying question; its position is only for browsing. Colors show additional context, different framing or possible contradiction, not truth or reliability.</p><p>Search first uses keywords and then refines with local multilingual vectors. Selecting a question opens exact historical evidence in the article tracker. Unassessed periods are unknown; missing findings do not prove agreement or resolution.</p></aside>
+</main><footer class="landing-footer"><span>Independent research prototype</span><span>Wikipedia contributors · CC BY-SA 4.0 · No automatic edits</span></footer>
+<noscript><p>Enable JavaScript to explore cached historical comparisons.</p></noscript></body></html>

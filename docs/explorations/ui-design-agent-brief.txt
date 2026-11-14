@@ -1,0 +1,27 @@
+Design an interface for NeoWiki, a tool for exploring how Wikipedia language editions differ over time.
+
+Audience: nontechnical readers, Wikipedia editors, and hackathon judges using a normal laptop. Within seconds, someone should understand the scale of disagreement, find an interesting question, and open its supporting evidence.
+
+Core journey: choose an article and languages -> explore differences over time -> select a specific semantic question -> inspect exact article evidence.
+
+Choose the visualization form yourself. Do not assume lines, bubbles, maps or heatmaps. Optimize for comprehension and meaningful navigation rather than novelty alone.
+
+Data meaning:
+- One item is one underlying semantic question with an observed cross-language difference. Repeated passages, pairs and checkpoints must not inflate its count.
+- Questions are generated from discovered disagreement groups, not a preset list of questions the system attempts to answer. Examples: Who initiated the invasion? How many Finnish soldiers died? What territorial terms were agreed?
+- Categories are additional context, different framing, and possible contradiction. These are model judgments for human review, not truth or bias scores.
+- A month/year count is distinct questions observed during that period. The same question can recur across months, so monthly counts need not sum to the year total.
+- Historical assessments are sampled. Distinguish unassessed periods, absent findings, assessed zero results, and dates outside source coverage. Do not imply continuity, agreement or resolution across gaps.
+
+Design requirements:
+- One dominant visualization at a time, comfortably usable at 1280x720.
+- Move naturally between broad historical periods and individual questions.
+- Support hundreds of questions without squeezing every label on screen or silently capping findings.
+- Keep search available on demand: immediate keyword results, then semantic refinement.
+- Reveal concise details through hover, keyboard focus and touch.
+- Make zoom/drilldown, going back, and preserving context obvious.
+- Evidence is a focused next step, with original excerpts, translations, highlights, actual language pairs, dates and revision links. Keep the current edition first when present; FI-SV evidence must remain valid without English.
+
+Visual direction: calm, editorial, precise and contemporary, with a subtle connection to Wikipedia's reading clarity. Warm ivory, charcoal and restrained amber/orange/red data colors are welcome. Avoid dashboards with simultaneous charts, crowded toolbars, excessive panels, unsupported severity scores, and decoration that obscures meaning.
+
+Deliver one recommended direction, explain each visual encoding, and show the overview, detailed exploration and evidence transition. Include laptop/mobile layouts and loading, empty and unassessed states. Label illustrative data honestly. Prioritize a convincing first version over elaborate interaction or visual spectacle.

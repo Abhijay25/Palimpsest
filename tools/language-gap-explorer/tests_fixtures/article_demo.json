@@ -1,0 +1,20 @@
+{
+  "topic": "Q-demo", "title": "Harbor signals", "current_lang": "en",
+  "articles": {"en": {"title": "Harbor signals", "text": "The harbor used blue lamps in winter. Volunteers recorded arrivals."}, "fi": {"title": "Sataman merkit", "text": "Satamassa käytettiin talvella sinisiä lamppuja."}},
+  "block_revisions": [
+    {"lang": "en", "revision": 101, "parent_id": 100, "title": "Harbor signals", "stamp": "2025-01-10T00:00:00Z", "url": "https://example.test/en/101"},
+    {"lang": "en", "revision": 102, "parent_id": 101, "title": "Harbor signals", "stamp": "2025-02-10T00:00:00Z", "url": "https://example.test/en/102"},
+    {"lang": "en", "revision": 103, "parent_id": 102, "title": "Harbor signals", "stamp": "2025-03-10T00:00:00Z", "url": "https://example.test/en/103"}
+  ],
+  "audits": {
+    "101": {"status": "ok", "old_wikitext": "The harbor used lamps.", "new_wikitext": "The harbor used blue lamps in winter.", "flags": [{"id":"f101","kind":"FRAMING","tier":"review","title":"Unqualified emphasis","reason":"The season is emphasized without context.","anchor_text":"blue lamps in winter","side":"new","confidence":0.72,"neutral_rewrite":"The harbor used lamps during winter.","evidence":[{"quote":"Blue lamps were a seasonal marker.","url":"https://example.test/source"}]}]},
+    "102": {"status": "ok", "old_wikitext": "The harbor used blue lamps in winter.", "new_wikitext": "The harbor used blue lamps in winter. Volunteers recorded arrivals.", "flags": [{"id":"f102","kind":"FACT","tier":"admin","title":"Claim needs verification","reason":"The added recording claim has no cited support.","anchor_text":"Volunteers recorded arrivals","side":"new","confidence":0.91,"neutral_rewrite":"Records describe arrivals.","evidence":[{"quote":"The source does not identify the recorders.","url":"https://example.test/source"}]},{"id":"f102b","kind":"CITATION_DATE","tier":"review","title":"Date context absent","reason":"The claim omits the record date.","anchor_text":"recorded arrivals","side":"new","confidence":0.64,"neutral_rewrite":"Records from the period note arrivals.","evidence":[]}]},
+    "103": {"status": "ok", "old_wikitext": "The harbor used blue lamps in winter. Volunteers recorded arrivals.", "new_wikitext": "The harbor used lamps. Volunteers recorded arrivals.", "flags": [{"id":"f103","kind":"REMOVED_CONTEXT","tier":"review","title":"Seasonal context removed","reason":"The change removes the winter qualifier.","anchor_text":"blue lamps in winter","side":"old","confidence":0.7,"neutral_rewrite":"The harbor used blue lamps in winter.","evidence":[]},{"id":"f103u","kind":"HIDDEN_TEXT","tier":"review","title":"Needs manual placement","reason":"This finding has no exact diff anchor.","anchor_text":"not present","side":"new","confidence":0.51,"neutral_rewrite":"", "evidence":[]}]}
+  },
+  "page_audits": {
+    "102": {"status":"ok", "flags":[
+      {"id":"p102a", "kind":"OUT_OF_SYNC", "tier":"review", "title":"Seasonal detail conflicts", "reason":"The selected sentence does not include the season stated by the page evidence.", "anchor_text":"The harbor used blue lamps in winter.", "context_sentence":"The harbor used blue lamps in winter.", "related_anchor_text":"Volunteers recorded arrivals.", "evidence":[{"source":"page", "quote":"Volunteers recorded arrivals.", "section":"Introduction"}]},
+      {"id":"p102b", "kind":"OUT_OF_SYNC", "tier":"admin", "title":"Recorder attribution conflicts", "reason":"The page does not identify the volunteers as recorders elsewhere.", "anchor_text":"Volunteers recorded arrivals.", "context_sentence":"Volunteers recorded arrivals.", "related_anchor_text":"The harbor used blue lamps in winter.", "evidence":[{"source":"page", "quote":"The harbor used blue lamps in winter.", "section":"Introduction"}]}
+    ]}
+  }
+}

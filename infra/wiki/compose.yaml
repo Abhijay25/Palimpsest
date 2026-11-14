@@ -39,7 +39,6 @@ services:
     secrets: [db-root-password]
     volumes:
       - ${DATA_ROOT}/db:/var/lib/mysql
-      - ${DATA_ROOT}/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
@@ -183,6 +182,8 @@ services:
       - ${INSTALL_DIR}:/tmp/palimpsest-config:rw
       - ${INSTALL_SECRET_DIR}/db-password:/run/secrets/install-db-password:ro
       - ${INSTALL_SECRET_DIR}/admin-password:/run/secrets/install-admin-password:ro
+      - ./infra/wiki/runtime/configure-settings.sh:/usr/local/bin/palimpsest-configure-settings.sh:ro
+      - ./infra/wiki/runtime-settings.php:/usr/local/share/palimpsest/runtime-settings.php:ro
     networks: [wiki]
 
 secrets:

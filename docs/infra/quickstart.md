@@ -15,6 +15,17 @@ On macOS, make Docker Desktop's bundled CLI and credential helpers available wit
 export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
 ```
 
+### Linux hosts
+
+Native Linux Docker preserves container UIDs on bind mounts. Setup therefore provisions
+database users through MariaDB's private root-password secret after its health check, and
+uses the pinned MediaWiki image to finish generated configuration. `LocalSettings.php` is
+owned by the in-container `www-data` UID and mode `0640`; its directory is search-only
+(`0751`) to other host users. This
+keeps database credentials unreadable to other host users without sudo or Docker daemon
+changes. Do not `chmod` or edit that file from the host; rerun `scripts/wiki … setup` to
+refresh managed settings.
+
 ## Deterministic checks
 
 From the repository root, run the contract fixtures and isolated dispatcher tests:

@@ -1,0 +1,255 @@
+@font-face {
+  font-family: LibraryBook;
+  src: url('/api/fonts/book.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: LibraryBook;
+  src: url('/api/fonts/book-semibold.woff2') format('woff2');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: LibraryUI;
+  src: url('/api/fonts/ui.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+.mw-parser-output [data-pb-start] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+:root {
+  color-scheme: light;
+  scroll-behavior: auto;
+  --color-base: #302b25;
+  --color-subtle: #65594d;
+  --color-progressive: #655021;
+  --border-color-base: #c7bca5;
+}
+.reader-inspect {
+  position: fixed;
+  right: 20px;
+  bottom: 18px;
+  z-index: 20;
+  padding: 12px 18px;
+  border: 1px solid #80683e;
+  background: #e0c797;
+  color: #30271a;
+  font:
+    12px LibraryUI,
+    sans-serif;
+  box-shadow: 0 6px 20px #30271a33;
+  cursor: pointer;
+}
+.reader-inspect[hidden] {
+  display: none;
+}
+* {
+  box-sizing: border-box;
+}
+html {
+  scroll-behavior: smooth;
+  background: #f4eddf;
+  color: var(--color-base);
+}
+body {
+  margin: 0;
+  padding: 36px clamp(22px, 5vw, 70px) 80px;
+  font:
+    19px/1.65 LibraryBook,
+    Georgia,
+    serif;
+  overflow-wrap: anywhere;
+}
+main {
+  max-width: 74ch;
+  margin: auto;
+}
+h1,
+h2,
+h3 {
+  font-weight: 600;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+h1 {
+  font-size: clamp(34px, 5vw, 52px);
+  margin: 0 0 10px;
+}
+h2 {
+  font-size: 30px;
+  margin: 1.6em 0 0.65em;
+  border-bottom: 1px solid #d8cdb8;
+  padding-bottom: 0.3em;
+}
+h3 {
+  font-size: 25px;
+}
+p {
+  margin: 0.9em 0;
+}
+a {
+  color: #78572c;
+  text-underline-offset: 3px;
+}
+a:hover {
+  color: #40321f;
+}
+img {
+  max-width: 100%;
+  height: auto;
+}
+figure {
+  margin: 1em 0;
+}
+table {
+  max-width: 100%;
+  font-size: 0.9em;
+  border-collapse: collapse;
+}
+td,
+th {
+  padding: 0.3em 0.5em;
+  vertical-align: top;
+}
+.infobox {
+  float: right;
+  width: 260px;
+  margin: 0 0 20px 25px;
+  font:
+    13px/1.55 LibraryUI,
+    sans-serif;
+  background: #ece3d1;
+  border: 1px solid #d0c2a8;
+}
+.reader-article-heading > p {
+  font:
+    11px/1.5 LibraryUI,
+    sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #71614d;
+}
+.reader-article-heading {
+  margin-bottom: 32px;
+  border-bottom: 1px solid #cfbea0;
+  padding-bottom: 22px;
+}
+.mw-empty-elt {
+  display: none;
+}
+.mw-editsection {
+  display: none;
+}
+.pb-button,
+.pb-version,
+input,
+select {
+  font-family: LibraryUI, sans-serif !important;
+  font-size: 12px !important;
+}
+.palimpsest-blame,
+.pb-breakdown {
+  font-family: LibraryUI, sans-serif;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.pb-action-bar {
+  gap: 8px;
+}
+.pb-revision-legend {
+  font-size: 12px;
+}
+.pb-status {
+  padding: 12px;
+  background: #e9e1d0;
+}
+.pb-selected-text {
+  font:
+    20px/1.8 LibraryBook,
+    Georgia,
+    serif;
+}
+.pb-breakdown {
+  background: #faf6ee;
+  border: 1px solid #c6b493;
+  padding: 20px;
+  margin: 18px 0 26px;
+  border-radius: 4px;
+}
+.pb-date-query,
+.pb-manual-date {
+  gap: 8px;
+}
+.pb-date-query input {
+  max-width: 100%;
+  min-width: 0;
+}
+.pb-button {
+  background: #f9f4e9;
+  color: #493e30;
+  border-color: #bdae94;
+}
+.pb-button:hover {
+  background: #e9deca;
+}
+.pb-revision-group,
+.pb-event {
+  border-radius: 4px;
+}
+.pb-quote-composition {
+  line-height: 2;
+}
+.pb-attributed {
+  cursor: pointer;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.references {
+  font:
+    14px/1.7 LibraryUI,
+    sans-serif;
+}
+::selection {
+  background: #d5b76a;
+  color: #241e16;
+}
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #785c2b;
+  outline-offset: 4px;
+}
+body::-webkit-scrollbar {
+  width: 8px;
+}
+body::-webkit-scrollbar-thumb {
+  background: #c1b18f;
+  border: 2px solid #f4eddf;
+  border-radius: 6px;
+}
+@media (max-width: 600px) {
+  body {
+    font-size: 18px;
+    padding: 24px 18px 60px;
+  }
+  .infobox {
+    float: none;
+    margin: 20px 0;
+    width: 100%;
+  }
+  .pb-breakdown {
+    padding: 12px;
+  }
+  .pb-action-bar {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}

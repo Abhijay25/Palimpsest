@@ -14,3 +14,21 @@
 - DiscussionTools reply links are server-rendered before their click handlers bind. Wait for `html.ext-discussiontools-init-ready` (set after controller initialization) before clicking Reply.
 - Vector may render duplicate watch/unwatch anchors; use a scoped accessible control instead of a strict broad selector.
 - Linux Docker cannot route `host.docker.internal:host-gateway` to a service bound only on host loopback. Run the browser container with host networking and use `127.0.0.1`; retain Docker Desktop's host alias on macOS.
+- PHP `array_count_values()` converts numeric-string keys to integers. Cast keys back to strings before regex/string operations, and include numeric-token fixtures in attribution checks.
+- Use pinned toolchains for test gates instead of assuming host binaries are healthy; this Mac's Homebrew Node aborted on a missing `simdjson` dylib, so do not install or repair host packages for the check.
+- Set a container's interpreter either as its entrypoint or as an explicit command, not both; mount the repository at `/repo` when test scripts derive paths from their repository-relative location.
+- For whitespace-sensitive edit fixtures, record explicit UTF-16 ranges and verify them by slicing the listed revisions. A generic character diff can choose a different equivalent whitespace boundary than the producer's token alignment.
+- Per-revision byte/token limits do not bound transitive attribution ancestry. Charge a global lineage-reference budget before copying ancestors into replacement tokens or events, and fail closed when it is exhausted.
+- Unique shared words can move across edit gaps or be restored after a reorder. Detect order inversions and test move/revert sequences so events and spans remain marked ambiguous.
+- Compact spans must keep the full union of inherited ancestry and every member token ID; partial-selection consumers should include only IDs whose token ranges overlap the selection.
+- For selected-event context, anchors should retain removals and replacements (`before` is nonempty) while excluding pure insertions; test ambiguous move/revert replacements against the unchanged selection oracle.
+- MediaWiki JobFactory passes `(Title, params)` to ordinary mapped Job subclasses. Match the factory signature and exercise a real queued run; lint/direct construction alone will not catch this mismatch.
+- Keep internal job leases separate from the public job state contract; map `running` to the documented pending state in every response.
+- Every pinned async response, including ready analysis, must carry the same positive top-level `revision_id` as its snapshot and job object.
+- Scope active-job limits to the current algorithm/schema, and make queued jobs no-op for obsolete cache rows without touching source history.
+- If revision comparisons are second-precision, reject fractional-second date bounds instead of accepting and truncating them.
+- A valid provenance checksum does not make a partial import complete; fail closed on `history_complete=false` before emitting any attribution.
+
+- Keyboard checks must Tab to the actual control, not match BODY text. Wait for asynchronous controls, then verify Enter/Space, Escape close and focus restoration even after the opening node is replaced.
+
+- A stylesheet can return HTTP200 with HTML from a routed path. Verify asset MIME/content and computed styles before crediting screenshots; ResourceLoader debug paths can differ from the normal bundled route.

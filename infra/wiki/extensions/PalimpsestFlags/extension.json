@@ -1,0 +1,33 @@
+{
+	"name": "PalimpsestFlags",
+	"version": "1.0.0",
+	"author": "Palimpsest contributors",
+	"type": "other",
+	"requires": { "MediaWiki": ">= 1.46.0", "platform": { "php": ">= 8.2" } },
+	"AutoloadNamespaces": { "MediaWiki\\Extension\\PalimpsestFlags\\": "includes/" },
+	"MessagesDirs": { "PalimpsestFlags": [ "i18n" ] },
+	"APIModules": { "palimpsestflags": { "class": "MediaWiki\\Extension\\PalimpsestFlags\\Api\\FlagsApi" } },
+	"Hooks": { "DifferenceEngineViewHeader": "MediaWiki\\Extension\\PalimpsestFlags\\Hooks::onDifferenceEngineViewHeader" },
+	"ServiceWiringFiles": [ "ServiceWiring.php" ],
+	"config": {
+		"PalimpsestFlagsApiUrl": { "value": "", "description": "Base URL for the Palimpsest audit API; empty disables diff flags." },
+		"PalimpsestFlagsTimeout": { "value": 60, "description": "Server-to-server audit request timeout in seconds." },
+		"PalimpsestFlagsApiVersion": { "value": "v1", "description": "Audit API contract version included in cache keys." }
+	},
+	"ResourceFileModulePaths": { "localBasePath": "resources", "remoteExtPath": "PalimpsestFlags/resources" },
+	"ResourceModules": {
+		"ext.palimpsest.flags": {
+			"class": "MediaWiki\\ResourceLoader\\CodexModule",
+			"codexComponents": [ "CdxButton", "CdxIcon", "CdxInfoChip", "CdxPopover", "CdxProgressIndicator" ],
+			"packageFiles": [
+				{ "name": "ext.palimpsest.flags.js", "file": "ext.palimpsest.flags.js", "main": true },
+				"anchoring.js",
+				"stacking.js",
+				{ "name": "icons.json", "callback": "MediaWiki\\ResourceLoader\\CodexModule::getIcons", "callbackParam": [ "cdxIconAlert", "cdxIconUserTalk", "cdxIconQuotes", "cdxIconSubtract", "cdxIconEyeClosed", "cdxIconClock", "cdxIconReference", "cdxIconArticles", "cdxIconCheck" ] }
+			],
+			"styles": [ "ext.palimpsest.flags.less" ],
+			"dependencies": [ "mediawiki.api", "mediawiki.util" ]
+		}
+	},
+	"manifest_version": 2
+}

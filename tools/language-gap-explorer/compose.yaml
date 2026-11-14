@@ -1,0 +1,19 @@
+services:
+  db:
+    image: mariadb:12.3.3
+    ports:
+      - "127.0.0.1:3310:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: local-root-only
+      MARIADB_DATABASE: language_gaps
+      MARIADB_USER: explorer
+      MARIADB_PASSWORD: local-explorer-only
+    volumes:
+      - gap_database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+volumes:
+  gap_database:

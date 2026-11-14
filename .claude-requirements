@@ -1,0 +1,34 @@
+Goal: measure Stage 0->1->2 diff verification on EN+FI test set; pass bar <=5% clean controls flagged, >=80% labelled violations caught.
+Flag = any FLAG_G1/G2/G3 verdict; EXPAND_CONTEXT is an abstention, counted separately.
+Section 10 output schema is a fixed contract; metadata lives in the CaseResult wrapper only.
+Judge: Haiku/Sonnet via Claude Code subagents (two-phase prepare -> dispatch -> ingest); backend interface must allow Gemini and a classify-only backend later.
+Judge only from the cited source window, never world knowledge; real edits without source are kept with source_unavailable stated.
+Datasets from MariaDB/mariadb-wikipedia-datasets GitHub releases into gitignored data/; no MariaDB server.
+Exa cache-first (gitignored cache/); unit tests never hit the network (httpx.MockTransport).
+Python 3.12, uv, mypy strict, ruff, no Dict[str, Any].
+No language- or test-specific tricks (user, 2026-11-14): prompt examples come only from the spec or Wikipedia guideline pages, never from eval cases; evaluation sets are built with --exclude of every earlier case file so held-out means unseen.
+Languages: en/fi must work first, but no code path may assume only en/fi; unknown languages still get judged.
+Pillar 3: render the page in a headless browser (system chromium, no browser download) and screenshot viewport-sized tiles top to bottom with small overlap; compare pixels with DOM text.
+Ref pages: Exa text feeds the judge immediately; raw-HTML stealth scan runs concurrently and can escalate the final result.
+Product goal (user, 2026-11-14 14:58): an assistive proofreader that does the fine-print reading before an admin looks at an edit. Maximise, in priority order: (1) accuracy — flag only concerning changes; false positives/negatives destroy admin trust and add rework; (2) efficiency — latency scales with edit size, low upper bound (never minutes for a one-line change); (3) resource usage — low CPU and tokens; prompts/harness/context must not bloat. Balance all three; never trade one away in a major way.
+
+## Remote publishing (user, 2026-11-14)
+- Push work that is satisfactory (tests/mypy/ruff green, no secrets) to the remote branch `mvp` on origin, even if work on it continues. In-progress work stays local until it is good enough. Never push to `main`. Push explicit verified commits (`git push origin <sha>:refs/heads/mvp`), not whatever HEAD is while a worker is committing.
+
+## Human in the loop (user, 2026-11-14 20:37)
+- The admin makes the final decision; the tool helps them be the last line of defence. Priority: do not miss an edit that deserves review, and give the most plausible reason it needs review, with evidence. Never phrase output as approval/rejection.
+- Hackathon scope: be very good at a limited set of scenarios first, expand later. Guide the model with a fixed checklist rather than letting it reason freely; out-of-scope suspicions go to a lower `review` tier instead of being dropped. Design: docs/guided-judge-design.md.
+
+## Real-data verification with an isolated scout (user, 2026-11-14 20:49)
+- Every feature, once built, is verified on real data (live Wikipedia, or the MariaDB dataset M version history), not only synthetic cases: synthetic data carries confirmation bias.
+- Real test cases are found by an independent scout agent that works only from raw data and a plain-language description of the phenomenon. The scout never sees palimpsest/ code, prompts, eval runs, labels or model outputs, and the judging models never see the scout's notes beyond the case itself. Prefer cases where the error was later corrected in the history (the correction is the ground truth).
+
+## Open review items (user, 2026-11-14 22:58)
+- Wording (FRAMING) and Motive flags look too sensitive on large real edits; review later (do not tune yet). Evidence: shopping-centres real edit 1 gets 6-7 admin flags, several on mild words ("fiercely", "ironically", "severely reduced").
+- User hypothesis on v9: guidelines that are too tight make the model match criteria mechanically and label prematurely, without weighing whether the change is actually a problem. Supported by g05_v9_hl: it flagged changes it said the source supports.
+- Factual errors: next approach (user): use the changed values (e.g. birth year, age) as keywords in Exa highlights queries against the edit's own cited document; if that fails, fall back to Wikidata.
+- When to read more of the cited source (user, 2026-11-14 23:54): route by what a flag rests on — ABSENCE (search the whole cited document via Exa highlights before flagging), REMOVED_CONTEXT (one check that the source carries the qualifier), CONTRADICTION/STYLE/UNCITED (no extra reads). Measure never|rule|always on labels + held-out sets; choose the default from data.
+- OUT_OF_SYNC flag (user, 2026-11-15 00:37): flag any diff that changes a fact so it disagrees with information elsewhere on the same page (e.g. Monday vs Tuesday for the same event); show the conflicting quote with its section and a jump link. Deterministic old-value-elsewhere check first (admin), semantic Hydrogen check second (review, quote must exist verbatim on the page). Verify on real scout swaps/controls with full revisions.
+- Consistency (user, 2026-11-15 01:53): once the scanner is satisfactory, repeated audits of the same page must yield the same flags (no flags appearing/disappearing between runs). Part of final testing: audit each demo page 5x, report flag-set agreement; fixes to apply: temperature 0 + fixed seed where supported, cached Exa evidence, one stored audit per revision pair. Observed so far: shopping-centres edit 7 vs 6 flags, Mainilan 2 vs 1.
+- Latency (2026-11-15): a 12-unit / 17-new-citation real edit (Jonay Risco) takes ~29 s: stage2 9.3 s, render 7.2 s, ~12 s in checks awaited after the judge (citation lifecycle with retry, value check, consistency). Final testing: run those concurrently with the judge; wiki timeout raised to 60 s / client 75 s meanwhile.
+- Sequence (user, 2026-11-15 03:33): (1) verify the flag system (history replay on random real en/sv/fi edits); (2) merge and push — only after the user explains how the pieces connect; (3) then a security phase: thorough testing of citation rot and LLM poisoning (hidden instructions in MediaWiki comments, CSS-hidden text, zero-width tricks, poisoned cited pages), which are implemented but only spot-checked on real data.

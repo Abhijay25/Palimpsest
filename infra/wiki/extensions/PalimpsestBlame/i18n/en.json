@@ -1,0 +1,19 @@
+{
+	"@metadata": {
+		"authors": [ "Palimpsest contributors" ]
+	},
+	"palimpsestblame-action": "Blame",
+	"palimpsestblame-revision-unavailable": "This revision is unavailable for blame.",
+	"palimpsestblame-internal-error": "The blame request could not be completed.",
+	"palimpsestblame-job-unavailable": "The requested blame build job is not available.",
+	"apihelp-query+palimpsestblame-description": "Analyze text attribution and historical revisions for a page.",
+	"apihelp-query+palimpsestblame-param-op": "Operation to perform.",
+	"apihelp-query+palimpsestblame-param-title": "Page title.",
+	"apihelp-query+palimpsestblame-param-revision": "Local revision ID (0 means latest).",
+	"apihelp-query+palimpsestblame-param-mode": "Date lookup mode.",
+	"apihelp-query+palimpsestblame-param-from": "UTC date or timestamp lower bound.",
+	"apihelp-query+palimpsestblame-param-to": "UTC date or timestamp upper bound.",
+	"apihelp-query+palimpsestblame-param-limit": "Maximum matching revisions.",
+	"apihelp-query+palimpsestblame-param-jobid": "Blame build job ID.",
+	"apihelp-query+palimpsestblame-param-ranges": "JSON array of UTF-16 source ranges."
+}

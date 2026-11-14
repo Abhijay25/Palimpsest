@@ -1,0 +1,41 @@
+HACKATHON DELIVERY GOAL — JUDGE-READY FINNISH-HISTORY DIVERGENCE EXPLORER
+
+Purpose
+Deliver a polished, reliable NeoWiki research demo that a nontechnical judge can use without coaching: choose a Finnish-history article, compare English/Finnish/Swedish perspectives, recognize that editions differ, and inspect meaningful real differences with exact source evidence. The purpose is awareness and understanding for readers and editors; draft editing is explicitly removed from scope.
+
+Delivery priorities, in order
+1. Restore a prompt-first entry at bare /explore: ask for a topic/article and language selection, then open the results page. A compact floating toolbar carries navigation, search, zoom and a simple legend above a viewport-filling graph. The evidence sidebar starts closed and opens only after selecting a finding, with a clear Close action and direct source-Wikipedia/tracker links. A selected-question deep link restores the pane. Fit a normal 1280x720 laptop and 390px mobile viewport. Panning/date navigation, search, row selection and reset must work without introducing extra dashboards.
+2. Populate a focused collection of 20 verified Finnish-history articles with all three supplied language editions where available. Reuse finished Winter War/Tornedalians results; process the remaining selected articles as real snapshots first. Clearly distinguish snapshot-only articles from Winter War's monthly history. Do not imply current/live 2026 Wikipedia data.
+3. Provide useful starting examples using actual, evidence-grounded question titles. Prioritize accepted descriptive titles within category priority; retain all other questions with honest provisional/review-needed states. Do not fabricate contradictions or lower the strict classifier/naming gates to make a demo look better.
+4. Let the judge drill from a question/time cell to the exact source pair, native-language excerpts, machine translations, relevant existing highlights, source revision URLs and the existing article discrepancy tracker. Preserve selected article, language, period, question, category, pair and exact occurrence on return.
+5. Keep the visualization focused on awareness and evidence. Do not include Draft edit, article rewriting or publishing tools. Readers can follow exact Wikipedia revision links and the existing article discrepancy tracker to investigate further.
+6. Make optional review markers understandable and recoverable. Clearly label local-device storage and allow review toggles to be undone. Keep evidence export attributable. No native MediaWiki stack expansion is required.
+7. Use explicit resumable preparation and naming queues with cache reuse, two article workers, six shared provider slots and at most two naming slots. Stop safely at the existing disk guard; do not delete unique data or weaken it. No whole-corpus historical sweep during this delivery.
+8. Verify desktop/mobile interaction, keyboard access, panning, empty/unknown states, search refinement, exact tracker handoff and browser Back. Run the meaningful regression suites, audit source offsets and anchor timestamps, update shared agent context and the exploration registry, commit/push and update PR #6.
+
+Success criteria
+A judge can complete the browse -> real finding -> evidence -> source Wikipedia/tracker journey in a few minutes and explain how language editions differ. Every shown finding is traceable to stored source revisions. Counts deduplicate repeated occurrences. No missing observation is presented as agreement or resolution. All featured prepared articles can be searched and opened. Failures remain visible and recoverable; browsing never starts paid inference.
+
+Concrete delivery stages
+A. Baseline secured: retain the completed real-data UI milestone, all existing cohorts and the independently runnable viewer. Keep the research-app changes in PR #6 on feature/divergence-skyline.
+B. Preparation: verify the curated 20 article identities and actual language coverage, enqueue snapshots for new articles, publish complete checkpoints progressively, then stage question naming/search. Inspect provider failures before resuming; retain failed reservations and do not conceal jobs that could not finish.
+C. Evidence journey: preserve exact occurrence identity, show original passages and local translations with source revision links, and keep exports attributable. The visualization surfaces differences rather than composing edits.
+D. Judge polish: make a prepared collection discoverable, give accepted specific question names priority, retain simple year/month navigation and panning, and open one source pane only after selection.
+E. Verification and handoff: exercise desktop/mobile and browser Back, run the source/isolation/counting regression suites, audit new source evidence, document actual ready/failed/queued totals and remaining limitations, commit/push and update the PR. The short judge script is docs/hackathon-walkthrough.md.
+
+Latest overview interaction
+The results open with a monthly histogram across the complete available five-and-a-half-year history. Zoom changes the visible date range; longer histories may adapt to yearly buckets, while month remains the finest unit. Clicking a bucket opens a searchable issue table for that period rather than zooming into the graph. Selecting an issue opens evidence. Overview navigation restores the previous histogram range. Categories use the strongest actual observation per question in each period; these are period unions, not sums or claims that a discrepancy continuously persisted.
+
+Latest visual direction
+Restore the original Wikipedia style: white backgrounds, gray rules and utility surfaces, blue links/actions, serif headings and familiar sans-serif controls. Keep the prompt-first entry, floating toolbar and graph-first interaction; the supplied parchment/brown editorial skin is superseded.
+
+Finest timeline granularity is now MONTH. A month's questions and exact dated source evidence remain reviewable, but the main viewer must not subdivide its timeline into weeks, days or minutes. Preserve historical checkpoint data for provenance rather than exposing finer calendar grids.
+
+Issue detail and category filtering
+Use a compact issue table rather than colored timeline bands for a bucket's questions. Selecting an issue opens a large centered evidence window with current/comparison editions side by side on desktop, preserving exact passages, translations and revision links; mobile stacks readable columns. The bottom-right category legend independently toggles red/orange/blue on and off, affecting each bucket and the issue table consistently. Preserve category choices, search, date range and selected question through evidence/tracker navigation.
+
+Data completion policy
+Aim to finish the focused collection during this delivery. Provider rejection, unresolved paid requests or the disk guard must remain explicit if they prevent it. Keep durable queued work resumable for tomorrow; never replace missing real assessments with demo fixtures. Corpus-wide history remains a later, explicitly launched job. Snapshot readiness and full historical readiness are separate states.
+
+Current completed baseline
+Winter War article-scoped v2: 86/86 observations, 431 all-time semantic groups, 11,404 occurrences; latest observation 135 groups (123 context, 12 framing, zero strict contradictions). The initial ten-article pilot contains 519 groups and 11,498 occurrences. Audit: 22,996 source excerpts across 192 revisions, zero offset or timestamp/anchor mismatches. Older v1 and Russian samples remain separate. The focused 20-article preparation and final verification are recorded separately in docs/hackathon-data-status.txt.

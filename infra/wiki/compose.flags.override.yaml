@@ -1,0 +1,14 @@
+# Optional developer-only override; do not add this to the shared base compose file.
+services:
+  wiki-fi:
+    extra_hosts: [ "host.docker.internal:host-gateway" ]
+    environment:
+      PALIMPSEST_FLAGS_API_URL: ${PALIMPSEST_FLAGS_API_URL:-}
+  wiki-sv:
+    extra_hosts: [ "host.docker.internal:host-gateway" ]
+    environment:
+      PALIMPSEST_FLAGS_API_URL: ${PALIMPSEST_FLAGS_API_URL:-}
+  wiki-en:
+    extra_hosts: [ "host.docker.internal:host-gateway" ]
+    environment:
+      PALIMPSEST_FLAGS_API_URL: ${PALIMPSEST_FLAGS_API_URL:-}

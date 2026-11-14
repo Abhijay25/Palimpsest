@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "generated_unmapped_selection",
+  "kind": "browser_case",
+  "description": "A visible template-generated token sits between mapped words and must produce honest mixed-coverage selection details without fabricated blame.",
+  "template_wikitext": "'''UNMAPPED_SENTINEL'''",
+  "wikitext_template": "The mapped prefix {{template_title}} mapped suffix.",
+  "selection_text_template": "mapped prefix UNMAPPED_SENTINEL mapped suffix",
+  "generated_text": "UNMAPPED_SENTINEL",
+  "expected_coverage": "partial_or_unavailable",
+  "must_retain_exact_selection": true,
+  "must_not_authoritatively_attribute_generated_text": true
+}
