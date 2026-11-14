@@ -18,6 +18,9 @@ from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 if TYPE_CHECKING:
     from playwright.sync_api import Page
 
+expect = None
+sync_playwright = None
+
 
 def groups_from_tokens(quote: str, owners: list[str]) -> list[dict[str, Any]]:
     tokens = list(re.finditer(r"\S+", quote))
@@ -144,7 +147,7 @@ def css_color_samples(locator, surface: str, text_backdrop: str | None = None) -
             values.push({background:style.backgroundColor,painted:paint(style.backgroundColor),alpha:alphaOf(style.backgroundColor),color:style.color,foregroundPainted:paint(style.color,textBackdrop),hasText:node.textContent.trim().length>0,border:style.borderTopColor});
             for(const pseudo of ['::before','::after']){
               const p=getComputedStyle(node,pseudo);
-              if(p.content&&p.content!=='none')values.push({background:p.backgroundColor,painted:paint(p.backgroundColor),alpha:alphaOf(p.backgroundColor),color:p.color,foregroundPainted:paint(p.color,textBackdrop),border:p.borderTopColor});
+              if(p.content&&p.content!=='none')values.push({background:p.backgroundColor,painted:paint(p.backgroundColor),alpha:alphaOf(p.backgroundColor),color:p.color,foregroundPainted:paint(p.color,textBackdrop),hasText:false,border:p.borderTopColor});
             }
           }
           return values;
@@ -194,7 +197,7 @@ def verify_rendered_colors(page: Page, groups: list[dict[str, Any]]) -> None:
             matching = [sample for sample in samples if sample["painted"] == fill and sample["alpha"] >= 0.72]
             if not matching:
                 raise AssertionError(f"owner {revision_id} color does not match between article and {label} (expected {fill})")
-            foregrounds = {sample["foregroundPainted"] for sample in samples if sample["hasText"]}
+            foregrounds = {sample["foregroundPainted"] for sample in samples if sample.get("hasText", False)}
             if not foregrounds or min(contrast_ratio(foreground, fill) for foreground in foregrounds) < 4.5:
                 raise AssertionError(f"owner {revision_id} text contrast is below 4.5:1 in {label} against {fill}")
         fills[revision_id] = fill
@@ -323,6 +326,7 @@ def verify_layout(page: Page, url: str, quote: str, owners: list[str], groups: l
 
 
 def main() -> int:
+    global expect, sync_playwright
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native-url", required=True, help="explicit seeded article URL; only action=blame is added")
     parser.add_argument("--quote", required=True, help="exact unique selected quote")
@@ -332,9 +336,11 @@ def main() -> int:
     parser.add_argument("--excluded-event-ids", default="", help="comma-separated unrelated page event IDs which must never appear")
     args = parser.parse_args()
     try:
-        from playwright.sync_api import expect, sync_playwright
+        from playwright.sync_api import expect as playwright_expect, sync_playwright as playwright_sync
     except ImportError as error:
         parser.error(f"Playwright is required; run inside the pinned browser image ({error})")
+    expect = playwright_expect
+    sync_playwright = playwright_sync
     owners = [item.strip() for item in args.owners.split(",") if item.strip()]
     args.selection_event_ids = [item.strip() for item in args.selection_event_ids.split(",") if item.strip()]
     args.focus_event_ids = [item.strip() for item in args.focus_event_ids.split(",") if item.strip()]
