@@ -175,11 +175,26 @@
 		var revisionIds = new Set();
 		var ambiguous = false;
 		( data.spans || [] ).forEach( function ( span ) {
-			if ( !selection.ranges.some( function ( range ) { return span.start < range.end && span.end > range.start; } ) ) {
+			var overlappingRanges = Array.isArray( span.token_ranges ) ? span.token_ranges.filter( function ( tokenRange ) {
+				return Array.isArray( tokenRange ) && tokenRange.length >= 3 && selection.ranges.some( function ( range ) {
+					return Number( tokenRange[ 0 ] ) < range.end && Number( tokenRange[ 1 ] ) > range.start;
+				} );
+			} ) : null;
+			if ( overlappingRanges && !overlappingRanges.length || !overlappingRanges && !selection.ranges.some( function ( range ) { return span.start < range.end && span.end > range.start; } ) ) {
 				return;
 			}
-			tokenIds.add( String( span.token_id ) );
-			( span.lineage_ids || [] ).forEach( function ( id ) { tokenIds.add( String( id ) ); } );
+			if ( overlappingRanges ) {
+				var spanTokenIds = new Set( span.token_ranges.map( function ( tokenRange ) { return String( tokenRange[ 2 ] ); } ) );
+				overlappingRanges.forEach( function ( tokenRange ) { tokenIds.add( String( tokenRange[ 2 ] ) ); } );
+				( span.lineage_ids || [] ).forEach( function ( id ) {
+					if ( !spanTokenIds.has( String( id ) ) ) {
+						tokenIds.add( String( id ) );
+					}
+				} );
+			} else {
+				tokenIds.add( String( span.token_id ) );
+				( span.lineage_ids || [] ).forEach( function ( id ) { tokenIds.add( String( id ) ); } );
+			}
 			revisionIds.add( Number( span.revision_id ) );
 			ambiguous = ambiguous || span.ambiguous === true;
 		} );

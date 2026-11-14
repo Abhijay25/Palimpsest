@@ -184,6 +184,11 @@ def main():
         touch_page.set_content('<main><div id="mw-content-text"><div id="palimpsest-blame"></div></div></main>')
         touch_page.evaluate(
             """base => {
+                base.spans = [{ start: 0, end: 10, revision_id: 91, token_id: '91:0', token_ranges: [[0, 5, '91:0'], [6, 10, '91:1']], lineage_ids: ['shared:ancestor', '91:0', '91:1'], confidence: 'certain' }];
+                base.events = [
+                    { revision_id: 90, before: 'left-word-only event', after: 'alpha', token_ids: ['91:0'], ambiguous: false },
+                    { revision_id: 91, before: 'right-word event', after: 'beta', token_ids: ['91:1'], ambiguous: false }
+                ];
                 window.mw = {
                     config: { get: () => ({ wgPageName: 'Example', wgRevisionId: 0, wgArticleId: 42, wgCanonicalSpecialPageName: null }) },
                     util: { wikiScript: () => 'https://example.test/api.php', getUrl: (title, params) => '/wiki/' + title + '?' + new URLSearchParams(params) },
@@ -225,10 +230,10 @@ def main():
         touch_page.evaluate(
             """() => {
                 window.__selectionPending = true;
-                const text = document.querySelector('[data-pb-start="0"]').firstChild;
+                const text = document.querySelector('[data-pb-start="6"]').firstChild;
                 const range = document.createRange();
                 range.setStart(text, 1);
-                range.setEnd(text, 4);
+                range.setEnd(text, 3);
                 const selection = window.getSelection();
                 selection.removeAllRanges();
                 selection.addRange(range);
@@ -238,10 +243,13 @@ def main():
         touch_box = touch_button.bounding_box()
         touch_page.touchscreen.tap(touch_box["x"] + touch_box["width"] / 2, touch_box["y"] + touch_box["height"] / 2)
         touch_page.wait_for_selector(".pb-breakdown")
-        assert touch_page.locator(".pb-selected-text").inner_text() == "lph"
-        assert "unrelated page edit" not in touch_page.locator(".pb-timeline").inner_text(), "ready-job selection must filter events against verified span tokens"
-        assert touch_page.locator(".pb-timeline").inner_text().find("No verified wording changes") >= 0, "unmatched events must not be shown as selected history"
-        assert touch_page.evaluate("window.__requests.filter(r => r.ranges).at(-1).ranges") == '[{"start":1,"end":4}]'
+        assert touch_page.locator(".pb-selected-text").inner_text() == "et"
+        assert touch_page.locator(".pb-event").count() == 1, "only one coalesced token's event should match the partial selection"
+        touch_page.locator(".pb-event summary").click()
+        timeline = touch_page.locator(".pb-timeline").inner_text()
+        assert "right-word event" in timeline, timeline
+        assert "left-word-only event" not in timeline, "a partial selection in a coalesced span must exclude sibling token events"
+        assert touch_page.evaluate("window.__requests.filter(r => r.ranges).at(-1).ranges") == '[{"start":7,"end":9}]'
         touch_page.close()
 
         conflict_page = browser.new_page()
