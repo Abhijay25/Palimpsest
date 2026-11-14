@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-from google.genai import errors
+from google.genai import errors, types
 
 from palimpsest.backends.gemini import (
     GeminiClient,
@@ -227,3 +227,18 @@ def test_judge_timed_returns_latencies_and_keeps_no_instance_state() -> None:
     runs = asyncio.run(run())
     assert all(set(latencies) == {"same"} for _, latencies in runs)
     assert backend.latencies_ms == {}
+
+
+def test_usage_totals_are_recorded_from_response_metadata() -> None:
+    from palimpsest.backends.gemini import _GeminiCaller
+
+    class _Fake:
+        usage_metadata = types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=100, candidates_token_count=20, thoughts_token_count=7
+        )
+
+    caller = _GeminiCaller.__new__(_GeminiCaller)
+    caller.usage = {"calls": 0, "input": 0, "output": 0, "thinking": 0}
+    caller._record_usage(_Fake())  # type: ignore[arg-type]  # minimal stand-in for the SDK response
+    caller._record_usage(_Fake())  # type: ignore[arg-type]  # minimal stand-in for the SDK response
+    assert caller.usage == {"calls": 2, "input": 200, "output": 40, "thinking": 14}

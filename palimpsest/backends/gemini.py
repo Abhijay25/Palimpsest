@@ -120,6 +120,22 @@ class _GeminiCaller:
             int(_env_number("GEMINI_CONCURRENCY", DEFAULT_CONCURRENCY))
         )
         self.thinking = _thinking_config()
+        # Running token totals for cost reporting; counters only, no per-call state.
+        self.usage: dict[str, int] = {
+            "calls": 0,
+            "input": 0,
+            "output": 0,
+            "thinking": 0,
+        }
+
+    def _record_usage(self, response: types.GenerateContentResponse) -> None:
+        meta = getattr(response, "usage_metadata", None)  # test doubles may omit it
+        self.usage["calls"] += 1
+        if meta is None:
+            return
+        self.usage["input"] += meta.prompt_token_count or 0
+        self.usage["output"] += meta.candidates_token_count or 0
+        self.usage["thinking"] += meta.thoughts_token_count or 0
 
     async def _call(
         self, system: str, contents: str, schema: type[BaseModel]
@@ -137,14 +153,16 @@ class _GeminiCaller:
             ),
             timeout=self.timeout,
         )
+        self._record_usage(response)
         return response.text
 
     async def generate(
         self, system: str, contents: str, schema: type[T]
     ) -> tuple[T | str, float]:
-        """Validated model output or an error string, plus wall-clock ms."""
-        started = time.perf_counter()
+        """Validated model output or an error string, plus ms spent on the call itself."""
         async with self.semaphore:
+            # Timed inside the semaphore so queueing behind other calls is not counted.
+            started = time.perf_counter()
             text: str | None = None
             error: str | None = None
             for attempt in range(2):
@@ -192,6 +210,10 @@ class GeminiJudgeBackend:
         self._caller = _GeminiCaller(self.model, client, backoff_seconds)
         self._system = (PROMPTS_DIR / f"{prompt_version}.txt").read_text()
         self.latencies_ms: dict[str, float] = {}
+
+    @property
+    def usage(self) -> dict[str, int]:
+        return self._caller.usage
 
     async def judge_timed(
         self, cases: list[PreparedCase]

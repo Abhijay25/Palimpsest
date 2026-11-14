@@ -182,6 +182,8 @@ async def prepare(
             prompt_version=prompt_version,
         )
     print(f"Exa calls: {fetcher.calls}, cost ${fetcher.cost_dollars:.4f}")
+    if gemini_backend is not None:
+        print(f"Gemini usage ({gemini_backend.model}): {gemini_backend.usage}")
     clean = sum(1 for pc in prepared if pc.stage0.clean)
     print(
         f"{len(prepared)} cases, {clean} stage-0 clean, "
