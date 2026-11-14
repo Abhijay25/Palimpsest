@@ -48,3 +48,7 @@ curl -s localhost:8000/api/v1/audit-diff -H 'content-type: application/json' -d 
   "ref_urls": ["https://example.org/article"]
 }'
 ```
+
+## Design notes
+
+- A CRITICAL ref page routes the case to admin review but does not change the editor trust delta; only the editor's own diff does. This is intentional.
