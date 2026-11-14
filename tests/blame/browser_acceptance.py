@@ -45,15 +45,21 @@ def find_blame_link(page: Page):
     return candidates.first
 
 
-def enter_blame_with_keyboard(page: Page) -> None:
-    for _ in range(48):
-        active = page.evaluate("document.activeElement?.innerText || document.activeElement?.getAttribute('aria-label') || ''")
-        if re.search(r"\bBlame\b", active, re.I):
-            page.keyboard.press("Enter")
-            break
+def tab_to_element(page: Page, target, description: str, max_tabs: int = 256) -> None:
+    for _ in range(max_tabs):
+        if target.evaluate("element => document.activeElement === element"):
+            return
         page.keyboard.press("Tab")
-    else:
-        raise AssertionError("keyboard tab order never reached a discoverable Blame link")
+    raise AssertionError(f"keyboard tab order never reached {description}")
+
+
+def enter_blame_with_keyboard(page: Page) -> None:
+    content = page.locator("#mw-content-text")
+    expect(content).to_be_visible()
+    expect(content).to_contain_text(load_fixture("cross_contributor_deletion")["revisions"][-1]["text"])
+    link = find_blame_link(page)
+    tab_to_element(page, link, "the visible Blame action link")
+    page.keyboard.press("Enter")
     expect(page).to_have_url(re.compile(r"[?&]action=blame(?:&|$)"))
     expect(page.locator("#palimpsest-blame")).to_be_visible()
 
@@ -66,10 +72,7 @@ def verify_keyboard_phrase_activation(page: Page, phrase: str, key: str) -> None
     expect(target).to_be_visible()
     if target.inner_text().strip() != phrase:
         raise AssertionError(f"keyboard target text differs from exact attributed phrase {phrase!r}")
-    target.focus()
-    focused_before = target.evaluate("element => document.activeElement === element")
-    if not focused_before:
-        raise AssertionError(f"attributed phrase {phrase!r} is not keyboard-focusable")
+    tab_to_element(page, target, f"the attributed phrase {phrase!r}")
     captured = target.evaluate(
         """(element) => {
           const block = element.closest('p,li,td,blockquote,pre,h1,h2,h3,h4,h5,h6,dt,dd');
