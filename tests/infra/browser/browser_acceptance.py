@@ -256,7 +256,7 @@ def watch_and_check_second_user_edit(
     login(watcher, root, *user_one)
     watcher.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&action=watch"), wait_until="domcontentloaded")
     watcher.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}"), wait_until="domcontentloaded")
-    expect(watcher.locator("a[href*='action=unwatch'], a[title*='Unwatch']")).to_be_visible()
+    expect(watcher.get_by_role("link", name="Unwatch").first).to_be_visible()
 
     second_context = browser.new_context()
     editor = second_context.new_page()
