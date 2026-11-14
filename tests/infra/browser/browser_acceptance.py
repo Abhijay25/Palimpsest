@@ -98,11 +98,13 @@ def save_visual(page: Page, root: str, title: str, marker: str) -> None:
     expect(surface).to_be_visible(timeout=60_000)
     expect(page.locator(".ve-ui-toolbar")).to_be_visible()
     surface.click()
-    page.keyboard.press("End")
-    page.keyboard.type(f"\n{marker}")
+    page.keyboard.press("Control+End")
+    page.keyboard.press("Enter")
+    page.keyboard.type(marker)
+    expect(surface).to_contain_text(marker, timeout=30_000)
     save_button = page.get_by_role("button", name=re.compile(r"^Save(?:…|\.\.\.)?$", re.I))
     expect(save_button.last).to_be_visible()
-    expect(save_button.last).to_be_enabled()
+    expect(save_button.last).to_be_enabled(timeout=30_000)
     save_button.last.click()
     save_dialog = page.locator(".ve-ui-mwSaveDialog")
     expect(save_dialog).to_be_visible(timeout=30_000)
@@ -137,25 +139,15 @@ def create_talk_post_and_reply(page: Page, root: str, title: str, token: str) ->
     page.locator("#wpSave").click()
     expect(page.locator("#mw-content-text h2")).to_contain_text(f"Acceptance topic {token}")
 
-    reply_link = page.locator(".ext-discussiontools-init-replylink")
-    if reply_link.count() == 0:
-        reply_link = page.get_by_role("button", name=re.compile("^Reply$", re.I))
+    reply_link = page.get_by_role("button", name="Reply", exact=True)
     expect(reply_link.first).to_be_visible(timeout=30_000)
     reply_link.first.click()
-    reply_widget = page.locator(".ext-discussiontools-ui-replyWidget")
-    expect(reply_widget).to_be_visible(timeout=30_000)
+    reply_input = page.get_by_role("textbox", name=re.compile("^Reply to", re.I)).last
+    expect(reply_input).to_be_visible(timeout=30_000)
     marker = f"DiscussionTools reply acceptance {token}"
-    visual_editor = reply_widget.locator("[contenteditable=true]").last
-    if visual_editor.count():
-        visual_editor.click()
-        page.keyboard.type(marker)
-    else:
-        reply_text = reply_widget.locator("textarea").last
-        expect(reply_text).to_be_visible()
-        reply_text.fill(marker)
-    submit_reply = reply_widget.get_by_role("button", name=re.compile("^Reply$", re.I))
-    if submit_reply.count() == 0:
-        submit_reply = reply_widget.get_by_role("button", name=re.compile("publish|post", re.I))
+    reply_input.fill(marker)
+    submit_reply = page.get_by_role("button", name="Reply", exact=True)
+    expect(submit_reply.last).to_be_enabled()
     submit_reply.last.click()
     expect(page.locator("#mw-content-text")).to_contain_text(marker, timeout=60_000)
     page.reload(wait_until="domcontentloaded")
