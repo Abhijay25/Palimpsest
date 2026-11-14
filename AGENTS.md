@@ -6,9 +6,9 @@ The latest user-approved research journey is prompt-first at bare `/explore`, th
 
 The user subsequently restored the original Wikipedia styling: white/gray surfaces, blue links/actions, serif headings and familiar sans-serif controls aligned with the article tracker. Preserve the cleaner graph interaction; do not restore the superseded parchment/brown editorial skin.
 
-Month is the finest timeline scale in the main research viewer. Exact checkpoint dates still identify evidence; do not render week/day/minute grids. Preserve alternate experiments and stored historical data.
+Month is the finest timeline scale in the main research viewer. Exact checkpoint dates still identify evidence; do not render week/day/minute grids. Preserve stored historical data. The retired browser presentations and separate 3D Library app were removed in the cleanup described in docs/explorations/README.md; Git retains their source history.
 
-The user removed the constellation view from this research app. `/explore` always serves the main UI, with no alternate-view link. Older constellation source/read-endpoint names below are historical compatibility, not an exposed viewer. The independently runnable tool in `tools/divergence-explorer` remains a separate PR boundary.
+The user removed the constellation view from this research app. `/explore` always serves the main UI, with no alternate-view link. Older constellation read-endpoint names below are historical compatibility, not an exposed viewer. Its unused template and browser assets have been removed. The independently runnable tool in `tools/divergence-explorer` remains a separate PR boundary.
 
 The user explicitly removed Draft edit from the visualization. Its purpose is surfacing and explaining discrepancies to readers and editors, with source Wikipedia links and the existing tracker. Preserve exact occurrence identity through tracker and browser-back links. Optional review markers remain browser-local. Read [the delivery goal](docs/hackathon-goal.txt) and [judge walkthrough](docs/hackathon-walkthrough.md).
 
@@ -22,6 +22,8 @@ Read [the exploration registry](docs/explorations/README.md) before extending a 
 - PR #4 (`feature/divergence-visualization`) adds the independent optional tool under `tools/divergence-explorer`. It does not install a native extension or include the historical inference worker.
 - The follow-up `feature/interlanguage-comparisons` branch directly copies the existing working app into `tools/language-gap-explorer`, with source hashes and no implementation rewrite. It is based on PR #4. Keep the PR stacked against `feature/divergence-visualization` while #4 remains open; retarget after it merges.
 - The separate `feature/neowiki-review-tools` implementation is an unpublished native extension/worker experiment. Do not silently include its unverified import/recovery work in the standalone tool PRs, modify upstream MediaWiki core, or conflate source revision timestamps with system-versioning processing timestamps.
+
+> Historical implementation notes below describe earlier iterations. The delivery contract above takes precedence; retired browser assets are available through Git history.
 
 ## Product and evidence rules
 
@@ -45,4 +47,4 @@ The follow-up on the same skyline branch combines a compact count skyline with a
 
 Current presentation supersedes the crowded heatmap: semantic zoom in `/explore` uses one constellation canvas, monthly blobs and yearly blobs. Periods now count the UNION of distinct observed question IDs, not the previous latest-snapshot rule. One question is counted once across dates/passages/pairs; use the strongest actual selected-pair category in that period. Unassessed/outside periods remain explicit. Question dots link directly to the existing historical article tracker. See `tools/language-gap-explorer/docs/semantic-zoom.md` for the active UI, naming/search pipeline and general-article preparation commands. Structured text generation is now explicitly authorized only for cached evidence-grounded question naming, off the browse path; preserve the narrowly gated provider policy and all request reservations.
 
-Current delivery expands to the judge-ready Finnish-history evidence workflow in docs/hackathon-goal.txt. The constellation is retained at /explore?layout=constellation. Do not revert to the crowded multi-chart interface or add editing tools to the visualization; the latest focus is discrepancy awareness.
+Current delivery expands to the judge-ready Finnish-history evidence workflow in docs/hackathon-goal.txt. The constellation presentation is retired; /explore?layout=constellation serves the main histogram viewer. Do not revert to the crowded multi-chart interface or add editing tools to the visualization; the latest focus is discrepancy awareness.
