@@ -80,6 +80,28 @@ def assert_spans(result: dict, expected_segments: list[dict], ids: dict[str, int
             for token in span["lineage_ids"]
         ):
             raise AssertionError("lineage_ids must contain stable local-revision-id:token-index strings")
+        if "token_ranges" in span:
+            ranges = span["token_ranges"]
+            if not isinstance(ranges, list) or not ranges:
+                raise AssertionError("token_ranges must be a non-empty array when present")
+            previous_end = span["start"]
+            token_ids = []
+            for token_range in ranges:
+                if not isinstance(token_range, list) or len(token_range) != 3:
+                    raise AssertionError("each token_ranges entry must be [start, end, stable_token_id]")
+                start, end, token_id = token_range
+                if not isinstance(start, int) or not isinstance(end, int) or not (span["start"] <= start < end <= span["end"]):
+                    raise AssertionError("token_ranges entry has invalid UTF-16 bounds outside its coalesced span")
+                if start < previous_end:
+                    raise AssertionError("token_ranges entries must be ordered and non-overlapping")
+                if not isinstance(token_id, str) or not re.fullmatch(token_pattern, token_id):
+                    raise AssertionError("token_ranges stable token ID must belong to the span's local revision")
+                token_ids.append(token_id)
+                previous_end = end
+            if token_ids[0] != span["token_id"]:
+                raise AssertionError("coalesced span token_id must be the first token_ranges stable ID")
+            if any(token_id not in span["lineage_ids"] for token_id in token_ids):
+                raise AssertionError("lineage_ids must include every token ID represented by a coalesced span")
     for segment in expected_segments:
         start, end = segment["start"], segment["end"]
         expected_id = ids[segment["revision"]]
@@ -94,7 +116,14 @@ def assert_spans(result: dict, expected_segments: list[dict], ids: dict[str, int
                 raise AssertionError(f"{segment['text']!r} includes unexpected revision {span['revision_id']}, expected {expected_id}")
             if not any(token.startswith(f"{expected_id}:") for token in span["lineage_ids"]):
                 raise AssertionError(f"{segment['text']!r} lacks expected stable lineage from revision {expected_id}")
-            cursor = max(cursor, min(end, span["end"]))
+            if "token_ranges" in span:
+                ranges = sorted((row[0], row[1]) for row in span["token_ranges"] if row[0] < end and row[1] > start)
+            else:
+                ranges = [(span["start"], span["end"])]
+            for range_start, range_end in ranges:
+                if range_start > cursor:
+                    break
+                cursor = max(cursor, min(end, range_end))
         if cursor < end:
             raise AssertionError(f"{segment['text']!r} is not fully attributed to local revision {expected_id}")
 

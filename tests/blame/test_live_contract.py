@@ -116,6 +116,27 @@ class LiveContractTests(unittest.TestCase):
         with self.assertRaisesRegex(AssertionError, "stable token ID"):
             assert_spans(result, [segment], ids)
 
+    def test_coalesced_token_ranges_preserve_exact_utf16_ownership(self) -> None:
+        fixture_path = Path(__file__).parent / "fixtures" / "coalesced_token_ranges.json"
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+        ids = fixture["revision_ids"]
+        ordinary = ordinary_response(fixture["source_text"])
+        ordinary["spans"] = copy.deepcopy(fixture["result"]["spans"])
+        self.assertEqual(validate_analyze_schema(ordinary), [])
+        segments = [dict(row) for row in fixture["expected_segments"]]
+        assert_spans(ordinary, segments, ids)
+
+        for name, error in (
+            ("bad_gap", "not fully attributed"),
+            ("bad_bounds", "invalid UTF-16 bounds"),
+            ("bad_id_owner", "local revision"),
+        ):
+            broken = copy.deepcopy(ordinary)
+            broken["spans"][0]["token_ranges"] = fixture["negative_cases"][name]["token_ranges"]
+            self.assertEqual(validate_analyze_schema(broken), [])
+            with self.subTest(case=name), self.assertRaisesRegex(AssertionError, error):
+                assert_spans(broken, segments, ids)
+
     def test_job_status_uses_frozen_jobid_and_pinned_revision_parameters(self) -> None:
         class RecordingApi:
             def __init__(self) -> None:
