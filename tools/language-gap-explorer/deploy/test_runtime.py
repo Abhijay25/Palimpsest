@@ -11,6 +11,14 @@ from deploy import runtime
 
 
 class RuntimeTests(unittest.TestCase):
+    def test_compose_tmpfs_options_are_one_mount(self):
+        import yaml
+        path = Path(__file__).resolve().parents[1] / 'compose.vps.yaml'
+        config = yaml.safe_load(path.read_text(encoding='utf-8'))
+        self.assertEqual(config['services']['web']['tmpfs'], ['/tmp:rw,nosuid,nodev,size=128m'])
+        self.assertNotIn('OPENAI_API_KEY_FILE', config['services']['embedding-worker']['environment'])
+        self.assertEqual(config['services']['catalog-seed']['environment']['DB_NAME'], 'library')
+
     def test_reader_loads_secret_files_but_strips_provider_keys(self):
         with TemporaryDirectory() as folder:
             root = Path(folder)

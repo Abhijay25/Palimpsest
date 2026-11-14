@@ -6,7 +6,7 @@ x-app: &app
   read_only: true
   security_opt: [no-new-privileges:true]
   cap_drop: [ALL]
-  tmpfs: [/tmp:rw,nosuid,nodev,size=128m]
+  tmpfs: ["/tmp:rw,nosuid,nodev,size=128m"]
   depends_on:
     db:
       condition: service_healthy
@@ -27,6 +27,7 @@ services:
   db:
     image: mariadb:12.3.3
     restart: unless-stopped
+    command: ["--mhnsw-default-m=16", "--mhnsw-ef-search=80", "--mhnsw-max-cache-size=268435456", "--innodb-buffer-pool-size=536870912"]
     environment:
       MARIADB_ROOT_PASSWORD_FILE: /run/secrets/db-root-password
       MARIADB_DATABASE: ${DB_NAME:-language_gaps}
@@ -94,6 +95,33 @@ services:
     restart: "no"
     logging: *logging
 
+  embedding-worker:
+    <<: *app
+    profiles: [offline]
+    environment:
+      <<: *app-env
+      NEOWIKI_ROLE: init
+    command: [python, deploy/embed_corpus.py, --limit, "5", --workers, "1"]
+    restart: "no"
+    logging: *logging
+
+  catalog-seed:
+    <<: *app
+    profiles: [catalog]
+    environment:
+      <<: *app-env
+      NEOWIKI_ROLE: init
+      DB_NAME: library
+      DB_USER: library_seed
+      DB_PASSWORD_FILE: /run/secrets/library-seed-password
+    secrets: [library-seed-password]
+    volumes:
+      - ${NEOWIKI_DATA_DIR:?Set NEOWIKI_DATA_DIR}:/var/lib/neowiki/data
+      - ${NEOWIKI_DATASET_LOCK:?Set NEOWIKI_DATASET_LOCK}:/run/datasets.lock.json:ro
+    command: [python, deploy/seed_bge_catalog.py, --lock, /run/datasets.lock.json, --limit, "20"]
+    restart: "no"
+    logging: *logging
+
   title-worker:
     <<: *app
     profiles: [workers]
@@ -121,6 +149,8 @@ secrets:
     file: ${NEOWIKI_SECRETS_DIR:?Set NEOWIKI_SECRETS_DIR}/session-secret
   provider-key:
     file: ${NEOWIKI_SECRETS_DIR:?Set NEOWIKI_SECRETS_DIR}/provider-key
+  library-seed-password:
+    file: ${NEOWIKI_SECRETS_DIR:?Set NEOWIKI_SECRETS_DIR}/library-seed-password
 
 volumes:
   database:
