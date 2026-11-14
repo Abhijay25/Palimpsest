@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Run the Palimpsest API (Gemini judge) on 127.0.0.1:8765 inside the capped slice.
+cd /home/abhijay/repos/Palimpsest || exit 1
+set -a; . ./.env; set +a
+export PALIMPSEST_USE_GEMINI=1
+exec systemd-run --user --scope --quiet --slice=pal.slice --unit="pal-api-$$" -p MemoryMax=900M -- nix develop -c uv run uvicorn palimpsest.api:app --host 127.0.0.1 --port 8765
