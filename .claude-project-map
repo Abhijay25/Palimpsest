@@ -24,3 +24,13 @@ eval/build/fi_dataset_m.py, en_reverts.py: emit old_wikitext/new_wikitext/change
 palimpsest/pipeline.py: stealth pre-hook in prepare (diff scan + sanitize old/new_text before Stage 0; ref scan via SourceFetcher.window_scored(on_text=), CRITICAL ref -> unavailable); PreparedCase.diff_scan/ref_scan/stealth_ms; CaseResult.stealth_status/vectors/ms; Metrics.stealth_flag_rate/stealth_flags; report stealth badge
 palimpsest/backends/gemini.py: GeminiJudgeBackend/GeminiTriageBackend (google-genai 3.3.0 generate_content); prepare --backend gemini writes file-exchange-format results + stage2_ms (tests/test_gemini_backend.py)
 palimpsest/api.py         FastAPI: /api/v1/stealth-scan, /api/v1/audit-diff, /healthz (tests/test_api.py; deps via get_fetcher/get_judge_backend, override in tests)
+palimpsest/segment.py     split_edit(): changed/inserted/deleted paragraph units (difflib); api judges units 4 at a time, MAX_UNITS=12 -> partial
+palimpsest/cascade.py     CascadeJudgeBackend(first, second): only first-pass flags/errors go to second; api uses it when GEMINI_FIRST_PASS_MODEL is set
+palimpsest/reasons.py     reason_code(): CONTRADICTS_SOURCE / UNSUPPORTED_CLAIM / LOADED_WORDING / REMOVED_CONTEXT from verdict + diff (no model call); api returns reason/reason_text
+palimpsest/render_service.py  scan_ref_pages(): concurrent Pillar 3 render of edit-touched refs in audit-diff (escalate-only), shared lazy PageRenderer(screenshots="none")
+palimpsest/stealth/render.py  PageRenderer (system chromium, viewport tiles 1280x800 + 64px overlap, SSRF guard, scroll-lock fallback, screenshots none|images|all), RenderAudit
+palimpsest/stealth/pillar3.py render_findings(audit, judged_text), judged_drift(); vision.py + prompts/vision_v1.txt: image-only text (context only, never escalates)
+palimpsest/stealth/render_eval.py  prepare/ingest/vision-prepare/vision-ingest over eval/stealth/render_cases + live real ref URLs
+palimpsest/prompts/stage2_v7.txt   default judge prompt (v6 + WP:BLP exception); screen_v1.txt = short first-pass screen (empty arrays)
+palimpsest/backends/gemini.py: gemini_enabled() requires GEMINI_API_KEY and PALIMPSEST_USE_GEMINI=1; GeminiJudgeBackend(model=...)
+eval/build/fi_dataset_m.py: --seed --exclude --no-pov-preference --out-prefix (blind sets); en_reverts.py --reverts-out
