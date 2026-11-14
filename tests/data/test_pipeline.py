@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -12,11 +13,11 @@ from scripts.palimpsest_data.coverage import build_coverage, exit_for_report
 from scripts.palimpsest_data.cli import _manifest_for
 from scripts.palimpsest_data.dataset import fetch_assets
 from scripts.palimpsest_data.history import GIB, acquire_article, acquire_corpus, fetch_json, revision_record
-from scripts.palimpsest_data.io import DataError, atomic_json, canonical_json, sha256_bytes
+from scripts.palimpsest_data.io import DataError, atomic_json, canonical_json, iter_jsonl, sha256_bytes
 from scripts.palimpsest_data.manifests import validate_corpus
 from scripts.palimpsest_data.support import discover_support
 from scripts.palimpsest_data.xml_export import export_article, export_article_stream, mediawiki_xml
-from scripts.palimpsest_data.importer import fetch_local_page, map_revisions
+from scripts.palimpsest_data.importer import fetch_local_page, import_corpus, map_revisions
 import xml.etree.ElementTree as ET
 
 
@@ -379,6 +380,116 @@ class DataPipelineTests(unittest.TestCase):
                                            runtime_manifest=runtime_for(corrupt_batch_root), api=local_api())
             self.assertFalse(corrupt_report["complete"])
             self.assertIn("source-batch-invalid", {x["reason"] for x in corrupt_report["failures"]})
+
+    def test_import_reconciles_after_database_commit_before_c4_checkpoint(self):
+        from urllib.parse import parse_qs, urlparse
+        from scripts.palimpsest_data.io import sha256_file
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            history = root / "history"
+            imports = root / "imports"
+            articles = []
+            source_by_title = {}
+            for index, lang in enumerate(("fi", "sv", "en")):
+                source_page_id = 990000100 + index
+                first_id = 990001000 + index * 10
+                anchor_id = first_id + 1
+                title = f"Synthetic Crash Window {lang.upper()}"
+                article = {"source_wiki": f"{lang}wiki", "language": lang, "source_page_id": source_page_id,
+                           "anchor_revision_id": anchor_id, "title": title, "source_url": f"synthetic://{lang}/{source_page_id}",
+                           "wikidata_id": None, "dataset_timestamp": "2025-08-02T00:00:00Z"}
+                articles.append(article)
+                rows = []
+                for rev_id, parent_id, timestamp, content in (
+                    (first_id, None, "2025-08-01T00:00:00Z", f"synthetic {lang} revision one"),
+                    (anchor_id, first_id, "2025-08-02T00:00:00Z", f"synthetic {lang} revision two"),
+                ):
+                    source_sha1 = hashlib.sha1(content.encode()).hexdigest()
+                    rows.append({"source_wiki": f"{lang}wiki", "source_page_id": source_page_id,
+                                 "source_revision_id": rev_id, "source_parent_id": parent_id,
+                                 "timestamp": timestamp, "author": {"kind": "named", "value": "CrashProbeEditor", "hidden": False},
+                                 "comment": "synthetic crash-window test", "comment_hidden": False, "minor": False,
+                                 "content_model": "wikitext", "content_format": "text/x-wiki", "content": content,
+                                 "content_hidden": False, "source_sha1": source_sha1, "computed_sha1": source_sha1,
+                                 "computed_sha256": sha256_bytes(content.encode()), "anchor_revision_id": anchor_id,
+                                 "source_url": f"synthetic://{lang}/{source_page_id}/{rev_id}",
+                                 "acquisition_method": "synthetic-crash-window-fixture", "acquired_at": "2026-11-14T00:00:00Z"})
+                source_by_title[title] = rows
+                page_dir = history / f"{lang}wiki" / str(source_page_id)
+                page_dir.mkdir(parents=True)
+                batch = page_dir / "batch-000000.jsonl"
+                batch.write_bytes(b"".join(canonical_json(row) + b"\n" for row in reversed(rows)))
+                atomic_json(page_dir / "state.json", {"schema_version": 1, "source_wiki": f"{lang}wiki",
+                    "source_page_id": source_page_id, "anchor_revision_id": anchor_id, "anchor_validated": True,
+                    "enumeration_exhausted": True, "gap_analysis_complete": True, "unresolved_gaps": [],
+                    "committed_batches": [{"path": batch.name, "sha256": sha256_file(batch), "count": len(rows)}]})
+
+            corpus_path = root / "synthetic-corpus.json"
+            atomic_json(corpus_path, {"schema_version": 1, "release": {"repository": "synthetic-test-only", "tag": "s-2026-10", "assets": []},
+                                      "scope": "sample", "expected_counts": {lang: 1 for lang in ("fi", "sv", "en")}, "articles": articles})
+            runtime = {"schema_version": 1, "project": "fixture", "data_root": str(root),
+                       "ports": {"fi": 18081, "sv": 18082, "en": 18083},
+                       "initialized": {lang: True for lang in ("fi", "sv", "en")},
+                       "languages": {lang: {"api_url": f"http://{lang}/api.php"} for lang in ("fi", "sv", "en")}}
+            runtime_path = root / "runtime.json"
+            atomic_json(runtime_path, runtime)
+            remote: dict[str, tuple[int, list[dict[str, Any]]]] = {}
+            import_calls: dict[str, int] = {}
+
+            def api(url):
+                title = parse_qs(urlparse(url).query)["titles"][0]
+                if title not in remote:
+                    return {"query": {"pages": [{"title": title, "missing": True}]}}
+                page_id, rows = remote[title]
+                revisions = [{"revid": row["revid"], "parentid": row["parentid"], "timestamp": row["timestamp"],
+                              "user": row["user"], "comment": row["comment"], "slots": {"main": {
+                                  "content": row["content"], "contentmodel": "wikitext", "contentformat": "text/x-wiki"}}}
+                             for row in rows]
+                return {"query": {"pages": [{"title": title, "pageid": page_id, "revisions": revisions}]}}
+
+            def native_import(command, *, interrupt_once=False, **kwargs):
+                xml_path = command[-1]
+                source_page_id = int(Path(xml_path).stem)
+                article = next(item for item in articles if item["source_page_id"] == source_page_id)
+                title = article["title"]
+                if title not in remote:
+                    local_page_id = 120000000 + source_page_id
+                    local_ids = {row["source_revision_id"]: 2200000000 + row["source_revision_id"] for row in source_by_title[title]}
+                    local_rows = []
+                    for source in sorted(source_by_title[title], key=lambda x: x["timestamp"]):
+                        local_rows.append({"revid": local_ids[source["source_revision_id"]],
+                                           "parentid": local_ids.get(source["source_parent_id"], 0),
+                                           "timestamp": source["timestamp"], "user": "Imported>CrashProbeEditor",
+                                           "comment": source["comment"], "content": source["content"]})
+                    remote[title] = (local_page_id, local_rows)
+                    import_calls[title] = import_calls.get(title, 0) + 1
+                completed = subprocess.CompletedProcess(command, 0, "native import completed", "")
+                if interrupt_once:
+                    raise KeyboardInterrupt("simulated worker interruption after native import returned")
+                return completed
+
+            common = {"corpus_path": corpus_path, "history_dir": history, "import_dir": imports,
+                      "runtime_manifest_path": runtime_path, "runtime_script": root / "scripts/runtime.py",
+                      "container_data_root": "/data/imports/probe", "api": api,
+                      "expected_project": "fixture", "expected_data_root": str(root)}
+            with self.assertRaisesRegex(KeyboardInterrupt, "after native import returned"):
+                import_corpus(**common, runner=lambda command, **kwargs: native_import(command, interrupt_once=True, **kwargs))
+            first = articles[0]
+            first_mapping = imports / first["source_wiki"] / f"{first['source_page_id']}.jsonl"
+            self.assertEqual({row["status"] for row in iter_jsonl([first_mapping])}, {"pending"})
+            self.assertEqual(import_calls[first["title"]], 1)
+
+            resumed = import_corpus(**common, runner=native_import)
+            self.assertEqual([page["status"] for page in resumed["pages"]],
+                             ["already-reconciled", "reconciled", "reconciled"])
+            self.assertEqual([import_calls[article["title"]] for article in articles], [1, 1, 1])
+            for article in articles:
+                mapping = list(iter_jsonl([imports / article["source_wiki"] / f"{article['source_page_id']}.jsonl"]))
+                self.assertEqual(len(mapping), 2)
+                self.assertEqual({row["status"] for row in mapping}, {"reconciled"})
+                local_ids = [row["local_revision_id"] for row in mapping]
+                self.assertEqual(len(local_ids), len(set(local_ids)))
 
     def test_support_cycle_is_reported_and_terminates(self):
         graph = {"Template:A": "{{Template:B}}", "Template:B": "{{Template:A}}"}
