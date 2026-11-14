@@ -1,0 +1,321 @@
+"""Read-only Playwright acceptance for the seeded revision-colour article.
+
+Run with the pinned Playwright 1.65.1 browser image. This checker never seeds
+or changes application data. It requires an explicit article URL, exact quote,
+and one expected last-changing revision ID per whitespace-delimited quote
+token. Optional event lists independently assert focused lineage and that
+Show full selection restores the selected quote's complete history.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+
+from playwright.sync_api import Page, expect, sync_playwright
+
+
+def groups_from_tokens(quote: str, owners: list[str]) -> list[dict[str, Any]]:
+    tokens = list(re.finditer(r"\S+", quote))
+    if len(tokens) != len(owners):
+        raise ValueError(f"quote has {len(tokens)} whitespace-delimited tokens; received {len(owners)} owner IDs")
+    by_owner: dict[str, list[str]] = {}
+    ordered: list[str] = []
+    previous = None
+    for match, owner in zip(tokens, owners):
+        if owner not in by_owner:
+            by_owner[owner] = []
+            ordered.append(owner)
+        if owner != previous:
+            by_owner[owner].append(match.group())
+        else:
+            by_owner[owner][-1] += " " + match.group()
+        previous = owner
+    return [{"id": owner, "fragments": by_owner[owner]} for owner in ordered]
+
+
+def contrast_ratio(foreground: str, background: str) -> float:
+    def luminance(color: str) -> float:
+        channels = [int(part) / 255 for part in re.findall(r"\d+", color)[:3]]
+        if len(channels) != 3:
+            raise AssertionError(f"not a computed RGB color: {color!r}")
+        linear = [channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4 for channel in channels]
+        return sum(value * weight for value, weight in zip(linear, (0.2126, 0.7152, 0.0722)))
+
+    light, dark = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
+def rgb_distance(first: str, second: str) -> float:
+    a = [int(part) for part in re.findall(r"\d+", first)[:3]]
+    b = [int(part) for part in re.findall(r"\d+", second)[:3]]
+    if len(a) != 3 or len(b) != 3:
+        raise AssertionError(f"not computed RGB colors: {first!r}, {second!r}")
+    return sum((x - y) ** 2 for x, y in zip(a, b)) ** 0.5
+
+
+def url_with_blame_action(url: str) -> str:
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query, keep_blank_values=True)
+    query["action"] = ["blame"]
+    return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
+
+
+def navigate_ready(page: Page, url: str, quote: str) -> None:
+    page.goto(url_with_blame_action(url), wait_until="domcontentloaded")
+    page.wait_for_function(
+        """quote => {
+          const article=document.querySelector('#mw-content-text .mw-parser-output');
+          const panel=document.querySelector('#palimpsest-blame');
+          if(!article||!panel||panel.dataset.state==='loading')return false;
+          const walker=document.createTreeWalker(article,NodeFilter.SHOW_TEXT);let text='';
+          while(walker.nextNode())text+=walker.currentNode.nodeValue||'';
+          return text.includes(quote)&&panel.dataset.state==='ready';
+        }""",
+        arg=quote,
+        timeout=25000,
+    )
+
+
+def select_exact_quote(page: Page, quote: str) -> None:
+    selected = page.evaluate(
+        """quote => {
+          const article=document.querySelector('#mw-content-text .mw-parser-output');if(!article)return null;
+          const walker=document.createTreeWalker(article,NodeFilter.SHOW_TEXT);
+          const nodes=[];let text='';while(walker.nextNode()){nodes.push({node:walker.currentNode,start:text.length});text+=walker.currentNode.nodeValue||'';}
+          const begin=text.indexOf(quote);if(begin<0||text.indexOf(quote,begin+1)>=0)return null;
+          const point=(offset,end)=>{for(const item of nodes){const length=item.node.nodeValue.length;if(offset>=item.start&&(offset<item.start+length||(end&&offset===item.start+length)))return{node:item.node,offset:offset-item.start};}return null;};
+          const start=point(begin,false),finish=point(begin+quote.length,true);if(!start||!finish)return null;
+          const range=document.createRange();range.setStart(start.node,start.offset);range.setEnd(finish.node,finish.offset);
+          const selection=getSelection();selection.removeAllRanges();selection.addRange(range);
+          return selection.toString();
+        }""",
+        quote,
+    )
+    if selected != quote:
+        raise AssertionError(f"could not select the unique exact seeded quote: {quote!r}")
+    inspect = page.get_by_role("button", name=re.compile(r"Inspect selected article text|Inspect selection|Analyze selection", re.I))
+    expect(inspect).to_be_visible()
+    inspect.click()
+    expect(page.locator(".pb-breakdown")).to_be_visible()
+    if page.locator(".pb-selected-text").evaluate("el => el.textContent") != quote:
+        raise AssertionError("opened history did not retain the exact selected quote")
+
+
+def css_color_samples(locator) -> list[dict[str, str]]:
+    return locator.evaluate(
+        """root => {
+          const nodes=[root,...root.querySelectorAll('*')];
+          const values=[];
+          for(const node of nodes){
+            const style=getComputedStyle(node);
+            values.push({background:style.backgroundColor,color:style.color,border:style.borderTopColor});
+            for(const pseudo of ['::before','::after']){
+              const p=getComputedStyle(node,pseudo);
+              if(p.content&&p.content!=='none')values.push({background:p.backgroundColor,color:p.color,border:p.borderTopColor});
+            }
+          }
+          return values;
+        }"""
+    )
+
+
+def assert_meaningful_fill(samples: list[dict[str, str]], surface: str, label: str) -> str:
+    # 40 RGB-distance points rejects the old 7% wash even when its computed
+    # rgba differs from transparent. Return the most categorical matching fill.
+    candidates = [sample["background"] for sample in samples]
+    candidates = [color for color in candidates if color not in ("transparent", "rgba(0, 0, 0, 0)")]
+    candidates = [color for color in candidates if rgb_distance(color, surface) >= 40]
+    if not candidates:
+        raise AssertionError(f"{label} has no meaningfully filled revision color against page surface {surface}")
+    return candidates[0]
+
+
+def verify_rendered_colors(page: Page, groups: list[dict[str, Any]]) -> None:
+    surface = page.locator("body").evaluate("el => getComputedStyle(el).backgroundColor")
+    fills: dict[str, str] = {}
+    event_ids = set(page.locator(".pb-event[data-pb-revision-id]").evaluate_all("nodes => nodes.map(node => node.dataset.pbRevisionId)"))
+    for group in groups:
+        revision_id = group["id"]
+        article = page.locator(f'.pb-attributed[data-pb-revision-id="{revision_id}"]').first
+        phrase = page.locator(f'.pb-selection-phrase[data-pb-revision-id="{revision_id}"]').first
+        revision_group = page.locator(f'.pb-revision-group[data-pb-revision-id="{revision_id}"]').first
+        event = page.locator(f'.pb-event[data-pb-revision-id="{revision_id}"]').first
+        for label, locator in (("article", article), ("selected quote", phrase), ("revision group", revision_group)):
+            expect(locator).to_be_visible()
+        if revision_id not in event_ids:
+            raise AssertionError(f"no history event is labelled with selected owner revision {revision_id}")
+        expect(event).to_be_visible()
+
+        fill = assert_meaningful_fill(css_color_samples(article), surface, f"article owner {revision_id}")
+        for label, locator in (("selected quote", phrase), ("revision group", revision_group), ("history event", event)):
+            samples = css_color_samples(locator)
+            matching = [sample for sample in samples if sample["background"] == fill]
+            if not matching:
+                raise AssertionError(f"owner {revision_id} color does not match between article and {label} (expected {fill})")
+            foregrounds = {sample["color"] for sample in matching}
+            if not foregrounds or min(contrast_ratio(foreground, fill) for foreground in foregrounds) < 4.5:
+                raise AssertionError(f"owner {revision_id} text contrast is below 4.5:1 in {label} against {fill}")
+        fills[revision_id] = fill
+
+    values = list(fills.values())
+    if len(set(values)) != len(values) or any(rgb_distance(a, b) < 48 for i, a in enumerate(values) for b in values[i + 1 :]):
+        raise AssertionError(f"revision fills are not visibly distinct: {fills}")
+
+
+def assert_quote_ownership(page: Page, quote: str, owners: list[str], groups: list[dict[str, Any]]) -> None:
+    selected = page.locator(".pb-selected-text")
+    if selected.evaluate("el => el.textContent") != quote:
+        raise AssertionError("the selected quote changed while rendering ownership segments")
+    observed = selected.locator(".pb-selection-phrase[data-pb-revision-id]").evaluate_all(
+        "nodes => nodes.map(node => ({id:node.dataset.pbRevisionId,text:node.textContent}))"
+    )
+    if not observed:
+        raise AssertionError("selected quote has no revision-owned phrase segments")
+    reconstructed = "".join(item["text"] for item in observed)
+    if reconstructed != quote:
+        # Some renderers leave spaces between adjacent phrase nodes. Require
+        # the full quote container to be exact; the phrase wrappers must still
+        # cover every non-whitespace token in order.
+        words = [word for item in observed for word in re.findall(r"\S+", item["text"])]
+        expected_words = re.findall(r"\S+", quote)
+        if words != expected_words:
+            raise AssertionError(f"quote phrase wrappers changed the selected words: {words!r} != {expected_words!r}")
+    observed_word_owners = [item["id"] for item in observed for _ in re.findall(r"\S+", item["text"])]
+    if observed_word_owners != owners:
+        raise AssertionError(f"selected quote ownership does not match expected token map: {observed_word_owners!r} != {owners!r}")
+
+    actual_ids = page.locator(".pb-revision-group[data-pb-revision-id]").evaluate_all("nodes => nodes.map(node => node.dataset.pbRevisionId)")
+    expected_ids = [group["id"] for group in groups]
+    if actual_ids != expected_ids:
+        raise AssertionError(f"revision groups must appear once per owner in quote order: {actual_ids!r} != {expected_ids!r}")
+    for group in groups:
+        locator = page.locator(f'.pb-revision-group[data-pb-revision-id="{group["id"]}"]')
+        expect(locator).to_have_count(1)
+        for fragment in group["fragments"]:
+            if locator.get_by_text(fragment, exact=True).count() < 1:
+                raise AssertionError(f"owner group {group['id']} does not expose exact quote fragment {fragment!r}")
+
+
+def focus_control(group_locator):
+    control = group_locator.locator("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])").first
+    if control.count():
+        return control
+    if group_locator.evaluate("el => el.matches('button,a[href],input,select,textarea,[tabindex]:not([tabindex=\"-1\"])')"):
+        return group_locator
+    raise AssertionError("revision group contains no keyboard-focusable activation control")
+
+
+def assert_group_selected(group_locator) -> None:
+    selected = group_locator.evaluate(
+        """el => {
+          const nodes=[el,...el.querySelectorAll('*')];
+          return nodes.some(node => node.getAttribute('aria-pressed')==='true' ||
+            node.getAttribute('aria-selected')==='true' || node.getAttribute('aria-current')==='true' ||
+            node.dataset.selected==='true' || /(^|\\s)(selected|active)(\\s|$)/i.test(node.className.baseVal || node.className || ''));
+        }"""
+    )
+    if not selected:
+        raise AssertionError("focused revision group has no exposed selected state")
+
+
+def verify_focus_and_restore(page: Page, quote: str, groups: list[dict[str, Any]], expected_selection_events: list[str] | None, expected_focus_events: list[str] | None, excluded_events: list[str]) -> None:
+    event_locator = page.locator(".pb-event[data-pb-revision-id]")
+    all_visible = event_locator.evaluate_all("nodes => nodes.filter(node => !node.hidden && getComputedStyle(node).display!=='none').map(node => node.dataset.pbRevisionId)")
+    if expected_selection_events is not None and all_visible != expected_selection_events:
+        raise AssertionError(f"full selected-quote lineage differs: {all_visible!r} != {expected_selection_events!r}")
+    if set(all_visible).intersection(excluded_events):
+        raise AssertionError(f"unrelated page events appear in selected-quote history: {all_visible!r}")
+    if expected_focus_events is None:
+        raise AssertionError("pass --focus-event-ids to check token-lineage history after focusing a group")
+
+    group = page.locator(f'.pb-revision-group[data-pb-revision-id="{groups[0]["id"]}"]')
+    control = focus_control(group)
+    if page.context.pages[0].viewport_size.get("width", 1280) > 640:
+        control.focus()
+        page.keyboard.press("Enter")
+    else:
+        control.tap()
+    assert_group_selected(group)
+    expect(page.get_by_role("button", name="Show full selection")).to_be_visible()
+    if page.locator(".pb-selected-text").evaluate("el => el.textContent") != quote:
+        raise AssertionError("focusing a revision group removed or changed the complete selected quote")
+    focused = event_locator.evaluate_all("nodes => nodes.filter(node => !node.hidden && getComputedStyle(node).display!=='none').map(node => node.dataset.pbRevisionId)")
+    if focused != expected_focus_events:
+        raise AssertionError(f"focused history does not match expected token ancestry: {focused!r} != {expected_focus_events!r}")
+    if set(focused).intersection(excluded_events):
+        raise AssertionError(f"focused history includes unrelated page events: {focused!r}")
+
+    restore = page.get_by_role("button", name="Show full selection")
+    if page.context.pages[0].viewport_size.get("width", 1280) > 640:
+        restore.focus()
+        page.keyboard.press("Enter")
+    else:
+        restore.tap()
+    expect(page.get_by_role("button", name="Show full selection")).not_to_be_visible()
+    restored = event_locator.evaluate_all("nodes => nodes.filter(node => !node.hidden && getComputedStyle(node).display!=='none').map(node => node.dataset.pbRevisionId)")
+    if restored != all_visible:
+        raise AssertionError(f"Show full selection failed to restore the selected quote's full lineage: {restored!r} != {all_visible!r}")
+    if page.locator(".pb-selected-text").evaluate("el => el.textContent") != quote:
+        raise AssertionError("Show full selection changed the retained quote")
+
+
+def verify_layout(page: Page, url: str, quote: str, owners: list[str], groups: list[dict[str, Any]], args) -> None:
+    navigate_ready(page, url, quote)
+    select_exact_quote(page, quote)
+    assert_quote_ownership(page, quote, owners, groups)
+    verify_rendered_colors(page, groups)
+    verify_focus_and_restore(
+        page,
+        quote,
+        groups,
+        args.selection_event_ids,
+        args.focus_event_ids,
+        args.excluded_event_ids,
+    )
+    if page.evaluate("document.documentElement.scrollWidth > innerWidth"):
+        raise AssertionError("revision-colour UI overflows horizontally at this viewport")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--native-url", required=True, help="explicit seeded article URL; only action=blame is added")
+    parser.add_argument("--quote", required=True, help="exact unique selected quote")
+    parser.add_argument("--owners", required=True, help="comma-separated last-changing revision IDs, one per quote token")
+    parser.add_argument("--selection-event-ids", required=True, help="comma-separated exact full selected-quote event lineage")
+    parser.add_argument("--focus-event-ids", required=True, help="comma-separated exact lineage expected after focusing first owner group")
+    parser.add_argument("--excluded-event-ids", default="", help="comma-separated unrelated page event IDs which must never appear")
+    args = parser.parse_args()
+    owners = [item.strip() for item in args.owners.split(",") if item.strip()]
+    args.selection_event_ids = [item.strip() for item in args.selection_event_ids.split(",") if item.strip()]
+    args.focus_event_ids = [item.strip() for item in args.focus_event_ids.split(",") if item.strip()]
+    args.excluded_event_ids = [item.strip() for item in args.excluded_event_ids.split(",") if item.strip()]
+    groups = groups_from_tokens(args.quote, owners)
+
+    # Native article probes are strictly read-only. Load twice at desktop width
+    # and once at mobile width; the first desktop pass checks light, then the
+    # same browser recomputes and checks dark colors from actual CSS.
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": 1280, "height": 900}, color_scheme="light")
+            verify_layout(page, args.native_url, args.quote, owners, groups, args)
+            page.emulate_media(color_scheme="dark")
+            verify_layout(page, args.native_url, args.quote, owners, groups, args)
+            mobile = browser.new_page(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True, color_scheme="light")
+            verify_layout(mobile, args.native_url, args.quote, owners, groups, args)
+        finally:
+            browser.close()
+    print("PASS native revision-colour checks: exact quote/groups, distinct fills, contrast, focus lineage, restoration, desktop/mobile")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except AssertionError as error:
+        print(f"FAIL: {error}", file=sys.stderr)
+        raise
