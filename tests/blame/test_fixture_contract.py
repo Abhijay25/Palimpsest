@@ -95,7 +95,7 @@ class FixtureContractTests(unittest.TestCase):
             parent = f"r{int(event['revision'][1:]) - 1}"
             self.assertEqual(utf16_slice(revisions[parent], *event["before_range"]), event["before"])
             self.assertEqual(utf16_slice(revisions[event["revision"]], *event["after_range"]), event["after"])
-        self.assertTrue(all(not event["ambiguous"] for event in expected["events"]))
+        self.assertTrue(all(event["ambiguous"] for event in expected["events"]))
         page_events = {(event["revision"], event["before"], event["after"]) for event in expected["events"]}
         selection_events = {(event["revision"], event["before"], event["after"]) for event in expected["selection"]["events"]}
         self.assertTrue(selection_events.issubset(page_events))

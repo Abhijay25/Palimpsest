@@ -17,16 +17,16 @@
       "occurrence": 1,
       "complete": true,
       "events": [
-        {"revision": "r2", "before": "rests", "after": "waits", "before_range": [11, 16], "after_range": [11, 16], "ambiguous": false},
-        {"revision": "r3", "before": "waits", "after": "rests", "before_range": [11, 16], "after_range": [11, 16], "ambiguous": false}
+        {"revision": "r2", "before": "rests", "after": "waits", "before_range": [11, 16], "after_range": [11, 16], "ambiguous": true},
+        {"revision": "r3", "before": "waits", "after": "rests", "before_range": [11, 16], "after_range": [11, 16], "ambiguous": true}
       ]
     },
     "ambiguity": {"required": true, "scope": "repeated or moved marker lineage", "must_not_claim_unique_original_author": true},
     "events": [
-      {"revision": "r2", "before": "rests", "after": "waits", "before_range": [11, 16], "after_range": [11, 16], "kind": "move_or_reorder", "ambiguous": false},
-      {"revision": "r2", "before": "waits", "after": "rests", "before_range": [29, 34], "after_range": [29, 34], "kind": "move_or_reorder", "ambiguous": false},
-      {"revision": "r3", "before": "waits", "after": "rests", "before_range": [11, 16], "after_range": [11, 16], "kind": "revert_or_reorder", "ambiguous": false},
-      {"revision": "r3", "before": "rests", "after": "waits", "before_range": [29, 34], "after_range": [29, 34], "kind": "revert_or_reorder", "ambiguous": false}
+      {"revision": "r2", "before": "rests", "after": "waits", "before_range": [11, 16], "after_range": [11, 16], "kind": "move_or_reorder", "ambiguous": true},
+      {"revision": "r2", "before": "waits", "after": "rests", "before_range": [29, 34], "after_range": [29, 34], "kind": "move_or_reorder", "ambiguous": true},
+      {"revision": "r3", "before": "waits", "after": "rests", "before_range": [11, 16], "after_range": [11, 16], "kind": "revert_or_reorder", "ambiguous": true},
+      {"revision": "r3", "before": "rests", "after": "waits", "before_range": [29, 34], "after_range": [29, 34], "kind": "revert_or_reorder", "ambiguous": true}
     ]
   }
 }
