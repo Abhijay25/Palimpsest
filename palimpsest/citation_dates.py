@@ -4,7 +4,7 @@ import asyncio
 import html
 import re
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, date, datetime
 from html.parser import HTMLParser
 from typing import Final, Literal, cast
@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from palimpsest.crosslingual import MEDIAWIKI_USER_AGENT
 
 REQUEST_TIMEOUT_S: Final = 20.0
+RATE_LIMIT_MAX_WAIT_S: Final = 2.0
 _MONTH_MESSAGE_NAMES: Final = (
     *[
         month
@@ -327,18 +328,34 @@ def _api_url(lang: str) -> str:
     return f"https://{lang}.wikipedia.org/w/api.php"
 
 
+async def _with_rate_limit_retry(
+    send: Callable[[], Awaitable[httpx.Response]],
+) -> httpx.Response:
+    """Retry once on 429/503, waiting Retry-After capped to fit the scan deadline."""
+    response = await send()
+    if response.status_code in (429, 503):
+        try:
+            wait = float(response.headers.get("Retry-After", "1"))
+        except ValueError:
+            wait = 1.0
+        await asyncio.sleep(min(max(wait, 0.2), RATE_LIMIT_MAX_WAIT_S))
+        response = await send()
+    response.raise_for_status()
+    return response
+
+
 async def _api_get(
     client: httpx.AsyncClient, lang: str, params: dict[str, str]
 ) -> httpx.Response:
     try:
-        response = await client.get(
-            _api_url(lang),
-            headers={"User-Agent": MEDIAWIKI_USER_AGENT},
-            params=params,
-            timeout=REQUEST_TIMEOUT_S,
+        return await _with_rate_limit_retry(
+            lambda: client.get(
+                _api_url(lang),
+                headers={"User-Agent": MEDIAWIKI_USER_AGENT},
+                params=params,
+                timeout=REQUEST_TIMEOUT_S,
+            )
         )
-        response.raise_for_status()
-        return response
     except httpx.HTTPError as exc:
         raise RuntimeError(
             f"MediaWiki request for {lang}.wikipedia.org failed: {exc}"
@@ -349,14 +366,14 @@ async def _api_post(
     client: httpx.AsyncClient, lang: str, data: dict[str, str]
 ) -> httpx.Response:
     try:
-        response = await client.post(
-            _api_url(lang),
-            headers={"User-Agent": MEDIAWIKI_USER_AGENT},
-            data=data,
-            timeout=REQUEST_TIMEOUT_S,
+        return await _with_rate_limit_retry(
+            lambda: client.post(
+                _api_url(lang),
+                headers={"User-Agent": MEDIAWIKI_USER_AGENT},
+                data=data,
+                timeout=REQUEST_TIMEOUT_S,
+            )
         )
-        response.raise_for_status()
-        return response
     except httpx.HTTPError as exc:
         raise RuntimeError(
             f"MediaWiki request for {lang}.wikipedia.org failed: {exc}"

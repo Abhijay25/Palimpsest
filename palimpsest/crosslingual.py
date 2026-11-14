@@ -17,7 +17,10 @@ from palimpsest.schema import AuditOutput, Case, FlaggedSpan, SourceWindow, Verd
 from palimpsest.sources import SourceFetcher
 from palimpsest.stage0 import extract_ref_urls, prefilter, strip_wikitext
 
-MEDIAWIKI_USER_AGENT: Final = "Palimpsest-MVP/0.1 (hackathon research)"
+# Wikimedia's User-Agent policy wants a tool name and contact URL; generic agents get 429s.
+MEDIAWIKI_USER_AGENT: Final = (
+    "Palimpsest/0.1 (https://github.com/Abhijay25/Palimpsest; hackathon research)"
+)
 DEFAULT_TARGETS: Final = ("en", "fi", "de", "fr", "es")
 DEFAULT_TIMEOUT_S: Final = 15.0
 _TOKEN_RE: Final = re.compile(r"[^\W\d_][\w'-]*|\d[\w'-]*", re.UNICODE)

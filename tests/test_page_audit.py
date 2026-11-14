@@ -339,3 +339,27 @@ def test_cli_writes_json(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         page_audit.PageAuditReport.model_validate_json(output.read_text()).title
         == "Example"
     )
+
+
+def test_mediawiki_requests_retry_once_after_rate_limit() -> None:
+    import asyncio
+
+    import httpx
+
+    from palimpsest import citation_dates
+
+    calls: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"})
+        return httpx.Response(200, json={"ok": True})
+
+    async def run() -> httpx.Response:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            return await citation_dates._api_get(client, "sv", {"action": "query"})
+
+    response = asyncio.run(run())
+    assert response.status_code == 200
+    assert len(calls) == 2
