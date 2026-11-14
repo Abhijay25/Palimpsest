@@ -933,9 +933,7 @@
 	}
 
 	function showIncompleteSelection( selection ) {
-		if ( selection.statement ) {
-			placeInline( selection.statement );
-		}
+		restoreRootPosition();
 		buildActionBar();
 		root.setAttribute( 'data-state', 'incomplete' );
 		root.appendChild( element( 'blockquote', 'pb-selected-text', selection.exactText || 'Selected wording unavailable' ) );

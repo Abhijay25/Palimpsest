@@ -131,6 +131,7 @@ def main():
         assert "No partial attribution was requested" in first_guard_message, first_guard_message
         assert page.locator(".pb-selected-text").text_content() == mixed_selection["quote"]
         assert page.locator(".pb-breakdown").count() == 0
+        assert page.locator("#mw-content-text").evaluate("content => content.contains(document.getElementById('palimpsest-blame')) && !document.querySelector('.mw-parser-output').contains(document.getElementById('palimpsest-blame'))"), "incomplete-selection feedback must remain outside article content"
         assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analyze_count
 
         phrase_quote = page.evaluate(
@@ -156,6 +157,18 @@ def main():
                 }
             }"""
         )
+        page.evaluate(
+            """() => {
+                const selection = window.getSelection();
+                const alpha = document.querySelector('[data-pb-start="0"]').firstChild;
+                selection.setBaseAndExtent(alpha, 0, alpha, 5);
+            }"""
+        )
+        page.get_by_role("button", name="Inspect selected article text").click()
+        page.wait_for_selector(".pb-breakdown")
+        assert page.locator(".pb-selected-text").text_content() == "alpha"
+        assert page.evaluate("window.__requests.filter(r => r.params.op === 'analyze').length") == analyze_count + 1, "a fully mapped selection must recover and analyze normally after the guard"
+        page.get_by_role("button", name="Close history").click()
 
         page.evaluate(
             """() => {
