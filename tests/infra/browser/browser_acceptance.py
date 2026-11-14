@@ -44,16 +44,6 @@ def assert_image_loaded(page: Page, image_selector: str) -> None:
     )
 
 
-def route_localhost_to_gateway(route) -> None:
-    """Rewrite canonical loopback URLs to the host gateway visible to this container."""
-    parsed = urlsplit(route.request.url)
-    if parsed.hostname in ("localhost", "127.0.0.1", "::1"):
-        target = urlunsplit((parsed.scheme, f"{TEST_HOST}:{parsed.port}", parsed.path, parsed.query, parsed.fragment))
-        route.continue_(url=target)
-    else:
-        route.continue_()
-
-
 def create_account(page: Page, root: str, username: str, password: str) -> None:
     page.goto(english_ui(f"{root}/index.php?title=Special:CreateAccount"), wait_until="domcontentloaded")
     page.locator("#wpName2").fill(username)
@@ -95,10 +85,14 @@ def save_source(page: Page, root: str, title: str, content: str, summary: str) -
     page.locator("#wpSummary").fill(summary)
     page.locator("#wpSave").click()
     expect(page.locator("#mw-content-text")).to_contain_text(content.splitlines()[0])
+    expect(page.locator("body")).to_have_class(re.compile(r"(?:^|\s)skin-vector-2022(?:\s|$)"))
 
 
 def save_visual(page: Page, root: str, title: str, marker: str) -> None:
     page.goto(english_ui(f"{root}/index.php?title={quote(title, safe=':')}&veaction=edit"), wait_until="domcontentloaded")
+    start_editing = page.get_by_role("button", name=re.compile("^Start editing$", re.I))
+    if start_editing.count():
+        start_editing.click()
     surface = page.locator(".ve-ce-surface[contenteditable=true]").first
     expect(surface).to_be_visible(timeout=60_000)
     surface.click()
@@ -238,7 +232,6 @@ def run_language(browser: Browser, language: str, runtime: dict) -> dict:
     title = f"Infra acceptance {RUN_ID}"
 
     context = browser.new_context()
-    context.route("**/*", route_localhost_to_gateway)
     page = context.new_page()
     api_response = page.goto(english_ui(f"{root}/api.php?action=query&meta=siteinfo&siprop=general&format=json"), wait_until="domcontentloaded")
     assert api_response is not None and api_response.status == 200, f"{language} API is not reachable through host gateway"
@@ -287,7 +280,6 @@ def verify_persistence(browser: Browser, records: list[dict]) -> None:
     for record in records:
         language = record["language"]
         context = browser.new_context()
-        context.route("**/*", route_localhost_to_gateway)
         page = context.new_page()
         login(page, record["root"], record["users"][0], record["password"])
         page.goto(english_ui(f"{record['root']}/index.php?title={quote(record['title'], safe=':')}"), wait_until="domcontentloaded")
@@ -306,6 +298,12 @@ def verify_persistence(browser: Browser, records: list[dict]) -> None:
         logout(page, record["root"])
         assert_anonymous_read_and_edit_boundary(context, record["root"], record["title"])
         context.close()
+
+        second_context = browser.new_context()
+        second_user = second_context.new_page()
+        login(second_user, record["root"], record["users"][1], record["password"])
+        logout(second_user, record["root"])
+        second_context.close()
         print(f"PASS {language}: account, edits, history, discussion, watchlist and upload survived down/setup")
 
 

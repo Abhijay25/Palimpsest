@@ -24,6 +24,19 @@ def run(args: list[str], *, env: dict[str, str], timeout: int, check: bool = Tru
     return result
 
 
+def configure_browser_host(data_root: Path, manifest: dict) -> None:
+    """Give this disposable runtime a canonical host reachable from the browser container."""
+    host = "host.docker.internal"
+    for language, entry in manifest["languages"].items():
+        port = entry["api_url"].rsplit(":", 1)[-1].split("/", 1)[0]
+        if not port.isdigit():
+            raise RuntimeError(f"C1 API URL has no explicit port for {language}")
+        runtime_settings = data_root / "config" / language / "runtime-settings.php"
+        text = runtime_settings.read_text(encoding="utf-8")
+        text += f"\n// Browser harness host override for this disposable run.\n$wgServer = 'http://{host}:{port}';\n$wgCanonicalServer = $wgServer;\n"
+        runtime_settings.write_text(text, encoding="utf-8")
+
+
 def main() -> int:
     run_id = uuid.uuid4().hex[:8]
     project = f"palimpsest-c-{run_id}"
@@ -48,6 +61,12 @@ def main() -> int:
         manifest = Path(manifest_result.stdout.strip())
         if not manifest.is_absolute() or not manifest.is_file():
             raise RuntimeError("runtime manifest command did not return an absolute C1 file path")
+        configure_browser_host(data_root, json.loads(manifest.read_text(encoding="utf-8")))
+        # The temporary LocalSettings include is copied at container startup.
+        # Restart only this fresh project so generated canonical URLs use the
+        # gateway address accessible to the browser container.
+        run([*common, "down"], env=env, timeout=300)
+        run([*common, "up"], env=env, timeout=300)
         run(["docker", "build", "--pull", "-t", image, "-f", "tests/infra/browser/Dockerfile", "tests/infra/browser"], env=env, timeout=1800)
         image_built = True
         base_run = ["docker", "run", "--rm"]
@@ -56,6 +75,7 @@ def main() -> int:
         if platform.system() != "Darwin":
             base_run.extend(["--add-host", "host.docker.internal:host-gateway"])
         base_run.extend([
+            "-e", "PALIMPSEST_TEST_HOST=host.docker.internal",
             "-e", "PALIMPSEST_C1_MANIFEST=/test-data/runtime.json",
             "-v", f"{manifest}:/test-data/runtime.json:ro",
             "-v", f"{browser_state}:/test-data/browser-state.json:rw",
