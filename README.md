@@ -1,9 +1,9 @@
-# Palimpsest
+# NeoWiki
 HackJunction 2026 Project
 
-## What NeoWiki / Palimpsest does
+## What NeoWiki does
 
-NeoWiki / Palimpsest helps Wikipedia editors and administrators see where an article changed, where its English, Finnish and Swedish editions disagree, and which edits deserve a second look. Administrators decide: flags are suggestions, not verdicts.
+NeoWiki helps Wikipedia editors and administrators see where an article changed, where its English, Finnish and Swedish editions disagree, and which edits deserve a second look. Administrators decide: flags are suggestions, not verdicts.
 
 - **Language:** cross-edition discrepancies such as missing context and framing differences, with exact archived passages and translations.
 - **Flags:** a per-revision detector audit for unsupported claims, non-neutral wording, unsupported motives, removed sourced context and out-of-sync values. Evidence can come from cited sources (Exa), Wikidata and linked articles; it also checks within-page consistency, such as the same event stated with different dates or numbers.
@@ -91,7 +91,7 @@ The test quickstart documents opt-in Docker/browser checks. Runtime images are p
 
 The [infrastructure specification](docs/infra/spec.md), [design](docs/infra/design.md), [contracts](docs/infra/contracts.md), [task plan](docs/infra/tasks.md) and [worker registry](docs/infra/orchestration.md) record the baseline SDD process. The native extension has its own [Blame design](docs/blame/design.md) and [worker registry](docs/blame/orchestration.md); the separate frontend UX reference is unchanged.
 
-## Detector API (`palimpsest` Python package)
+## Detector API
 
 
 ### Switching to Gemini
