@@ -1,6 +1,32 @@
 # Palimpsest
 HackJunction 2026 Project
 
+## What NeoWiki / Palimpsest does
+
+NeoWiki / Palimpsest helps Wikipedia editors and administrators see where an article changed, where its English, Finnish and Swedish editions disagree, and which edits deserve a second look. Administrators decide: flags are suggestions, not verdicts.
+
+- **Language:** cross-edition discrepancies such as missing context and framing differences, with exact archived passages and translations.
+- **Flags:** a per-revision detector audit for unsupported claims, non-neutral wording, unsupported motives, removed sourced context and out-of-sync values. Evidence can come from cited sources (Exa), Wikidata and linked articles; it also checks within-page consistency, such as the same event stated with different dates or numbers.
+- **Repeatability:** deterministic judge settings and stored results so the same edit or page produces the same flags.
+
+### Defending against LLM poisoning
+
+The detector escalates to an administrator hidden instructions aimed at AI tools in edits—HTML comments, CSS-hidden, white-on-white or zero-size text, zero-width characters, in any language—and in cited web pages, including hidden channels, JSON-LD and notes to editors. Harmless hidden page furniture is not flagged. Fetching cited pages uses an SSRF guard.
+
+### Fighting citation rot
+
+Newly added citations are live-checked for links that are unreachable or no longer available, grouped by site; archive-link rescues and links already in the article are skipped. Citation dates are also checked for future or mismatched dates.
+
+### How it fits together
+
+- [`palimpsest/api.py`](palimpsest/api.py): FastAPI detector endpoints, including `audit-diff` and `audit-page`.
+- [`tools/language-gap-explorer`](tools/language-gap-explorer): Flask explorer for historical language discrepancies and evidence.
+- [`infra/wiki/extensions/PalimpsestIssues`](infra/wiki/extensions/PalimpsestIssues): native MediaWiki `action=issues` integration.
+
+See [flag design](docs/flags/design.md) and [flag policy](docs/flag-policy.md).
+
+Status: a research prototype; results are suggestions with stated uncertainty.
+
 An optional [NeoWiki divergence explorer](tools/divergence-explorer/README.md) visualizes historical differences between language editions. Run it independently with the included real-data sample; no wiki runtime or API key is required. The existing [language comparison app and engine](tools/language-gap-explorer/PORT.md) are included separately, with an [exploration registry](docs/explorations/README.md) recording all research paths.
 
 Local MediaWiki infrastructure for the team, with separate Finnish, Swedish and English wikis and one persistent MariaDB server. The approved baseline includes Vector 2022, local accounts, source/visual editing, history/diffs, discussions, watchlists, uploads, references, Lua and online Commons. See the [scope](docs/infra/spec.md) for the feature matrix and boundaries.
