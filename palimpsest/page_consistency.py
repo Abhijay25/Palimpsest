@@ -12,7 +12,7 @@ from typing import Any, Final, Protocol, cast
 from unicodedata import normalize
 
 from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from palimpsest.backends.gemini import (
     DEFAULT_BACKOFF_SECONDS,
@@ -188,6 +188,8 @@ class CandidateGroup:
 
 
 class PageConsistencyDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     group_id: str
     conflict: bool
     confidence: float = Field(ge=0, le=1)
@@ -195,11 +197,15 @@ class PageConsistencyDecision(BaseModel):
 
 
 class PageConsistencyAnswers(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     answers: list[PageConsistencyDecision]
 
 
 class WholePageConflict(BaseModel):
     """A page-wide conflict whose quoted evidence is checked locally."""
+
+    model_config = ConfigDict(extra="forbid")
 
     event_label: str
     quote_a: str
@@ -211,6 +217,8 @@ class WholePageConflict(BaseModel):
 class WholePageConflictAnswer(BaseModel):
     """Permissive response item; each item is validated before it is used."""
 
+    model_config = ConfigDict(extra="forbid")
+
     event_label: Any = None
     quote_a: Any = None
     quote_b: Any = None
@@ -219,10 +227,14 @@ class WholePageConflictAnswer(BaseModel):
 
 
 class WholePageConsistencyAnswers(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     conflicts: list[WholePageConflictAnswer]
 
 
 class PageConsistencyVerification(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     group_id: str
     same_event: bool
     values_conflict: bool
@@ -230,6 +242,8 @@ class PageConsistencyVerification(BaseModel):
 
 
 class PageConsistencyVerificationAnswers(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     answers: list[PageConsistencyVerification]
 
 

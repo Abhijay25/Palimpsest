@@ -102,19 +102,19 @@ def test_candidate_groups_reject_different_events_and_life_dates(wikitext: str) 
     assert candidate_groups(wikitext) == []
 
 
-def test_page_consistency_schema_is_accepted_by_gemini_response_schema() -> None:
-    # Gemini's response_schema rejects additionalProperties (live 400 INVALID_ARGUMENT).
+def test_page_consistency_schema_is_strict_for_gemini_json_schema() -> None:
+    # Gemini's response_schema rejects additionalProperties (live 400 INVALID_ARGUMENT),
+    # so the backend sends this strict schema through response_json_schema instead.
     schema = json.dumps(PageConsistencyAnswers.model_json_schema())
-    assert "additionalProperties" not in schema
-    assert "additional_properties" not in schema
+    assert '"additionalProperties": false' in schema
     page_schema = json.dumps(
         page_consistency.WholePageConsistencyAnswers.model_json_schema()
     )
-    assert "additionalProperties" not in page_schema
+    assert '"additionalProperties": false' in page_schema
     verification_schema = json.dumps(
         page_consistency.PageConsistencyVerificationAnswers.model_json_schema()
     )
-    assert "additionalProperties" not in verification_schema
+    assert '"additionalProperties": false' in verification_schema
 
 
 class _StubJudge:
@@ -809,14 +809,16 @@ def test_audit_page_truncation_is_explicit() -> None:
     assert "truncated" in response.json()["error"]
 
 
-def test_gemini_sends_strict_pydantic_schema_as_json_schema():
+def test_gemini_sends_strict_pydantic_schema_as_json_schema() -> None:
     from types import SimpleNamespace
 
     from palimpsest.backends.gemini import _GeminiCaller
     from palimpsest.page_consistency import PageConsistencyAnswers
 
     class Models:
-        async def generate_content(self, *, model, contents, config):
+        async def generate_content(
+            self, *, model: str, contents: str, config: Any
+        ) -> SimpleNamespace:
             # extra="forbid" emits additionalProperties, which must use the
             # JSON Schema API rather than Gemini's legacy response_schema.
             assert config.response_schema is None
@@ -832,7 +834,9 @@ def test_gemini_sends_strict_pydantic_schema_as_json_schema():
     assert isinstance(answer, PageConsistencyAnswers)
 
 
-def test_page_judge_uses_configurable_bounded_deadline(monkeypatch):
+def test_page_judge_uses_configurable_bounded_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from types import SimpleNamespace
 
     from palimpsest.page_consistency import GeminiPageConsistencyJudge
