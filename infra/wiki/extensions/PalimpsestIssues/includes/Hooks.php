@@ -77,11 +77,18 @@ final class Hooks {
             !MediaWikiServices::getInstance()->getPermissionManager()->userCan( 'read', $skin->getUser(), $title ) ) {
             return;
         }
-        if ( isset( $links['namespaces']['main'] ) ) {
-            $language = MediaWikiServices::getInstance()->getMainConfig()->get( 'LanguageCode' );
-            $articleLabels = [ 'en' => 'Article', 'fi' => 'Artikkeli', 'sv' => 'Artikel' ];
-            $links['namespaces']['main']['text'] = $articleLabels[$language] ?? $links['namespaces']['main']['text'];
+        $language = MediaWikiServices::getInstance()->getMainConfig()->get( 'LanguageCode' );
+        $articleLabels = [ 'en' => 'Article', 'fi' => 'Artikkeli', 'sv' => 'Artikel' ];
+        // Core/Vector versions use different group keys for associated pages.
+        foreach ( $links as &$group ) {
+            foreach ( $group as &$link ) {
+                if ( is_array( $link ) && in_array( $link['text'] ?? '', [ 'Page', 'Sivu', 'Sida' ], true ) ) {
+                    $link['text'] = $articleLabels[$language] ?? $link['text'];
+                }
+            }
+            unset( $link );
         }
+        unset( $group );
         $query = self::selectionQuery( $skin->getRequest(), $title );
         $links['views']['issues'] = [ 'text' => 'Issues',
             'href' => $title->getLocalURL( [ 'action' => 'issues' ] + $query ),
