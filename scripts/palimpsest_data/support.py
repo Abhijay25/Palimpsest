@@ -15,8 +15,22 @@ from .manifests import validate_corpus
 TEMPLATE_RE = re.compile(r"\{\{\s*([^{}|#]+)")
 MODULE_RE = re.compile(r"\{\{\s*#invoke\s*:\s*([^|}]+)", re.IGNORECASE)
 STYLE_RE = re.compile(r"<templatestyles\b[^>]*\bsrc\s*=\s*['\"]?([^\s'\">]+)", re.IGNORECASE)
-ALLOWED_NAMESPACES = {"template": 10, "malli": 10, "malline": 10, "module": 828, "moduuli": 828, "modul": 828}
+LUA_RE = re.compile(r"(?:require|mw\.loadData|mw\.loadJsonData)\s*\(?\s*['\"]((?:Module|Moduuli|Modul):[^'\"]+)['\"]", re.IGNORECASE)
+REDIRECT_RE = re.compile(r"^\s*#(?:redirect|ohjaus|omdirigering)\s*:?\s*\[\[([^\]|]+)", re.IGNORECASE)
+ALLOWED_NAMESPACES = {"template": 10, "mall": 10, "malli": 10, "malline": 10, "module": 828, "moduuli": 828, "modul": 828}
+EXPLICIT_NAMESPACES = {"category": 14, "luokka": 14, "kategori": 14}
+TITLE_NAMESPACES = {**ALLOWED_NAMESPACES, **EXPLICIT_NAMESPACES, "mediawiki": 8, "järjestelmäviesti": 8}
+CITE_LABEL_KEYS = {"8:Cite link label group-" + group for group in ("lower-alpha", "upper-alpha", "lower-roman", "upper-roman")}
 MAGIC_WORDS = {"aakkostus", "defaultsort", "displaytitle", "forcetoc", "notoc", "toc", "newsectionlink", "nonewsectionlink"}
+
+
+def title_key(title: str) -> str:
+    """EN/FI/SV source namespaces use first-letter case, not case folding."""
+    title=title.replace('_',' ').strip()
+    if ':' not in title:return title[:1].upper()+title[1:]
+    prefix,name=title.split(':',1);namespace=TITLE_NAMESPACES.get(prefix.casefold(),prefix.casefold())
+    name=name.strip()
+    return str(namespace)+':'+name[:1].upper()+name[1:]
 
 
 def dependency_names(wikitext: str) -> list[str]:
@@ -25,7 +39,7 @@ def dependency_names(wikitext: str) -> list[str]:
     names: set[str] = set()
     for m in TEMPLATE_RE.finditer(wikitext):
         name = m.group(1).strip().replace("_", " ")
-        if not name or name.startswith(("#", "!")):
+        if not name or name.startswith("#") or name == "!":
             continue
         if ":" in name:
             prefix = name.split(":", 1)[0].casefold()
@@ -40,6 +54,10 @@ def dependency_names(wikitext: str) -> list[str]:
     for m in STYLE_RE.finditer(wikitext):
         name = m.group(1).strip()
         names.add(name if ":" in name else f"Template:{name}")
+    for m in LUA_RE.finditer(wikitext):names.add(m.group(1).strip())
+    for m in REDIRECT_RE.finditer(wikitext):
+        target=m.group(1).strip()
+        if ':' in target and target.split(':',1)[0].casefold() in ALLOWED_NAMESPACES:names.add(target)
     return sorted(names, key=str.casefold)
 
 
@@ -53,7 +71,9 @@ def _namespace_ok(title: str, allow_extra: set[int] | None = None) -> bool:
 def discover_support(root_title: str, root_text: str, cutoff: str,
                      resolver: Callable[[str, str], dict[str, Any] | None],
                      *, max_pages: int = 5000, progress_path: Path | None = None,
-                     request_budget: list[int] | None = None) -> dict[str, Any]:
+                     request_budget: list[int] | None = None,
+                     extra_titles: tuple[str, ...] = (),
+                     extra_namespaces: dict[str, int] | None = None) -> dict[str, Any]:
     """Resolve a cutoff closure and checkpoint each page before moving to the next."""
     initial = dependency_names(root_text)
     if progress_path and progress_path.exists():
@@ -64,18 +84,45 @@ def discover_support(root_title: str, root_text: str, cutoff: str,
         state = {"schema_version": 1, "root_title": root_title, "cutoff": cutoff,
                  "pending": initial, "visited": [], "supporting": [], "unresolved": [], "edges": {root_title: initial},
                  "requests_made": 0}
+    # Extra pages require explicit identities; additional namespaces also require
+    # source-verified configuration. The four native Cite label messages are a
+    # bounded core-namespace exception, still requiring an explicit page identity.
+    # Category pages likewise require explicit names, never category traversal.
+    # Never expand traversal to every linked page or arbitrary system messages.
+    namespace_ids = {name.casefold(): nsid for name, nsid in (extra_namespaces or {}).items()
+                     if isinstance(nsid, int) and 100 <= nsid < 10000 and nsid not in (828, 829)}
+    allowed_titles={key for key in state.get("allowed_titles", [])
+                    if ":" not in key or key.split(":", 1)[0] in namespace_ids or key.startswith('14:') or key in CITE_LABEL_KEYS} | {
+        title_key(t) for t in extra_titles
+        if ":" not in t or t.split(":", 1)[0].casefold() in namespace_ids or t.split(":", 1)[0].casefold() in EXPLICIT_NAMESPACES or title_key(t) in CITE_LABEL_KEYS}
     queue = deque(state.get("pending", []))
-    visited = set(state.get("visited", []))
-    inventory_by_title = {x["title"].casefold(): x for x in state.get("supporting", [])}
-    unresolved_by_title = {x["title"].casefold(): x for x in state.get("unresolved", [])}
+    visited = set(state.get("visited", [])) if state.get('title_key_version')==3 else {title_key(x['title']) for x in [*state.get('supporting',[]),*state.get('unresolved',[])]}
+    inventory_by_title = {title_key(x["title"]): x for x in state.get("supporting", [])}
+    unresolved_by_title = {title_key(x["title"]): x for x in state.get("unresolved", [])}
+    # Repair earlier inventories made before a localized namespace was known.
+    for item in inventory_by_title.values():
+        namespace=item['title'].split(':',1)[0].casefold()
+        if namespace in ALLOWED_NAMESPACES:item['namespace_id']=ALLOWED_NAMESPACES[namespace]
+        elif namespace in EXPLICIT_NAMESPACES:item['namespace_id']=EXPLICIT_NAMESPACES[namespace]
+        elif title_key(item['title']) in CITE_LABEL_KEYS:item['namespace_id']=8
+    for key,item in list(unresolved_by_title.items()):
+        if item['reason']=='namespace-not-allowed' and (_namespace_ok(item['title']) or key in allowed_titles):
+            state.setdefault('prior_unresolved',[]).append(item)
+            del unresolved_by_title[key];visited.discard(key);queue.append(item['title'])
     edges: dict[str, list[str]] = state.get("edges", {root_title: initial})
+    # A resumed closure can gain newly recognized literal Lua/redirect edges
+    # without discarding its acquired source records or retrying old failures.
+    for title,text in [(root_title,root_text),*((item['title'],item['content']) for item in state.get('supporting',[]) if isinstance(item.get('content'),str))]:
+        children=dependency_names(text);edges[title]=children
+        for child in children:
+            if title_key(child) not in visited and child not in queue:queue.append(child)
     requests_made = int(state.get("requests_made", 0))
     budget_exceeded = False
     interrupted_by_rate_limit = False
 
     def checkpoint(current_queue=None):
         if progress_path:
-            state.update({"pending": list(current_queue if current_queue is not None else queue),
+            state.update({"title_key_version":3,"allowed_titles":sorted(allowed_titles),"pending": list(current_queue if current_queue is not None else queue),
                           "visited": sorted(visited), "supporting": list(inventory_by_title.values()),
                           "unresolved": list(unresolved_by_title.values()), "edges": edges,
                           "requests_made": requests_made})
@@ -83,14 +130,14 @@ def discover_support(root_title: str, root_text: str, cutoff: str,
 
     while queue:
         title = queue.popleft()
-        folded = title.casefold()
+        folded = title_key(title)
         if folded in visited:
             continue
         if len(visited) >= max_pages:
             queue.appendleft(title)
             budget_exceeded = True
             break
-        if not _namespace_ok(title):
+        if not _namespace_ok(title) and folded not in allowed_titles:
             unresolved_by_title[folded] = {"title": title, "reason": "namespace-not-allowed"}
             visited.add(folded)
             checkpoint()
@@ -143,7 +190,7 @@ def discover_support(root_title: str, root_text: str, cutoff: str,
         inventory_by_title[folded] = {"title": canonical_title, "source_revision_id": result.get("source_revision_id"),
                                       "source_page_id": result.get("source_page_id"), "source_parent_id": result.get("source_parent_id"),
                                       "timestamp": result.get("timestamp"), "sha256": hashlib.sha256(text.encode()).hexdigest(),
-                                      "namespace": namespace, "namespace_id": ALLOWED_NAMESPACES.get(namespace), "content": text,
+                                      "namespace": namespace, "namespace_id": ALLOWED_NAMESPACES.get(namespace, namespace_ids.get(namespace, EXPLICIT_NAMESPACES.get(namespace, 8 if title_key(canonical_title) in CITE_LABEL_KEYS else 0 if ":" not in canonical_title else None))), "content": text,
                                       "content_model": result.get("content_model"), "content_format": result.get("content_format"),
                                       "source_sha1": result.get("source_sha1"), "author": result.get("author"),
                                       "comment": result.get("comment"), "comment_hidden": result.get("comment_hidden", False),
@@ -153,23 +200,24 @@ def discover_support(root_title: str, root_text: str, cutoff: str,
         unresolved_by_title.pop(folded, None)
         visited.add(folded)
         for child in children:
-            if child.casefold() not in visited:
+            if title_key(child) not in visited:
                 queue.append(child)
         checkpoint()
     # Report cycles explicitly; traversal terminates even when dependencies loop.
     visiting: set[str] = set()
     visited_dfs: set[str] = set()
     cycles: list[list[str]] = []
+    keyed_edges = {title_key(title): children for title, children in edges.items()}
     def walk(node: str, stack: list[str]) -> None:
-        key = node.casefold()
+        key = title_key(node)
         if key in visiting:
-            start = next((i for i, x in enumerate(stack) if x.casefold() == key), 0)
+            start = next((i for i, x in enumerate(stack) if title_key(x) == key), 0)
             cycles.append(stack[start:] + [node])
             return
         if key in visited_dfs:
             return
         visiting.add(key)
-        for child in edges.get(node, []):
+        for child in keyed_edges.get(key, []):
             walk(child, stack + [node])
         visiting.remove(key)
         visited_dfs.add(key)

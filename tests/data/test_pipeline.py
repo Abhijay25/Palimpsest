@@ -16,7 +16,7 @@ from scripts.palimpsest_data.dataset import fetch_assets
 from scripts.palimpsest_data.history import GIB, acquire_article, acquire_corpus, fetch_json, iter_page_records, revision_record, validate_source_record_content
 from scripts.palimpsest_data.io import DataError, atomic_json, canonical_json, iter_jsonl, sha256_bytes
 from scripts.palimpsest_data.manifests import validate_corpus
-from scripts.palimpsest_data.support import discover_support
+from scripts.palimpsest_data.support import discover_support, dependency_names
 from scripts.palimpsest_data.xml_export import export_article, export_article_stream, mediawiki_xml
 from scripts.palimpsest_data.importer import _import_support, fetch_local_page, import_corpus, map_revisions
 import xml.etree.ElementTree as ET
@@ -638,6 +638,90 @@ class DataPipelineTests(unittest.TestCase):
                                   lambda title, cutoff: {"title": title, "source_revision_id": 1, "timestamp": cutoff, "content": graph[title]})
         self.assertEqual(len(report["supporting"]), 2)
         self.assertTrue(report["cycles"])
+
+    def test_support_follows_literal_lua_and_redirect_dependencies(self):
+        source='local a = require("Module:Arguments")\nlocal d = mw.loadData("Module:Data/example")\nlocal unknown = require(dynamic_name)'
+        self.assertEqual(dependency_names(source),['Module:Arguments','Module:Data/example'])
+        self.assertEqual(dependency_names('#REDIRECT [[Template:Cite book]]'),['Template:Cite book'])
+        self.assertEqual(dependency_names('#OHJAUS: [[Malline:Coord/display/rivi,otsikko]]'),['Malline:Coord/display/rivi,otsikko'])
+
+    def test_support_accepts_swedish_namespace_and_punctuation_template(self):
+        calls=[]
+        def resolve(title,cutoff):
+            calls.append(title)
+            return dict(title=title,source_revision_id=len(calls),source_page_id=len(calls),timestamp='2025-01-01T00:00:00Z',content='Plain text')
+        report=discover_support('Article','{{Mall:Landsdata Finland}} {{!-}}','2025-08-01T00:00:00Z',resolve)
+        self.assertEqual({r['namespace_id'] for r in report['supporting']},{10})
+        self.assertEqual(set(calls),{'Mall:Landsdata Finland','Template:!-'})
+        self.assertTrue(report['complete'])
+
+    def test_main_namespace_transclusion_requires_explicit_title(self):
+        with tempfile.TemporaryDirectory() as directory:
+            progress=Path(directory)/'support.json'
+            state=dict(root_title='Article',cutoff='2025-08-01T00:00:00Z',pending=['Dependent ship'],supporting=[],unresolved=[],visited=[],edges={},requests_made=0)
+            progress.write_text(json.dumps(state),encoding='utf-8')
+            calls=[]
+            def resolve(title,cutoff):
+                calls.append(title)
+                return dict(title=title,source_revision_id=1,source_page_id=2,timestamp='2025-01-01T00:00:00Z',content='Real supporting article')
+            blocked=discover_support('Article','Plain text',state['cutoff'],resolve,progress_path=progress)
+            self.assertFalse(blocked['complete']);self.assertEqual(calls,[])
+            allowed=discover_support('Article','Plain text',state['cutoff'],resolve,progress_path=progress,extra_titles=('Dependent ship',))
+            self.assertEqual(calls,['Dependent ship']);self.assertEqual(allowed['supporting'][0]['namespace_id'],0)
+            self.assertTrue(allowed['complete'])
+
+    def test_support_preserves_internal_title_case(self):
+        calls=[]
+        def resolve(title,cutoff):
+            calls.append(title)
+            return dict(title=title,source_revision_id=len(calls),timestamp=cutoff,content='source')
+        report=discover_support('Article','{{Module:Example/data}} {{Module:Example/Data}}','2025-08-01T00:00:00Z',resolve)
+        self.assertEqual(set(calls),{'Module:Example/data','Module:Example/Data'})
+        self.assertEqual(len(report['supporting']),2)
+
+    def test_additional_namespace_needs_both_explicit_title_and_source_namespace(self):
+        with tempfile.TemporaryDirectory() as directory:
+            progress=Path(directory)/'support.json'
+            cutoff='2025-08-01T00:00:00Z'
+            progress.write_text(json.dumps(dict(root_title='Article',cutoff=cutoff,pending=['Portal:Finland','Portal:Other'],supporting=[],unresolved=[],visited=[],edges={})),encoding='utf-8')
+            calls=[]
+            def resolve(title,cutoff):
+                calls.append(title)
+                return dict(title=title,source_revision_id=1,source_page_id=2,timestamp=cutoff,content='Real source portal')
+            blocked=discover_support('Article','Plain text',cutoff,resolve,progress_path=progress,extra_titles=('Portal:Finland',))
+            self.assertEqual(calls,[])
+            allowed=discover_support('Article','Plain text',cutoff,resolve,progress_path=progress,extra_titles=('Portal:Finland',),extra_namespaces={'Portal':100})
+            self.assertEqual(calls,['Portal:Finland'])
+            self.assertEqual(allowed['supporting'][0]['namespace_id'],100)
+            self.assertEqual([r['title'] for r in allowed['unresolved']],['Portal:Other'])
+
+    def test_only_explicit_cite_labels_can_be_imported_as_system_messages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            progress=Path(directory)/'support.json';cutoff='2025-08-01T00:00:00Z'
+            message='MediaWiki:Cite link label group-lower-alpha'
+            progress.write_text(json.dumps(dict(root_title='Article',cutoff=cutoff,pending=[message,'MediaWiki:Common.js'],supporting=[],unresolved=[],visited=[],edges={})),encoding='utf-8')
+            calls=[]
+            def resolve(title,cutoff):
+                calls.append(title)
+                return dict(title='Järjestelmäviesti:Cite link label group-lower-alpha',source_revision_id=1,source_page_id=2,timestamp=cutoff,content='a b c d')
+            blocked=discover_support('Article','Plain text',cutoff,resolve,progress_path=progress)
+            self.assertEqual(calls,[])
+            allowed=discover_support('Article','Plain text',cutoff,resolve,progress_path=progress,extra_titles=(message,'MediaWiki:Common.js'))
+            self.assertEqual(calls,[message]);self.assertEqual(allowed['supporting'][0]['namespace_id'],8)
+            self.assertEqual(allowed['unresolved'][0]['title'],'MediaWiki:Common.js')
+
+    def test_category_dependency_requires_an_explicit_title_without_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            progress=Path(directory)/'support.json';cutoff='2025-08-01T00:00:00Z'
+            progress.write_text(json.dumps(dict(root_title='Article',cutoff=cutoff,pending=['Category:Finland'],supporting=[],unresolved=[],visited=[],edges={})),encoding='utf-8')
+            calls=[]
+            def resolve(title,cutoff):
+                calls.append(title)
+                return dict(title=title,source_revision_id=1,source_page_id=2,timestamp=cutoff,content='Real category description [[Category:Europe]]')
+            discover_support('Article','Plain text',cutoff,resolve,progress_path=progress)
+            self.assertEqual(calls,[])
+            allowed=discover_support('Article','Plain text',cutoff,resolve,progress_path=progress,extra_titles=('Category:Finland',))
+            self.assertEqual(calls,['Category:Finland']);self.assertEqual(allowed['supporting'][0]['namespace_id'],14)
 
     def test_support_record_content_tamper_fails_before_mapping_or_import(self):
         article = {"source_wiki": "fiwiki", "language": "fi", "source_page_id": 101,

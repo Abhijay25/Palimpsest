@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),H=require('./static/issues-histogram');
+assert.equal(H.kinds.length,12);
+assert(H.kinds.includes('FRAMING')&&H.kinds.includes('framing'));
+const detector={assessments:[{source_stamp:'2020-01-01',assessed_at:'2026-01-01',state:'completed',empty:true},{source_stamp:'2020-01-01',state:'partial',empty:true}],coverage:[{source_stamp:'2020-01-01',state:'failed'}]};
+const january=H.coverage(detector,Date.parse('2020-01-01'),Date.parse('2020-02-01'));
+assert.equal(january.empty,1);assert.equal(january.failed,1);assert.equal(january.partial,1);assert.equal(january.state,'partial');
+assert.equal(H.coverage(detector,Date.parse('2026-01-01'),Date.parse('2026-02-01')).state,'not assessed');
+assert.deepEqual(H.bounds(['2021-01-01','2025-01-01'],detector),['2020-01-01','2025-01-01']);
+assert.equal(H.coverage({assessments:[],coverage:[{source_stamp:'2020-01-01',state:'failed'}]},Date.parse('2020-01-01'),Date.parse('2020-02-01')).state,'failed');
+console.log('Sparse source-time histogram checks passed.');

@@ -1,5 +1,37 @@
 # NeoWiki agent context
 
+## Native Issues integration work
+
+`infra/wiki/extensions/PalimpsestIssues` now implements an opt-in native article
+action/API backed by the signed standalone `native_issues_server.py` service.
+Normal article rendering stays in pinned upstream MediaWiki. Existing verified
+provenance bundles reconcile source/local IDs and hashes; missing imports never
+fall back to current snapshots. Native permissions/CSRF gate scans/reviews.
+`unified_native_review` retains wiki/edition/observation-scoped native account
+markers with SVT, separately from preview markers. Explicit `issues.py init`
+adds its table; reads never create schema or backfill.
+
+The read-only histogram matrix includes all detector classifications with source
+edit time separate from assessment time and independent coverage metadata. Set
+`PALIMPSEST_NATIVE_WIKIS` only to the actual owned native installations to enable
+native bucket/finding handoffs. Shared anchoring/comments assets must pass
+`python scripts/sync_issues_assets.py --check`. See [native setup and acceptance](docs/native-issues.md).
+The owned `palimpsest-issues-native` runtime now runs FI/SV/EN on 18091/18092/18093.
+Real native checks verified exact source/local article links, saved scans,
+authenticated review/undo, histogram finding/period presets and desktop/mobile
+comments. The runtime now uses pinned official Wikibase Repo/Client, CLDR,
+Labeled Section Transclusion and GeoData packages, with 143 captured Wikidata
+entities reconciled in each edition. The three Winter War revisions parse without
+Lua errors, match source section/reference/image counts, and load all images in
+the browser. FI/SV normalized text matches; EN differs only in romanization-label
+spacing. FI/SV Mänttä normalized article/citation text now matches exactly,
+including real coordinates and Finnish municipality code 506. Actual 390-pixel
+mobile checks cover all three editions. Dependency acquisition remains partial;
+these selected checks do not establish every historical article's fidelity. Preserve the real
+source data; do not suppress errors or fabricate dependencies. See the acceptance record.
+The implementation is not yet accepted as native parity. Preserve both previews
+until the user explicitly verifies complete content and interactions in MediaWiki.
+
 ## Unified Issues contract (current)
 
 The article preview now exposes Article / Issues. Language discrepancies and detector flags share a latest-assessed-set list and full-page evidence viewer. The default selects the newest indexed language run at its latest published checkpoint, plus the newest successful detector assessment per edition/check type; it must never union all old runs or resurrect every historical issue. History exposes older sets without claiming resolution. Show language/flag counts separately.
@@ -14,7 +46,7 @@ The current review action is a shared local-preview marker per observation and a
 
 ## Current hackathon surface
 
-The latest user-approved research journey is prompt-first at bare `/explore`, then a viewport-filling monthly histogram across the available history with a floating toolbar. Zoom changes the date window and adapts to yearly buckets only for longer ranges; month is the finest unit. Clicking a bucket opens a searchable issue table for that period; clicking an issue opens exact evidence. Bucket selection is not zoom. The evidence pane starts closed; selected-question deep links restore it. Earlier constellation and crowded split-inspection layouts below are recorded exploration history, not instructions to restore their default layout.
+The latest user-approved research journey is prompt-first at bare `/explore`, then a viewport-filling monthly histogram across the available history with a floating toolbar. Zoom changes the date window and adapts to yearly buckets only for longer ranges; month is the finest unit. With native Issues configured, clicking a bucket opens the article's period-filtered Issues list directly. Do not render the visualization's own list or rewrite its history entry first: browser Back and the article's return link must restore the histogram with its existing zoom and filters. Older bucket-list URLs without an exact selected finding also restore the histogram. Exact finding deep links remain compatible. Bucket selection is not zoom. Earlier constellation and crowded split-inspection layouts below are recorded exploration history, not instructions to restore their default layout.
 
 The user subsequently restored the original Wikipedia styling: white/gray surfaces, blue links/actions, serif headings and familiar sans-serif controls aligned with the article tracker. Preserve the cleaner graph interaction; do not restore the superseded parchment/brown editorial skin.
 

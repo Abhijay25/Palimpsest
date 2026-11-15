@@ -1,0 +1,20 @@
+# Apply only to an owned runtime after preparing the pinned official package.
+x-wikibase: &wikibase
+  environment:
+    PALIMPSEST_WIKIBASE: "1"
+    PALIMPSEST_CLDR: "1"
+    PALIMPSEST_SOURCE_MEDIA: "1"
+    PALIMPSEST_LST: "1"
+    PALIMPSEST_GEODATA: "1"
+  volumes:
+    - ${PALIMPSEST_WIKIBASE_ROOT}:/var/www/html/extensions/Wikibase:ro
+    - ${PALIMPSEST_CLDR_ROOT:-./.local/cldr}:/var/www/html/extensions/cldr:ro
+    - ${PALIMPSEST_LST_ROOT:-./.local/lst}:/var/www/html/extensions/LabeledSectionTransclusion:ro
+    - ${PALIMPSEST_GEODATA_ROOT:-./.local/geodata}:/var/www/html/extensions/GeoData:ro
+services:
+  wiki-fi: *wikibase
+  wiki-sv: *wikibase
+  wiki-en: *wikibase
+  jobs-fi: *wikibase
+  jobs-sv: *wikibase
+  jobs-en: *wikibase

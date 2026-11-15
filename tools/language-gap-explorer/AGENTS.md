@@ -1,5 +1,29 @@
 # Existing research implementation
 
+## Native bridge and detector histogram
+
+`native_issues.py` and `native_issues_server.py` expose the derived index to the
+opt-in PalimpsestIssues MediaWiki extension without running a Flask application.
+Only signed server-to-server requests are accepted. Native reviews use
+`unified_native_review` with SVT and wiki/edition/observation/account identity;
+the preview table is unchanged. Reads never start a scan or preparation. Cached
+and archived successful results remain readable independently of working caches.
+
+The existing matrix route adds detector metadata from immutable assessments and
+observations. Preserve original uppercase detector kinds, original language
+groups and exact observations/occurrences. `static/issues-histogram.js` documents
+source-edit time for flags; assessment time never becomes the histogram date.
+Do not infer continuous detector coverage. Native URLs must be explicitly
+configured, and Back presets must retain selected detector observation as well
+as language occurrence identity. See `../../docs/native-issues.md`.
+
+Native histogram bar clicks go directly to the article's Issues list. Preserve
+the origin histogram state/history entry; never switch it to the explorer's
+internal list before leaving. Both browser Back and the article's return link
+restore the histogram's zoom/filters. Legacy bucket-list URLs without an exact
+selected finding normalize to the histogram when native Issues is configured.
+`node test_bucket_navigation.js` checks this routing and legacy restoration.
+
 ## Unified Issues implementation (current)
 
 `issues.py` is the Flask-independent derived data layer; `issues_routes.py` serves the Article / Issues list, evidence pages, JSON reads and CSRF-protected review updates. The preview is temporary: this functionality must eventually live on native MediaWiki article pages, using native revisions, permissions and wiki-scoped accounts. Preserve public source IDs separately from local wiki IDs during that move. Do not modify or fork upstream core.
