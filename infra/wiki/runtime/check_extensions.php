@@ -4,6 +4,8 @@ declare(strict_types=1);
 $extensions = [
     'Cite', 'DiscussionTools', 'Echo', 'Linter', 'ParserFunctions', 'Scribunto',
     'TemplateData', 'TemplateStyles', 'VisualEditor', 'WikiEditor',
+    'MultimediaViewer', 'PageImages', 'TextExtracts', 'CiteThisPage',
+    'CategoryTree', 'ImageMap', 'Poem', 'SyntaxHighlight_GeSHi',
 ];
 $enabledDependencies = [
     'DiscussionTools' => ['VisualEditor', 'Linter', 'Echo'],
@@ -29,7 +31,8 @@ foreach ($extensions as $name) {
         $errors[] = "Invalid extension manifest for $name";
         continue;
     }
-    if (($manifest['name'] ?? null) !== $name) {
+    $registeredName = $name === 'SyntaxHighlight_GeSHi' ? 'SyntaxHighlight' : $name;
+    if (($manifest['name'] ?? null) !== $registeredName) {
         $errors[] = "$name manifest declares a different extension name";
     }
     foreach (($manifest['requires']['extensions'] ?? []) as $dependency => $_constraint) {

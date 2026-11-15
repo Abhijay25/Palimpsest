@@ -1,0 +1,41 @@
+/* Infobox rules adapted from Finnish Wikipedia Common.css, CC BY-SA 4.0.
+ * Source and contributors: https://fi.wikipedia.org/w/index.php?oldid=24320334
+ * Source SHA-256: 414a2370d4a593af586521bc6ed970634741551dd9694ec42042f8e44e873ca4
+ * Scope selectors to parsed article content; add a narrow-screen fit rule.
+ */
+.mw-parser-output .infobox {
+    border: 1px solid #aaa;
+    background-color: #f9f9f9;
+    color: black;
+    margin: 0.5em 0 0.5em 1em;
+    padding: 0.2em;
+    float: right;
+    clear: right;
+}
+.mw-parser-output .infobox td,
+.mw-parser-output .infobox th {
+    vertical-align: top;
+}
+.mw-parser-output .infobox caption {
+    font-size: larger;
+    margin-left: inherit;
+}
+.mw-parser-output .infobox.bordered {
+    border-collapse: collapse;
+}
+.mw-parser-output .infobox.bordered td,
+.mw-parser-output .infobox.bordered th {
+    border: 1px solid #aaa;
+}
+.mw-parser-output .infobox.bordered .borderless td,
+.mw-parser-output .infobox.bordered .borderless th {
+    border: 0;
+}
+@media (max-width: 700px) {
+    .mw-parser-output .infobox {
+        float: none;
+        max-width: 100%;
+        margin: 0.5em 0;
+        box-sizing: border-box;
+    }
+}

@@ -23,11 +23,34 @@ def skyline_run():
     return result,languages
 
 
+def histogram_run():
+    """A cached detector assessment does not require language preparation.
+
+    An explicit missing historical run still fails; it is never substituted.
+    """
+    try:return skyline_run()
+    except LookupError:
+        if request.args.get('run'):raise
+        from skyline import selection
+        from native_issues import detector_catalog
+        from core import connect
+        topic,languages,_=selection(request.args)
+        detector=detector_catalog(topic,languages)
+        dates=sorted({a['source_stamp'] for a in detector['assessments']+detector['coverage'] if a.get('source_stamp')})
+        if not dates:raise LookupError('No dated language or detector observations are available. No preparation or scan was started.')
+        with connect() as db,db.cursor() as c:
+            c.execute('SELECT lang,title FROM article WHERE wikidata_id=%s',(topic,));articles=c.fetchall()
+        title=next((a['title'] for a in articles if a['lang']==request.args.get('current','en')),articles[0]['title'] if articles else topic)
+        return dict(topic=dict(id=topic,title=title),run=None,rows=[],observations=[],
+            bounds=[dates[0],dates[-1]],asOf=dates[-1],progress=dict(stage='not_prepared'),
+            warning='Language comparison is not prepared. Only explicitly cached detector observations are available.'),languages
+
+
 @bp.get('/explore/api/skyline')
 def skyline_overview():
     from skyline import aggregate
     try:
-        data,languages=skyline_run()
+        data,languages=histogram_run()
         return jsonify(aggregate(data,languages))
     except ValueError as error:return jsonify(error=str(error)),400
     except LookupError as error:return jsonify(error=str(error)),404
@@ -78,12 +101,18 @@ def lab_question_search():
     from zoom_read import union_questions,parse_date
     from question_search import search
     try:
-        data,languages=skyline_run()
+        data,languages=histogram_run()
         start=parse_date(request.args.get('from',data['bounds'][0]))
         end=parse_date(request.args['to']) if request.args.get('to') else parse_date(data['bounds'][1])+timedelta(microseconds=1)
         if end<=start:raise ValueError('Choose a valid search interval.')
         eligible=union_questions(data,languages,start,end,request.args.get('current','en'))
-        return jsonify(search(data['topic']['id'],languages,[i['id'] for i in eligible],request.args.get('q','').strip(),request.args.get('search_mode','keyword')))
+        query=request.args.get('q','').strip()
+        result=search(data['topic']['id'],languages,[i['id'] for i in eligible],query,request.args.get('search_mode','keyword')) if eligible else dict(matches=[],mode='keyword',warning='Detector title/classification keyword search; no language questions are prepared.')
+        from native_issues import detector_catalog
+        for row in detector_catalog(data['topic']['id'],languages)['rows']:
+            if query.casefold() in (row['title']+' '+' '.join(c['kind'] for c in row['cells'])).casefold() and any(start<=parse_date(c['stamp'])<end for c in row['cells']):
+                result['matches'].append(dict(id=row['id'],relevance=1))
+        return jsonify(result)
     except ValueError as error:return jsonify(error=str(error)),400
     except LookupError as error:return jsonify(error=str(error)),404
     except Exception:return jsonify(error='Question search is temporarily unavailable. Clear the search to see stored findings.'),503
@@ -104,9 +133,14 @@ def skyline_questions():
 @bp.get('/explore/api/matrix')
 def heatmap_matrix():
     from heatmap import public_catalog
+    from native_issues import detector_catalog, LABELS, native_url
     try:
-        data,languages=skyline_run()
-        return jsonify(public_catalog(data,languages))
+        data,languages=histogram_run()
+        result=public_catalog(data,languages)
+        detector=detector_catalog(data['topic']['id'],languages)
+        result['rows']=[dict(r,origin='language') for r in result['rows']]+detector['rows']
+        result.update(detector=detector,labels=LABELS,native_issues_url=native_url(data['topic']['id'],request.args.get('current','en'),[]))
+        return jsonify(result)
     except ValueError as error:return jsonify(error=str(error)),400
     except LookupError as error:return jsonify(error=str(error)),404
     except Exception:return jsonify(error='Stored question matrix is temporarily unavailable.'),503

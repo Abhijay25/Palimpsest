@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "wikibase": {
+    "commit": "f4439bff9baebaa027a7b37be2bcaa8019b8f861",
+    "mediawiki_branch": "REL1_46",
+    "archive_url": "https://extdist.wmflabs.org/dist/extensions/Wikibase-REL1_46-f4439bf.tar.gz",
+    "sha256": "c3a7a05d8f41be0d2f12863e261ecdc6149f77818c4d054df6923f5bcd9e6e21"
+  },
+  "audit_tool": {
+    "version": "2.11.2",
+    "url": "https://getcomposer.org/download/2.11.2/composer.phar",
+    "sha256": "dd158c0afd41d15fac89e1b4e47b5d42911fe316c3687cd5edac98319b25d028"
+  },
+  "lst": {
+    "directory": "LabeledSectionTransclusion",
+    "commit": "6b9718fc13963b5f29fccf3d62186af6b12537b1",
+    "mediawiki_branch": "REL1_46",
+    "archive_url": "https://extdist.wmflabs.org/dist/extensions/LabeledSectionTransclusion-REL1_46-6b9718f.tar.gz",
+    "sha256": "84adf6124990fec0571814bb137685cad09c4a8ef8812d55c6cc2848d3934a64"
+  },
+  "geodata": {
+    "directory": "GeoData",
+    "commit": "7729d9528c7b1eef717551eed37a655a676317ce",
+    "mediawiki_branch": "REL1_46",
+    "archive_url": "https://extdist.wmflabs.org/dist/extensions/GeoData-REL1_46-7729d95.tar.gz",
+    "sha256": "86c9905fe19ec8fce938d3f01fde52daff9760fdf35537833ef039bb23cedf15"
+  },
+  "cldr": {
+    "directory": "cldr",
+    "commit": "db24690ec0c55a85a7b056392faaf2e2e3b88d04",
+    "mediawiki_branch": "REL1_46",
+    "archive_url": "https://extdist.wmflabs.org/dist/extensions/cldr-REL1_46-db24690.tar.gz",
+    "sha256": "d71f8d60a380db3b816a0350f85decb8ecfa6effb9a10201285f372e96654324"
+  }
+}

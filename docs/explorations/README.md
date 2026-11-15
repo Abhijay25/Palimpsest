@@ -1,5 +1,44 @@
 # NeoWiki exploration registry
 
+## Native Issues integration (in verification)
+
+The later [Wikipedia-style defaults](../wikipedia-defaults.md) retire the legacy
+Blame tab and align supported reading/editor defaults while preserving native
+Issues, provenance and explicit inference controls.
+
+The opt-in `infra/wiki/extensions/PalimpsestIssues` extension and independent
+signed `tools/language-gap-explorer/native_issues_server.py` now share the unified
+index and exact evidence presentation with the previews. Native account review
+markers have their own wiki/observation/edition-scoped SVT table; preview markers
+are preserved. Source/local reconciliation is checked before exact native article
+links/scans. The existing read-only histogram includes all nine detector classes,
+separate source-edit/assessment times, sparse coverage states and configured native
+period/exact-evidence presets with explorer return context.
+
+Histogram bar handoffs now leave the visualization on its histogram and open
+only the article's native Issues list for the selected period. Browser Back and
+the article's return link retain the histogram zoom and filters. Older bucket-list
+URLs without an exact finding also restore the histogram. Real browser checks
+covered both return paths and an old URL; `test_bucket_navigation.js` covers
+monthly/yearly routing, filters, history preservation and exact-link compatibility.
+
+This is ongoing implementation/verification, not completion of the native
+migration. The previews remain available and the separate NeoWikiReview stack
+has not been merged or replaced. The owned FI/SV/EN native runtime now has
+reconciled issue-source revisions. Real native browser/API checks cover cached
+results, review/undo, exact article links, histogram handoffs and mobile comments.
+Pinned official Wikibase Repo/Client, CLDR, Labeled Section Transclusion and
+GeoData are installed; 143 captured Wikidata entities reconcile independently in
+each edition. Winter War has matching source section/reference/image counts and
+no Lua errors; FI/SV normalized text matches, with only romanization-label spacing
+different in EN. All article images load in the browser and actual 390-pixel
+mobile checks fit each edition. FI/SV Mänttä also match normalized article/citation
+text after repairing real coordinate and municipality-code dependencies.
+These selected checks do not establish every historical article's fidelity or
+user acceptance of native parity.
+See [setup, temporal semantics and acceptance record](../native-issues.md) for
+the precise boundary and remaining native journeys.
+
 These experiments answer different questions. They share evidence conventions, but their counts, dates, identities and review states are not interchangeable. The existing research app is copied directly into [tools/language-gap-explorer](../../tools/language-gap-explorer/PORT.md). Prototype source paths below refer to that directory. Its source manifest records 82 byte-for-byte copied files; databases, secrets, model caches and reports are excluded. The native extension remains a separate unpublished branch.
 
 ## Retired presentations and 3D Library

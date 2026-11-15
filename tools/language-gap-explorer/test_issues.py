@@ -23,7 +23,7 @@ class IssueTests(unittest.TestCase):
         self.assertIn('EN · evidence unavailable',view['diff_html'])
         self.assertIn('&lt;script&gt;',view['diff_html'])
         self.assertNotIn('<script>',view['diff_html'])
-        self.assertIn('repeat(3',view['diff_html'])
+        self.assertIn('--comparison-columns:3',view['diff_html'])
         self.assertEqual(view['sources'][0]['url'],'https://fi.wikipedia.org/w/index.php?oldid=2')
 
     def test_language_order_preserves_current_edition(self):
@@ -117,10 +117,10 @@ class IssueDatabaseTests(unittest.TestCase):
         self.patch=patch('issues.connect',DB);self.patch.start();issues.init()
     def tearDown(self):
         self.patch.stop()
-        # Only this test's unique five derived tables may be dropped.
+        # Only this test's unique derived tables may be dropped.
         self.assertRegex(self.prefix,r'^test_ui_[a-f0-9]{12}_$')
         with self.raw() as db,db.cursor() as c:
-            for name in ('review','coverage','observation','assessment','issue'):c.execute('DROP TABLE '+self.prefix+name)
+            for name in ('native_review','review','coverage','observation','assessment','issue'):c.execute('DROP TABLE '+self.prefix+name)
     def result(self,aid='a',title='A finding'):
         return dict(status='ok',_issue_assessment=issues.identity(aid),_issue_assessed_at='2026-01-01',old_wikitext='Old value',new_wikitext='New value',flags=[dict(id='f',kind='FACT',title=title,anchor_text='New value',side='new')])
     def test_immutable_scans_idempotence_latest_empty_set_and_system_time(self):
@@ -145,5 +145,47 @@ class IssueDatabaseTests(unittest.TestCase):
         self.assertEqual(issues.list_issues('Q999999',MultiDict())['total'],0)
         self.assertEqual(issues.list_issues('Q999999',MultiDict({'view':'history'}))['total'],2)
         with self.assertRaises(ValueError):issues.store_scan('Q999999',ref,dict(status='error',flags=[]),'revision')
+
+    def test_history_run_preserves_detector_rows_without_mixing_language_cohorts(self):
+        issues.store_scan('Q999999',RevisionRef('en',22,'Synthetic test','2025-01-01'),self.result(),'revision')
+        with issues.connect() as db,db.cursor() as c:
+            for run in ('one','two'):
+                aid=issues.identity('assessment',run);iid=issues.language_id(run,'group');oid=issues.identity('observation',run)
+                issues.put_issue(c,iid,'Q999999','language',run,'Same title in separate runs')
+                c.execute('INSERT INTO unified_assessment(id,topic,mode,assessed_at,payload) VALUES(%s,%s,%s,%s,%s)',(aid,'Q999999','language','2026-01-01',json.dumps({'run':run})))
+                c.execute('INSERT INTO unified_observation(id,issue_id,assessment_id,stamp,kind,languages,payload) VALUES(%s,%s,%s,%s,%s,%s,%s)',(oid,iid,aid,'2025-01-01','coverage','en,fi','{}'))
+        selected=issues.list_issues('Q999999',MultiDict({'view':'history','run':'one'}))
+        self.assertEqual(selected['total'],2)
+        self.assertEqual({r['id'] for r in selected['issues'] if r['origin']=='language'},{issues.language_id('one','group')})
+        missing=issues.list_issues('Q999999',MultiDict({'view':'history','run':'unavailable','origin':'language'}))
+        self.assertEqual(missing['total'],0)
+
+    def test_native_reviews_are_wiki_edition_scoped_and_system_versioned(self):
+        ref=RevisionRef('en',22,'Synthetic test','2025-01-01',parent_id=21)
+        issues.store_scan('Q999999',ref,self.result(),'revision')
+        one=issues.list_issues('Q999999',MultiDict())['issues'][0]
+        issues.mark_reviewed('Q999999',one['id'],one['observation'],'en',True)
+        self.assertFalse(issues.get_observation('Q999999',one['id'],one['observation'],review_scope='wiki_a')['reviewed'])
+        with issues.connect() as db,db.cursor() as c:
+            c.execute('INSERT INTO unified_native_review(wiki,observation_id,edition,reviewed,reviewer_id) VALUES(%s,%s,%s,1,12)',('wiki_a',one['observation'],'en'))
+            c.execute('UPDATE unified_native_review SET reviewed=0,reviewer_id=13 WHERE wiki=%s',('wiki_a',))
+            c.execute('UPDATE unified_native_review SET reviewed=1,reviewer_id=14 WHERE wiki=%s',('wiki_a',))
+            c.execute('SELECT reviewer_id FROM unified_native_review FOR SYSTEM_TIME ALL ORDER BY reviewer_id');self.assertEqual([r['reviewer_id'] for r in c.fetchall()],[12,13,14])
+        self.assertTrue(issues.get_observation('Q999999',one['id'],one['observation'],review_scope='wiki_a')['reviewed'])
+        self.assertFalse(issues.get_observation('Q999999',one['id'],one['observation'],review_scope='wiki_b')['reviewed'])
+        self.assertFalse(issues.get_observation('Q999999',one['id'],one['observation'],edition='fi',review_scope='wiki_a')['reviewed'])
+        self.assertEqual(issues.list_issues('Q999999',MultiDict({'review':'reviewed'}),review_scope='wiki_a')['total'],1)
+        self.assertEqual(issues.list_issues('Q999999',MultiDict({'review':'reviewed'}),review_scope='wiki_b')['total'],0)
+
+    def test_detector_uppercase_framing_never_matches_language_classification(self):
+        ref=RevisionRef('en',22,'Synthetic test','2025-01-01',parent_id=21)
+        result=self.result()
+        result['flags']=[dict(id='upper',kind='FRAMING',title='Wording',anchor_text='upper'),dict(id='lower',kind='framing',title='Language framing',anchor_text='lower')]
+        issues.store_scan('Q999999',ref,result,'revision')
+        upper=issues.list_issues('Q999999',MultiDict({'kind':'FRAMING'}))
+        lower=issues.list_issues('Q999999',MultiDict({'kind':'framing'}))
+        self.assertEqual(upper['total'],1);self.assertEqual(lower['total'],1)
+        self.assertIn('FRAMING',upper['kinds']);self.assertIn('framing',upper['kinds'])
+        self.assertEqual(upper['issues'][0]['kind'],'FRAMING')
 
 if __name__=='__main__':unittest.main()

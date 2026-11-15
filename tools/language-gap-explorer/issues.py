@@ -48,6 +48,12 @@ def init():
       observation_id CHAR(64) NOT NULL, edition VARCHAR(10) NOT NULL, reviewed BOOLEAN NOT NULL,
       updated_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
       PRIMARY KEY(observation_id,edition)) WITH SYSTEM VERSIONING"""
+    ,"""CREATE TABLE IF NOT EXISTS unified_native_review (
+      wiki VARCHAR(100) NOT NULL, observation_id CHAR(64) NOT NULL,
+      edition VARCHAR(12) NOT NULL, reviewed BOOLEAN NOT NULL,
+      reviewer_id BIGINT UNSIGNED NOT NULL,
+      updated_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+      PRIMARY KEY(wiki,observation_id,edition)) WITH SYSTEM VERSIONING"""
     ]
     with connect() as db,db.cursor() as c:
         for sql in statements:c.execute(sql)
@@ -95,7 +101,7 @@ def store_scan(topic,ref,result,mode):
                         oid=identity(iid,aid,index)
                         payload=dict(flag=flag,revision=ref.revision_id,source_stamp=ref.timestamp,mode=mode,source_id=flag.get('id'))
                         c.execute('INSERT IGNORE INTO unified_observation(id,issue_id,assessment_id,stamp,kind,languages,occurrence,payload) VALUES(%s,%s,%s,%s,%s,%s,%s,%s)',(oid,iid,aid,ref.timestamp or '',flag.get('kind','UNKNOWN'),ref.lang,None,packed(payload)))
-                    put_coverage(c,topic,'flags',dict(mode=mode,lang=ref.lang,revision=ref.revision_id),'completed',assessed)
+                    put_coverage(c,topic,'flags',dict(mode=mode,lang=ref.lang,revision=ref.revision_id),'partial' if result.get('partial') else 'completed',assessed)
                 db.commit()
             except Exception:
                 db.rollback();raise
@@ -215,7 +221,7 @@ def latest_sets(topic,args):
         chosen.extend((a['mode'],a['id'],None) for _,a in flags.values())
     return chosen,language
 
-def list_issues(topic,args):
+def list_issues(topic,args,review_scope=None):
     edition=args.get('lang','en');history=args.get('view')=='history'
     clauses=['i.topic=%s'];values=[topic];selected_set=None
     if not history:
@@ -226,23 +232,38 @@ def list_issues(topic,args):
             if stamp is not None:option+=' AND o.stamp=%s';values.append(stamp)
             options.append(option+')')
         clauses.append('('+' OR '.join(options)+')' if options else '1=0')
+    if history and args.get('run'):
+        clauses.append("(a.mode IN ('revision','page') OR (a.mode='language' AND JSON_UNQUOTE(JSON_EXTRACT(a.payload,'$.run'))=%s))")
+        values.append(args['run'])
     for key,column in [('origin','i.origin'),('kind','o.kind'),('scope','a.mode')]:
-        if args.get(key):clauses.append(column+'=%s');values.append(args[key])
+        if args.get(key):clauses.append(('BINARY ' if key=='kind' else '')+column+'=%s');values.append(args[key])
+    kinds=args.getlist('kinds') if hasattr(args,'getlist') else []
+    if kinds:
+        if len(kinds)>40 or any(not re.fullmatch(r'[A-Za-z_]{1,50}',k) for k in kinds):raise ValueError('Choose valid classifications.')
+        clauses.append('BINARY o.kind IN ('+','.join(['%s']*len(kinds))+')');values.extend(kinds)
     if args.get('language'):
         clauses.append('FIND_IN_SET(%s,o.languages)>0');values.append(args['language'])
+    selected=args.getlist('languages') if hasattr(args,'getlist') else args.get('languages',[])
+    if selected:
+        if not isinstance(selected,list) or not set(selected)<={'en','fi','sv','ru'}:raise ValueError('Choose supported editions.')
+        for excluded in sorted({'en','fi','sv','ru'}-set(selected)):
+            clauses.append('FIND_IN_SET(%s,o.languages)=0');values.append(excluded)
     for key,operator in [('from','>='),('to','<=')]:
         if args.get(key):
             if not re.fullmatch(r'\d{4}-\d{2}-\d{2}',args[key]):raise ValueError('Choose valid dates.')
             clauses.append('LEFT(o.stamp,10)'+operator+'%s');values.append(args[key])
     if args.get('q'):
         clauses.append('(i.title LIKE %s OR o.kind LIKE %s)');values.extend(['%'+args['q'].strip()[:200]+'%']*2)
+    review_table='unified_native_review' if review_scope else 'unified_review'
+    review_join=' AND r.wiki=%s' if review_scope else ''
+    review_values=[edition,review_scope] if review_scope else [edition]
     base="""SELECT i.*,o.id observation,o.assessment_id,o.stamp,o.kind,o.languages,o.occurrence,
        a.assessed_at,a.mode,COALESCE(r.reviewed,0) reviewed,
        ROW_NUMBER() OVER(PARTITION BY i.id ORDER BY o.stamp DESC,a.assessed_at DESC,
-         CASE o.kind WHEN 'contradiction' THEN 3 WHEN 'framing' THEN 2 ELSE 1 END DESC,o.id) rn
+         CASE BINARY o.kind WHEN 'contradiction' THEN 3 WHEN 'framing' THEN 2 ELSE 1 END DESC,o.id) rn
        FROM unified_issue i JOIN unified_observation o ON o.issue_id=i.id
        JOIN unified_assessment a ON a.id=o.assessment_id
-       LEFT JOIN unified_review r ON r.observation_id=o.id AND r.edition=%s WHERE """+' AND '.join(clauses)
+       LEFT JOIN """+review_table+""" r ON r.observation_id=o.id AND r.edition=%s"""+review_join+" WHERE "+' AND '.join(clauses)
     conditions=[] if history else ['rn=1']
     if args.get('review') in ('reviewed','unreviewed'):
         conditions.append('reviewed='+('1' if args['review']=='reviewed' else '0'))
@@ -250,27 +271,30 @@ def list_issues(topic,args):
     try:page=max(1,int(args.get('page','1')))
     except ValueError:raise ValueError('Invalid issue page.')
     with connect() as db,db.cursor() as c:
-        c.execute('SELECT COUNT(*) n FROM ('+base+') results'+suffix,[edition]+values);total=c.fetchone()['n']
-        c.execute('SELECT origin,COUNT(*) n FROM ('+base+') results'+suffix+' GROUP BY origin',[edition]+values);breakdown={r['origin']:r['n'] for r in c.fetchall()}
-        c.execute('SELECT * FROM ('+base+') results'+suffix+' ORDER BY stamp DESC,assessed_at DESC,id,observation LIMIT 50 OFFSET %s',[edition]+values+[(page-1)*50]);rows=list(c.fetchall())
+        c.execute('SELECT COUNT(*) n FROM ('+base+') results'+suffix,review_values+values);total=c.fetchone()['n']
+        c.execute('SELECT origin,COUNT(*) n FROM ('+base+') results'+suffix+' GROUP BY origin',review_values+values);breakdown={r['origin']:r['n'] for r in c.fetchall()}
+        c.execute('SELECT * FROM ('+base+') results'+suffix+' ORDER BY stamp DESC,assessed_at DESC,id,observation LIMIT 50 OFFSET %s',review_values+values+[(page-1)*50]);rows=list(c.fetchall())
         c.execute('SELECT origin,scope,state,assessed_at,note FROM unified_coverage WHERE topic=%s ORDER BY assessed_at DESC LIMIT 100',(topic,));coverage=list(c.fetchall())
         c.execute('SELECT state,COUNT(*) n FROM unified_coverage WHERE topic=%s GROUP BY state',(topic,));coverage_counts={r['state']:r['n'] for r in c.fetchall()}
-        c.execute('SELECT DISTINCT kind FROM unified_observation o JOIN unified_issue i ON i.id=o.issue_id WHERE i.topic=%s ORDER BY kind',(topic,));kinds=[r['kind'] for r in c.fetchall()]
+        c.execute('SELECT DISTINCT BINARY kind kind FROM unified_observation o JOIN unified_issue i ON i.id=o.issue_id WHERE i.topic=%s ORDER BY BINARY kind',(topic,));kinds=[r['kind'].decode('utf-8') if isinstance(r['kind'],bytes) else r['kind'] for r in c.fetchall()]
     for row in rows:
         row['label']=KINDS.get(row['kind'],row['kind'].replace('_',' ').title());row['languages']=row['languages'].split(',')
     for item in coverage:item['scope']=json.loads(item['scope'])
     return dict(issues=rows,total=total,page=page,pages=max(1,(total+49)//50),coverage=coverage,coverage_counts=coverage_counts,kinds=kinds,breakdown=breakdown,selected_set=selected_set)
 
-def get_observation(topic,iid,observation=None,occurrence=None,edition='en'):
+def get_observation(topic,iid,observation=None,occurrence=None,edition='en',review_scope=None):
     clauses=['i.topic=%s','i.id=%s'];values=[topic,iid]
     if observation:clauses.append('o.id=%s');values.append(observation)
     if occurrence:clauses.append('o.occurrence=%s');values.append(occurrence)
+    review_table='unified_native_review' if review_scope else 'unified_review'
+    review_join=' AND r.wiki=%s' if review_scope else ''
+    review_values=[edition,review_scope] if review_scope else [edition]
     with connect() as db,db.cursor() as c:
         c.execute("""SELECT i.*,o.id observation,o.assessment_id,o.stamp,o.kind,o.languages,o.occurrence,
           o.payload observation_payload,a.payload assessment_payload,a.mode,a.assessed_at,
           COALESCE(r.reviewed,0) reviewed FROM unified_issue i JOIN unified_observation o ON o.issue_id=i.id
-          JOIN unified_assessment a ON a.id=o.assessment_id LEFT JOIN unified_review r ON r.observation_id=o.id AND r.edition=%s
-          WHERE """+' AND '.join(clauses)+' ORDER BY o.stamp DESC,a.assessed_at DESC,o.id LIMIT 1',[edition]+values)
+          JOIN unified_assessment a ON a.id=o.assessment_id LEFT JOIN """+review_table+""" r ON r.observation_id=o.id AND r.edition=%s"""+review_join+"""
+          WHERE """+' AND '.join(clauses)+' ORDER BY o.stamp DESC,a.assessed_at DESC,o.id LIMIT 1',review_values+values)
         row=c.fetchone()
         if not row:raise LookupError('That exact issue observation is unavailable. No other evidence was substituted.')
         payload=json.loads(row.pop('observation_payload'));assessment=json.loads(row.pop('assessment_payload'))
