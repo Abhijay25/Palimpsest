@@ -4,7 +4,6 @@ Current integrated flow: [divergence skyline → historical article tracker](doc
 
 Local Wikipedia-style reading and comparison app. The full supplied snapshot has 29,460 articles; 7,256 linked topics have multiple language editions. Start Docker Desktop, run `./start.ps1`, and open http://127.0.0.1:8010. The app and database bind to localhost. Review progress is at `/reviews`.
 
-For development only, set `LANGGAP_EXPLORE_UPSTREAM` to an `https://` prepared instance to proxy `/explore/api/*` GET and POST requests there; the local page and article links remain local, and cookies, authorization, review tokens, and other local headers are never forwarded.
 
 ## Fast Decisions-only pipeline
 

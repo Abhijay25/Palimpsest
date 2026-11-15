@@ -1,9 +1,7 @@
 import json
-import os
 import re
 import secrets
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
 try:
     import pymysql
     _MYSQL_AVAILABLE=True
@@ -15,7 +13,7 @@ try:
     import requests
 except ModuleNotFoundError:
     requests=None
-from flask import Flask, render_template, request, abort, jsonify, redirect, url_for, session, Response
+from flask import Flask, render_template, request, abort, jsonify, redirect, url_for, session
 if _MYSQL_AVAILABLE:
     from core import connect, compare, LANGS, MODEL
 else:
@@ -59,31 +57,6 @@ def comparison_context(topic):
 app = Flask(__name__)
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.secret_key=secrets.token_hex(32)
-
-@app.before_request
-def explore_api_upstream():
-    """Optionally proxy local development explorer reads to a prepared instance."""
-    if request.method not in ('GET','POST') or not request.path.startswith('/explore/api/'):
-        return None
-    upstream=os.environ.get('LANGGAP_EXPLORE_UPSTREAM')
-    if not upstream:
-        return None
-    parsed=urlsplit(upstream)
-    if parsed.scheme!='https' or not parsed.netloc:
-        return jsonify(error='Upstream unavailable'),502
-    if requests is None:
-        return jsonify(error='Upstream unavailable'),502
-    headers={key:request.headers[key] for key in ('Content-Type','Accept') if key in request.headers}
-    url=upstream.rstrip('/')+request.path
-    if request.query_string:
-        url+='?'+request.query_string.decode('latin-1')
-    try:
-        upstream_response=requests.request(request.method,url,data=request.get_data() if request.method=='POST' else None,
-            headers=headers,timeout=20,allow_redirects=False)
-    except requests.RequestException:
-        return jsonify(error='Upstream unavailable'),502
-    return Response(upstream_response.content,status=upstream_response.status_code,
-        content_type=upstream_response.headers.get('Content-Type'))
 
 @app.before_request
 def browser_review_token():
