@@ -37,8 +37,8 @@ $wgLogos = [
     '1x' => '/palimpsest-logo.svg',
     'icon' => '/palimpsest-icon.svg',
     'wordmark' => [
-        'src' => '/palimpsest-logo.svg',
-        'width' => 172,
+        'src' => '/extensions/PalimpsestIssues/resources/neowiki-wordmark.svg?v=1',
+        'width' => 110,
         'height' => 36,
     ],
 ];
