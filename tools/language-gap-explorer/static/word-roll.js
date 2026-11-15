@@ -14,7 +14,7 @@
       index = (index + 1) % words.length;
       words[index].classList.add('is-current');
       schedule();
-    }, 1400);
+    }, 1800);
   }
   screen.addEventListener('focusin', schedule);
   screen.addEventListener('focusout', () => queueMicrotask(schedule));
