@@ -34,6 +34,10 @@ class ArticlePipelineTests(unittest.TestCase):
         config_b=article.run_configuration(b,article.checkpoint_schedule(b,manifest()))
         self.assertNotEqual(article.storage.digest(config_a),article.storage.digest(config_b))
         self.assertIn('anchors',config_a);self.assertIn('revision_tuples',config_a)
+        from pipeline import PASSAGE_VERSION
+        self.assertEqual(config_a['passage_policy'],PASSAGE_VERSION)
+        legacy=dict(config_a);legacy.pop('passage_policy')
+        self.assertNotEqual(article.storage.digest(config_a),article.storage.digest(legacy))
 
     def test_monthly_checkpoints_and_real_recent_days(self):
         points=article.checkpoint_schedule(context(),manifest());by_stamp={p['stamp']:p for p in points}

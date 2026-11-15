@@ -142,12 +142,12 @@ def ensure_vectors(texts,model):
 
 
 def index_revision(lang,meta,model,topic=None,source_loader=None):
+    from pipeline import split_article,PASSAGE_VERSION
     topic=topic or TOPIC
-    identity=digest([VERSION,topic,lang,meta['revid']])
+    identity=digest([VERSION,PASSAGE_VERSION,topic,lang,meta['revid']])
     with connect() as db,db.cursor() as c:
         c.execute('SELECT ready FROM divergence_revision WHERE id=%s',(identity,));old=c.fetchone()
     if old and old['ready']:return identity
-    from pipeline import split_article
     text=(source_loader or source_text)(lang,meta['revid'])
     parts=[p for p in split_article(dict(lang=lang,rev_id=meta['revid'],text=text),model.model.tokenizer)
            if p['heading'].casefold() not in EXCLUDED and len(p['text'])>=40]
@@ -354,10 +354,11 @@ def highlights(selected,relations):
 
 def build(limit=20,group_limit=6,languages=('en','fi','ru'),translate=True,since=None):
     from prepare import embedding_model
+    from pipeline import PASSAGE_VERSION
     init();manifest=json.loads((CACHE/'manifest.json').read_text(encoding='utf-8'));window=schedule(manifest,languages,limit)
     complete_from=window[0]['stamp']
     if since:window=wide_schedule(manifest,languages,since,window)
-    config=dict(topic=TOPIC,languages=list(languages),window=[x['stamp'] for x in window],groups=group_limit,version=VERSION)
+    config=dict(topic=TOPIC,languages=list(languages),window=[x['stamp'] for x in window],groups=group_limit,version=VERSION,passage_policy=PASSAGE_VERSION)
     identity=digest(config);baseline=ledger()
     with connect() as db,db.cursor() as c:
         c.execute('SELECT status,result FROM divergence_run WHERE id=%s',(identity,));old=c.fetchone()
@@ -366,6 +367,7 @@ def build(limit=20,group_limit=6,languages=('en','fi','ru'),translate=True,since
     result=dict(topic=dict(id=TOPIC,title='Winter War',description='Real historical cross-language comparison',languages=list(languages)),mode='historical',run=identity,asOf=window[-1]['stamp'],bounds=[window[0]['stamp'],window[-1]['stamp']],rows=[],status='running',version=VERSION,
         warning='Real revision-pinned evidence and Decisions labels. Provisional passage groups, not verified facts. Dashed spans between overview samples are unverified, not measured discrepancy lifetimes. Historical HTML was rendered today, so transclusions may be newer.',coverage=dict(checkpoints=len(window),processed=0,languages=list(languages),complete_from=complete_from,overview_sampling='Annual overview; all enumerated edits in the recent detailed window.' if since else None,anchors={l:manifest['anchors'][l] for l in languages},policy='Overview snapshots are sampled. Only the recent detailed window enumerates all cached article edits. Counterparts are never newer than the checkpoint or their anchor.'))
     try:
+        result['passage_policy']=PASSAGE_VERSION
         model=embedding_model();seeds=choose_seeds(window,languages,group_limit,model)
         result['rows']=[dict(id=s['id'],title=s['section']+' — '+' '.join(s['seed'].split()[:12])+('…' if len(s['seed'].split())>12 else ''),section=s['section'],languages=list(languages),grouped=True,grouping='provisional complete-link same-claim predicates >= 0.88',seed=s,phases=[]) for s in seeds]
         # Reusing complete stored observations avoids redoing retrieval/translation
@@ -375,6 +377,7 @@ def build(limit=20,group_limit=6,languages=('en','fi','ru'),translate=True,since
             c.execute("SELECT id,result FROM divergence_run WHERE topic=%s AND version=%s AND status='done' ORDER BY updated DESC",(TOPIC,VERSION))
             for prior in c.fetchall():
                 payload=json.loads(prior['result'])
+                if payload.get('passage_policy')!=PASSAGE_VERSION:continue
                 if payload['coverage']['languages']!=list(languages):continue
                 for row in payload['rows']:
                     for phase in row['phases']:reused.setdefault((row['id'],phase['start']),phase)

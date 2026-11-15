@@ -10,6 +10,8 @@ English machine translation belongs directly below each foreign-language paragra
 
 ## Conservative policy replay
 
+Future explicit passage extraction now excludes that exact normalized Finnish external-resource heading. Prose mentioning the words, longer headings, and other source languages stay eligible. Passage-cache identities and new preparation configurations include the revised extraction policy; existing revision indexes, runs and observations remain available by their original identities. Historical phase reuse also requires a matching extraction policy. No extraction, embedding or reassessment runs on browsing, and this change does not automatically reprocess the corpus. The new policy and translation regressions run in CI.
+
 The explicit offline `replay_relationship_policy.py` command creates new derivation identities and preserves complete originals. It provides the contradiction/compatibility conflict gate, a separate focused-snapshot clarification gate and occurrence-scoped exclusion of the missed Finnish reference heading `Aiheesta muualla`. These research policies do not silently relabel published history or change existing paid-worker caches.
 
 Measured cached baseline: 29,677 pairs; 2,061 coverage, 347 framing, one contradiction, 121 aligned, 391 uncertain, 1,635 unassessed and 25,121 retrieval failures. The narrow conflict policy changes the sole contradictory-signal pair to uncertain while preserving all framing/context counts. A broader evaluated gate would also abstain on 66 framing candidates; that coverage loss is unverified and is not enabled. The reference-section rule affects nine distinct pair IDs repeated across 161 historical occurrences, not 161 independently verified errors.
