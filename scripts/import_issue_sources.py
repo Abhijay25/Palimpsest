@@ -18,7 +18,6 @@ import xml.etree.ElementTree as ET
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
-sys.path.insert(0,str(ROOT/'tools/language-gap-explorer'))
 from scripts.palimpsest_data.history import fetch_json,revision_record,ensure_free_space
 from scripts.palimpsest_data.importer import fetch_local_page,map_revisions
 from scripts.palimpsest_data.io import atomic_json,canonical_json,sha256_bytes
@@ -132,7 +131,17 @@ def exact_records(article, revisions, directory):
 
 
 def run(args):
-    from core import connect
+    # Only the explicit research-source lookup needs the research environment.
+    # Importing this helper must not shadow another suite's test_pipeline module.
+    research_path = str(ROOT/'tools/language-gap-explorer')
+    added_path = research_path not in sys.path
+    if added_path:
+        sys.path.insert(0, research_path)
+    try:
+        from core import connect
+    finally:
+        if added_path:
+            sys.path.remove(research_path)
     root=args.data_root.resolve();runtime=json.loads((root/'runtime.json').read_text(encoding='utf-8'))
     if runtime['project']!=args.project or Path(runtime['data_root']).resolve()!=root or not all(runtime['initialized'].values()):
         raise ValueError('The initialized runtime does not match this explicitly selected project/root.')
