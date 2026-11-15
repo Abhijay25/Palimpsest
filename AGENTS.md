@@ -1,5 +1,16 @@
 # NeoWiki agent context
 
+## Authenticated on-demand queue
+
+`docs/on-demand-jobs.md` owns the native job preview/enqueue/worker contract.
+`on_demand_jobs.py` uses a separately owned SQLite WAL volume and immutable raw
+attempt/result archive. No schema creation or provider work occurs on reads.
+Native scan permission/CSRF and the existing HMAC bridge gate writes. Default
+server policy disables new inference; historical campaign approval never grants
+on-demand spending. Preserve failed/unknown reservations and exact source/parent,
+text, model, prompt and policy identities. No automatic paid retry or rescan of
+partial/failed work. Shared campaigns, Winter War worker and caches stay separate.
+
 ## Native Issues integration work
 
 `infra/wiki/extensions/PalimpsestIssues` now implements an opt-in native article

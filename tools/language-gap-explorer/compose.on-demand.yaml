@@ -1,0 +1,54 @@
+# Explicit owned-runtime overlay. No provider credential is mounted by default.
+services:
+  web:
+    environment:
+      PALIMPSEST_NATIVE_AVAILABILITY_FILE: /var/lib/neowiki/data/native-availability.json
+  native-issues:
+    working_dir: /opt/neowiki-source/tools/language-gap-explorer
+    entrypoint: ["python", "on_demand_runtime.py", "bridge"]
+    command: ["--host", "0.0.0.0", "--port", "8766", "--secret-file", "/run/secrets/issues-bridge"]
+    environment:
+      PYTHONPATH: /opt/neowiki-source
+      PYTHON_DOTENV_DISABLED: "1"
+      NEOWIKI_ON_DEMAND_ROOT: /var/lib/neowiki-on-demand
+      NEOWIKI_ON_DEMAND_POLICY: /run/neowiki-on-demand/policy.json
+      PALIMPSEST_NATIVE_AVAILABILITY_FILE: /var/lib/neowiki/data/native-availability.json
+    volumes:
+      - ${NEOWIKI_SOURCE_RELEASE:?Set the current verified source release}:/opt/neowiki-source:ro
+      - ${NEOWIKI_ON_DEMAND_ROOT:?Set the owned persistent queue directory}:/var/lib/neowiki-on-demand:rw
+      - ${NEOWIKI_ON_DEMAND_POLICY:?Set the private policy file}:/run/neowiki-on-demand/policy.json:ro
+
+  on-demand-worker:
+    image: ${NEOWIKI_ON_DEMAND_IMAGE:?Set the installed detector/research dependency image}
+    restart: unless-stopped
+    init: true
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 2g
+    cpus: 2
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=256m"]
+    working_dir: /opt/neowiki-source/tools/language-gap-explorer
+    entrypoint: ["python", "on_demand_runtime.py", "worker"]
+    environment:
+      PYTHONPATH: /opt/neowiki-source
+      PYTHON_DOTENV_DISABLED: "1"
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: ${DB_USER:-explorer}
+      DB_NAME: ${DB_NAME:-language_gaps}
+      DB_PASSWORD_FILE: /run/secrets/db-password
+      NEOWIKI_RESEARCH_ROOT: /var/lib/neowiki
+      LANGGAP_FLAGS_CACHE: /var/lib/neowiki/data/flags-cache
+      NEOWIKI_ON_DEMAND_ROOT: /var/lib/neowiki-on-demand
+      NEOWIKI_ON_DEMAND_POLICY: /run/neowiki-on-demand/policy.json
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    secrets: [db-password]
+    volumes:
+      - ${NEOWIKI_SOURCE_RELEASE:?Set the current verified source release}:/opt/neowiki-source:ro
+      - ${NEOWIKI_ON_DEMAND_ROOT:?Set the owned persistent queue directory}:/var/lib/neowiki-on-demand:rw
+      - ${NEOWIKI_ON_DEMAND_POLICY:?Set the private policy file}:/run/neowiki-on-demand/policy.json:ro
+      - /srv/neowiki-research/data:/var/lib/neowiki/data:ro
+      - /srv/neowiki-research/model-cache:/var/lib/neowiki/model-cache:ro
+    networks: [default]

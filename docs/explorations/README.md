@@ -1,5 +1,15 @@
 # NeoWiki exploration registry
 
+## Authenticated on-demand jobs
+
+[Native on-demand jobs](../on-demand-jobs.md) connect permission/CSRF-gated native
+request previews to an owned durable queue and isolated background worker. Exact
+source/parent hashes and engine versions scope jobs/caches; provider attempts
+retain raw responses/usage and failed reservations. Progress, successful-empty,
+partial and failure states survive reload. Server spending policy defaults to
+disabled and never inherits historical-backfill approval. The public viewer gains
+no unauthenticated trigger. The historical campaigns and their queues are separate.
+
 ## Language quality and issue context
 
 [Language evidence quality](../../tools/language-gap-explorer/docs/language-quality.md) documents source-bound contextual comments, lazy cached English translations beneath foreign diff paragraphs, exact-witness Decisions question preparation, and conservative offline policy replay. Published source observations and historical identities remain unchanged. Real cached failures and a separate controlled synthetic baseline have regression coverage; independently verified multilingual precision/recall gains are still unestablished. No paid assessment or model training ran for this iteration.

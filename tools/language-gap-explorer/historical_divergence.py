@@ -144,7 +144,7 @@ def ensure_vectors(texts,model):
 def index_revision(lang,meta,model,topic=None,source_loader=None):
     from pipeline import split_article,PASSAGE_VERSION
     topic=topic or TOPIC
-    identity=digest([VERSION,PASSAGE_VERSION,topic,lang,meta['revid']])
+    identity=digest([VERSION,PASSAGE_VERSION,topic,lang,meta['revid'],meta['sha256']]) if meta.get('sha256') else digest([VERSION,PASSAGE_VERSION,topic,lang,meta['revid']])
     with connect() as db,db.cursor() as c:
         c.execute('SELECT ready FROM divergence_revision WHERE id=%s',(identity,));old=c.fetchone()
     if old and old['ready']:return identity

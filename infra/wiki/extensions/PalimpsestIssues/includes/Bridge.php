@@ -26,7 +26,7 @@ final class Bridge {
             'op' => $op, 'query' => $query ] + $extra, JSON_THROW_ON_ERROR );
         $time = (string)time();
         $request = $services->getHttpRequestFactory()->create( $url . '/v1/issues', [
-            'method' => 'POST', 'postData' => $body, 'timeout' => $op === 'scan' ? 180 : 30,
+            'method' => 'POST', 'postData' => $body, 'timeout' => $op === 'scan' ? 180 : ( $op === 'jobplan' ? 90 : 30 ),
         ], __METHOD__ );
         $request->setHeader( 'Content-Type', 'application/json' );
         $request->setHeader( 'X-Issues-Time', $time );

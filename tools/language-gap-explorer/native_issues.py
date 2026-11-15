@@ -10,6 +10,7 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 from urllib.parse import urlencode, urlsplit, parse_qs
 
 from core import connect
@@ -74,13 +75,23 @@ def native_url(topic, edition, params):
     base = bases.get(edition)
     if not base:
         return None
+    manifest_path=os.environ.get('PALIMPSEST_NATIVE_AVAILABILITY_FILE')
+    reconciled=None
+    if manifest_path:
+        try:
+            manifest=json.loads(Path(manifest_path).read_text(encoding='utf-8'))
+            reconciled=manifest.get('editions',{}).get(edition,{}).get(topic) if manifest.get('version')==1 else None
+        except (OSError,ValueError):return None
+        if not reconciled:return None
     parsed = urlsplit(base)
     if parsed.scheme not in ('http', 'https') or not parsed.netloc or parsed.query or parsed.fragment:
         raise ValueError('Native wiki address is invalid.')
     with connect() as db, db.cursor() as c:
-        c.execute('SELECT title FROM article WHERE wikidata_id=%s AND lang=%s', (topic, edition))
+        c.execute('SELECT title,page_id FROM article WHERE wikidata_id=%s AND lang=%s', (topic, edition))
         row = c.fetchone()
     if not row:
+        return None
+    if reconciled and (reconciled.get('title')!=row['title'] or int(reconciled.get('source_page_id',0))!=int(row['page_id'])):
         return None
     return base+'?'+urlencode([('title', row['title']), ('action', 'issues'),
         *((key+'[]' if key in ('languages','kinds') else key,value) for key,value in params)])
@@ -151,6 +162,11 @@ def dispatch(payload):
     if not isinstance(wiki,str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}',wiki):
         raise ValueError('A native wiki identity is required.')
     op = payload.get('op', 'list')
+    if op in ('jobpolicy','jobplan','enqueue','jobs','job'):
+        from on_demand_bridge import dispatch as job_dispatch
+        return job_dispatch(payload,topic)
+    if op=='scan' and os.environ.get('NEOWIKI_ON_DEMAND_ROOT'):
+        raise ValueError('Use the authenticated background request preview and queue. Synchronous paid scans are disabled.')
     if op == 'list':
         result = issues.list_issues(topic, args, review_scope=wiki)
         result.update(topic=topic, labels=LABELS)

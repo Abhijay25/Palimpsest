@@ -14,7 +14,29 @@ namespace MediaWiki\Revision {
 namespace MediaWiki\Api {
     class ApiBase {
         public $request;
+        public $params = [];
+        public $user;
+        public $output = [];
         public function getRequest() { return $this->request; }
+        public function extractRequestParams() { return $this->params; }
+        public function getUser() { return $this->user; }
+        public function dieWithError( $message ) { throw new \RuntimeException( $message ); }
+        public function getResult() { return new class( $this ) {
+            public function __construct( public $api ) {}
+            public function addValue( $unused, $key, $value ) { $this->api->output[$key] = $value; }
+        }; }
+    }
+}
+namespace MediaWiki\Title {
+    class Title { public static $fixture; public static function newFromText( $text ) { return self::$fixture; } }
+}
+namespace MediaWiki\Extension\PalimpsestIssues {
+    class Bridge {
+        public static $calls = [];
+        public static function request( $title, $op, $query, $extra ) {
+            self::$calls[] = [ $op, $query, $extra ];
+            return [ 'status' => 'ok' ];
+        }
     }
 }
 namespace Wikimedia\ParamValidator {
@@ -38,6 +60,7 @@ namespace {
     $title = new class {
         public function getPrefixedText() { return 'Winter War'; }
         public function getArticleID() { return 4; }
+        public function exists() { return true; }
     };
     $revision = new class {
         public $deleted = false;
@@ -61,12 +84,15 @@ namespace {
         public function __construct( public $revision ) {}
         public function getRevisionById( $id ) { return $id === 7 ? $this->revision : null; }
     };
-    $pm = new class { public $allowed = true; public function userCan( ...$args ) { return $this->allowed; } };
+    $pm = new class { public $allowed = true; public $scan = false;
+        public function userCan( $right, ...$args ) { return $right === 'read' ? $this->allowed : $this->scan; }
+    };
     MediaWikiServices::$test = new class( $config, $lookup, $pm ) {
         public function __construct( public $config, public $lookup, public $pm ) {}
         public function getMainConfig() { return $this->config; }
         public function getRevisionLookup() { return $this->lookup; }
         public function getPermissionManager() { return $this->pm; }
+        public function getReadOnlyMode() { return new class { public function isReadOnly() { return false; } }; }
     };
     $record = [ 'source_revision_id' => 1301539037, 'local_revision_id' => 7,
         'local_parent_id' => 6, 'timestamp' => '2025-01-01T00:00:00Z', 'sha256' => hash( 'sha256', $revision->text ) ];
@@ -105,14 +131,41 @@ namespace {
         $params = $api->getAllowedParams();
         check( $params['fresh']['type'] === [ 'yes', 'no' ] && $params['fresh']['default'] === 'no', 'Normal scans must preserve caches; boolean presence is unsafe.' );
         check( $params['reviewed']['type'] === [ 'yes', 'no' ], 'Undo must use an explicit false value, not a present boolean parameter.' );
-        foreach ( [ 'list', 'detail', 'health', 'cached', 'versions', 'legacy' ] as $op ) {
+        foreach ( [ 'list', 'detail', 'health', 'cached', 'versions', 'legacy', 'jobpolicy', 'jobs', 'job' ] as $op ) {
             $api->request = new class( $op ) { public function __construct( public $op ) {} public function getVal( $name ) { return $this->op; } };
             check( !$api->mustBePosted() && $api->needsToken() === false, 'Read operation must not be a mutation.' );
         }
-        foreach ( [ 'scan', 'review' ] as $op ) {
+        foreach ( [ 'scan', 'review', 'jobplan', 'enqueue' ] as $op ) {
             $api->request = new class( $op ) { public function __construct( public $op ) {} public function getVal( $name ) { return $this->op; } };
             check( $api->mustBePosted() && $api->needsToken() === 'csrf', 'Scans/reviews require native POST/CSRF.' );
+            check( $api->isWriteMode(), 'Job planning and enqueueing must remain native writes.' );
         }
+        // Execute the real API class against the contract fixtures. No HTTP,
+        // provider, live account or database is involved in these checks.
+        $bundle['payload']['pages'][0]['revisions'][0]['local_revision_id'] = 7;
+        $bundle['sha256'] = hash( 'sha256', json_encode( SourceMap::canonical( $bundle['payload'] ), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES ) );
+        file_put_contents( $path, json_encode( $bundle ) );
+        \MediaWiki\Title\Title::$fixture = $title;
+        $api->params = [ 'title' => 'Winter War', 'op' => 'jobplan', 'selection' => '{"revision":"1301539037"}',
+            'mode' => 'page', 'fresh' => 'no', 'reviewed' => 'no' ];
+        $api->user = new class { public $registered = false; public function isRegistered() { return $this->registered; } public function getId() { return 9; } };
+        foreach ( [ false, true ] as $registered ) {
+            $api->user->registered = $registered;
+            try { $api->execute(); throw new \LogicException( 'Unprivileged job planning was accepted.' ); }
+            catch ( \RuntimeException $error ) { check( $error->getMessage() === 'apierror-permissiondenied', 'Native scan rights must gate job planning.' ); }
+        }
+        $pm->scan = true;
+        $api->execute();
+        $calls = \MediaWiki\Extension\PalimpsestIssues\Bridge::$calls;
+        check( count( $calls ) === 1, 'Authorized page planning must make exactly one private bridge request.' );
+        check( $calls[0][2]['reviewer_id'] === 9 && $calls[0][2]['source']['revision_id'] === 1301539037,
+            'Native account and exact source identity must survive the bridge payload.' );
+        check( $calls[0][2]['source']['wikitext'] === $revision->text && $calls[0][2]['source']['sha256'] === hash( 'sha256', $revision->text ),
+            'Only hash-verified native text is sent for a background request.' );
+        $api->params['mode'] = 'revision';
+        $api->execute();
+        check( count( \MediaWiki\Extension\PalimpsestIssues\Bridge::$calls ) === 1 && $api->output['palimpsestissues']['status'] === 'unavailable',
+            'An unmapped exact parent must block planning before the bridge.' );
         $metadata = new class {
             public $properties = [];
             public function getPageProperty( $key ) { return $this->properties[$key] ?? null; }

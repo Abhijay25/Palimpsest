@@ -47,8 +47,10 @@ jobs:
         working-directory: tools/language-gap-explorer
       - run: node --check static/lab-explorer.js
         working-directory: tools/language-gap-explorer
-      - run: python -m unittest test_issue_context test_language_policy_fixtures test_relationship_policy test_candidate_eligibility test_passage_eligibility test_native_issues
+      - run: python -m unittest test_issue_context test_language_policy_fixtures test_relationship_policy test_candidate_eligibility test_passage_eligibility test_native_issues test_on_demand
         working-directory: tools/language-gap-explorer
       - run: node test_issue_translations.js
         working-directory: tools/language-gap-explorer
       - run: python scripts/sync_issues_assets.py --check
+      - run: node --check infra/wiki/extensions/PalimpsestIssues/resources/jobs.js
+      - run: node tools/language-gap-explorer/test_native_jobs_api.js

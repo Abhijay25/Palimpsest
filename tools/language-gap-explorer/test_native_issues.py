@@ -2,11 +2,27 @@ import hashlib
 import hmac
 import json
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch,MagicMock
 from native_issues import Arguments,authenticated,dispatch,detector_catalog,native_url
 
 
 class NativeIssuesTests(unittest.TestCase):
+    def test_native_handoff_requires_actual_imported_article_when_manifest_is_configured(self):
+        import os
+        cursor=MagicMock();cursor.__enter__.return_value=cursor;cursor.fetchone.return_value=dict(title='Winter War',page_id=12)
+        db=MagicMock();db.__enter__.return_value=db;db.cursor.return_value=cursor
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'availability.json'
+            path.write_text(json.dumps(dict(version=1,editions={'en':{'Q134949':dict(title='Winter War',source_page_id=12)}})),encoding='utf-8')
+            with patch.dict(os.environ,PALIMPSEST_NATIVE_WIKIS=json.dumps({'en':'https://native.example/index.php'}),PALIMPSEST_NATIVE_AVAILABILITY_FILE=str(path)),patch('native_issues.connect',return_value=db):
+                self.assertIsNone(native_url('Q122100','en',[]));cursor.execute.assert_not_called()
+                self.assertIn('title=Winter+War',native_url('Q134949','en',[]))
+                cursor.fetchone.return_value=dict(title='Different title',page_id=12)
+                self.assertIsNone(native_url('Q134949','en',[]))
+                path.unlink()
+                self.assertIsNone(native_url('Q134949','en',[]))
     def test_signature_binds_body_and_expires(self):
         secret='x'*48;body=b'{"op":"list"}';stamp='1000'
         signature=hmac.new(secret.encode(),stamp.encode()+b'\n'+body,hashlib.sha256).hexdigest()

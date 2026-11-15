@@ -291,11 +291,30 @@ def publish(run_id,base,progress,hook=None,final=False):
     return result
 
 
-def prepare_article(context,progress_hook=None):
-    ensure_disk_space();init();manifest=acquire_manifest(context);checkpoints=checkpoint_schedule(context,manifest);config=run_configuration(context,checkpoints);run_id=storage.digest(config)
+def prepare_article(context,progress_hook=None,*,locked_sources=None,execution=None):
+    ensure_disk_space();init()
+    if locked_sources is None:
+        manifest=acquire_manifest(context);checkpoints=checkpoint_schedule(context,manifest)
+    else:
+        # Native jobs freeze exact snapshots before enqueueing. No acquisition
+        # or current-snapshot fallback is permitted in their worker.
+        if context.mode!='snapshot' or not execution:raise ValueError('Frozen sources require an execution identity and snapshot mode.')
+        by_lang={s['lang']:s for s in locked_sources}
+        if set(by_lang)!=set(context.languages):raise ValueError('Frozen editions differ from the requested context.')
+        import hashlib
+        for anchor in context.anchors:
+            source=by_lang[anchor.lang]
+            if source['revision_id']!=anchor.revision or hashlib.sha256(source['wikitext'].encode()).hexdigest()!=source['sha256']:
+                raise ValueError('Frozen revision identity/text changed.')
+        checkpoints=[dict(stamp=max(s['timestamp'] for s in locked_sources),
+            revisions={s['lang']:dict(revid=s['revision_id'],timestamp=s['timestamp'],sha256=s['sha256']) for s in locked_sources},
+            state='pending',missing=[],sampled=True,revision_tuple=storage.digest([execution,[(s['lang'],s['revision_id'],s['sha256']) for s in locked_sources]]))]
+    config=run_configuration(context,checkpoints)
+    if execution:config.update(execution=execution,sources=[{k:s.get(k) for k in ('lang','revision_id','parent_id','sha256','parent_sha256','timestamp')} for s in locked_sources])
+    run_id=storage.digest(config)
     base=dict(topic=dict(id=context.topic,title=context.title,languages=list(context.languages)),run=run_id,version=VERSION,mode='historical',preparation_mode=context.mode,
-        asOf=context.cutoff,bounds=[checkpoints[0]['stamp'],checkpoints[-1]['stamp']],checkpoints=[p['stamp'] for p in checkpoints],
-        coverage=dict(sampling='Monthly as-of observations plus up to 20 recent changed-day checkpoints',anchors={a.lang:asdict(a) for a in context.anchors}),
+        asOf=checkpoints[-1]['stamp'] if locked_sources is not None else context.cutoff,bounds=[checkpoints[0]['stamp'],checkpoints[-1]['stamp']],checkpoints=[p['stamp'] for p in checkpoints],
+        coverage=dict(sampling='One exact source-locked snapshot comparison' if locked_sources is not None else 'Monthly as-of observations plus up to 20 recent changed-day checkpoints',anchors={a.lang:asdict(a) for a in context.anchors}),
         warning='Real sampled source revisions. Missing observations are unknown. Historical rendered HTML can contain newer transclusions. Model labels and question grouping require review.')
     with connect() as db,db.cursor() as c:
         c.execute('SELECT status,summary FROM paired_run WHERE id=%s',(run_id,));old=c.fetchone()
@@ -312,7 +331,11 @@ def prepare_article(context,progress_hook=None):
     publish(run_id,base,progress)
     from prepare import embedding_model
     with _model_lock:model=embedding_model(local_files_only=True)
-    loader=lambda lang,rev:source_text(context,lang,rev)
+    def loader(lang,rev):
+        if locked_sources is None:return source_text(context,lang,rev)
+        source=by_lang[lang]
+        if int(rev)!=source['revision_id']:raise ValueError('Unplanned source revision requested.')
+        return source['wikitext']
     try:
         for point in reversed(checkpoints):
             stamp=point['stamp']
@@ -332,6 +355,8 @@ def prepare_article(context,progress_hook=None):
                     for edge in paired.symmetric_matches(indexed[la],indexed[lb],nodes[la],nodes[lb],namespace=VERSION+':'+context.topic,workers=context.workers):
                         # The existing verdict assesses only these exact texts; reuse it.
                         identity=storage.digest([paired.VERSION,la,edge['a'],lb,edge['b']]);pairs[identity]=dict(id=identity,a=nodes[la][edge['a']],b=nodes[lb][edge['b']],similarity=edge['similarity'])
+                if execution:
+                    pairs={storage.digest([execution,key]):dict(p,id=storage.digest([execution,key]),execution=execution) for key,p in pairs.items()}
                 progress.update(stage='classifying',candidates_current=len(pairs));publish(run_id,base,progress)
                 def assessment_error(error,batch):
                     progress['assessment_error']=safe_error(error)

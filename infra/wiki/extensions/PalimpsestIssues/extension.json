@@ -63,10 +63,13 @@
       "scripts": [ "logo-link.js" ]
     },
     "ext.palimpsest.issues.article.fi": {
-      "styles": [ "source-fi.css" ]
+      "styles": [
+        "source-fi.css"
+      ]
     },
     "ext.palimpsest.issues": {
       "scripts": [
+        "jobs.js",
         "issue-translations.js",
         "issues.js"
       ],

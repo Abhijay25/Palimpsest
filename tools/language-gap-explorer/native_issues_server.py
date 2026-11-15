@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 from native_issues import authenticated, dispatch
+from on_demand_jobs import RequestError
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -33,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(404,dict(error='Unknown operation.'))
         try:
             size=int(self.headers.get('Content-Length','0'))
-            if not 0<size<=65536:
+            if not 0<size<=2*1024*1024:
                 return self.respond(413,dict(error='Invalid request size.'))
             body=self.rfile.read(size)
             if not authenticated(body,self.headers.get('X-Issues-Time'),self.headers.get('X-Issues-Signature'),self.server.secret):
@@ -41,6 +42,8 @@ class Handler(BaseHTTPRequestHandler):
             payload=json.loads(body)
             if not isinstance(payload,dict):raise ValueError('Invalid request.')
             return self.respond(200,dict(status='ok',data=dispatch(payload)))
+        except RequestError as error:
+            return self.respond(409,dict(error=str(error)))
         except (ValueError,TypeError):
             return self.respond(400,dict(error='Invalid Issues selection.'))
         except LookupError as error:
