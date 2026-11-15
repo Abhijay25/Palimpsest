@@ -3,7 +3,7 @@
  const $=selector=>document.querySelector(selector);
  const esc=value=>String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
  const safeUrl=value=>/^https?:\/\//.test(String(value||''))?String(value):'';
- const labels={FACT:'Fact',FRAMING:'Wording',MOTIVE:'Motive',REMOVED_CONTEXT:'Removed context',HIDDEN_TEXT:'Hidden text',CITATION_DATE:'Citation date',CITED_PAGE:'Cited page',CHERRY_PICK:'Selective quote',OUT_OF_SYNC:'Out of sync'};
+ const labels={contradiction:'Contradiction',framing:'Framing difference',coverage:'Missing context',FACT:'Fact',FRAMING:'Wording',MOTIVE:'Motive',REMOVED_CONTEXT:'Removed context',HIDDEN_TEXT:'Hidden text',CITATION_DATE:'Citation date',CITED_PAGE:'Cited page',CHERRY_PICK:'Selective quote',OUT_OF_SYNC:'Out of sync'};
  const root=$('#flags-audit'),rail=$('.flags-rail__list'),summary=$('.flags-summary-bar'),tray=$('.flags-unanchored-tray');
  let flags=[],active=-1,hovered=-1,filter=new Set(),busy=false,serviceReady=false,anchoredRows=[],layoutFrame=0;
  const scanControls=['#scan-revisions','#rescan-revisions','#check-page','#rescan-page'];
@@ -36,7 +36,7 @@
  function renderSummary(){
   if(!flags.length){summary.hidden=true;return;}summary.hidden=false;summary.replaceChildren();
   const count=document.createElement('span');count.className='flags-summary-count';const admins=flags.filter(flag=>flag.tier==='admin').length;
-  count.innerHTML=`<strong>${flags.length} flag${flags.length===1?'':'s'}</strong>${admins?` · <em>${admins} for admin review</em>`:''}`;summary.append(count);
+  count.innerHTML=`<strong>${flags.length} ${root?.dataset.issueView?'comment':'flag'}${flags.length===1?'':'s'}</strong>${admins?` · <em>${admins} for admin review</em>`:''}`;summary.append(count);
   const details=document.createElement('details');details.className='flags-filter';
   const trigger=document.createElement('summary');trigger.className='flags-filter__trigger';trigger.textContent='Filter types';details.append(trigger);
   const menu=document.createElement('div');menu.className='flags-filter__menu';menu.setAttribute('aria-label','Filter flags by type');

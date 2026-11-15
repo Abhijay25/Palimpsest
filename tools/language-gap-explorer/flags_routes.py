@@ -36,7 +36,7 @@ except ModuleNotFoundError:  # stdlib fallback keeps fixture tests dependency-fr
                 return _Response(urlopen(Request(url, data=__import__('json').dumps(json).encode(), headers=request_headers), timeout=timeout))
             except (OSError, URLError) as error: raise _Requests.RequestException(str(error)) from error
     requests=_Requests()
-from flask import Blueprint, abort, jsonify, render_template, request, send_file
+from flask import Blueprint, abort, jsonify, render_template, request, send_file, redirect
 
 from flags_tab import RevisionRef, audit_payload, block_revisions, rank_revisions
 from revision_text import cache_root, fetch_history, fetch_revision
@@ -53,6 +53,7 @@ def shared_flag_stacking():
 
 def detector_failure(error: Exception) -> str:
     """Keep transport errors, internal addresses and provider details out of the UI."""
+    if type(error).__name__=="PersistenceError":return str(error)
     if isinstance(error, requests.RequestException):
         response = getattr(error, "response", None)
         code = getattr(response, "status_code", None)
@@ -226,17 +227,64 @@ def diff_html(old: str, new: str) -> str:
     )
 
 
+def pending_result(ref,context,mode):
+    if not context.get('topic') or fixture_enabled():return None
+    path=cache_root()/'pending-issues'/f'{mode}-{ref.lang}-{ref.revision_id}.json'
+    if not path.exists():return None
+    data=json.loads(path.read_text(encoding='utf-8'))
+    if data.get('topic')!=context['topic']:raise RuntimeError('The pending assessment does not match this article.')
+    return validate_detector_result(data['result'])
+
+
+def save_issue_scan(ref,result,context,mode,cached=False):
+    if not context.get('topic') or fixture_enabled():return result
+    import issues
+    from dataclasses import replace
+    from revision_text import cached_revision
+    record=cached_revision(ref.lang,ref.revision_id) or {}
+    ref=replace(ref,parent_id=ref.parent_id or record.get('parent_id'),timestamp=ref.timestamp or record.get('timestamp',''))
+    result=dict(result)
+    if cached and not result.get('_issue_assessment'):
+        result['_issue_assessment']=issues.identity('cache',context['topic'],ref.lang,ref.revision_id,mode,result)
+        cache=page_path(ref) if mode=='page' else audit_path(ref)
+        if cache.exists():result.setdefault('_issue_assessed_at',__import__('datetime').datetime.fromtimestamp(cache.stat().st_mtime,__import__('datetime').timezone.utc).isoformat())
+    result.setdefault('_issue_assessment',issues.identity('scan',__import__('uuid').uuid4().hex))
+    result.setdefault('_issue_assessed_at',issues.now())
+    path=cache_root()/'pending-issues'/f'{mode}-{ref.lang}-{ref.revision_id}.json'
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_text(json.dumps(dict(topic=context['topic'],result=result),ensure_ascii=False),encoding='utf-8')
+    output=issues.store_scan(context['topic'],ref,result,mode)
+    path.unlink(missing_ok=True)
+    return output
+
+
+def coverage_scan(ref,context,mode,state,note=''):
+    if context.get('topic') and not fixture_enabled():
+        from issues import scan_coverage
+        scan_coverage(context['topic'],ref,mode,state,note)
+
+
+def scan_failed(ref,context,mode,error):
+    try:coverage_scan(ref,context,mode,'failed',detector_failure(error))
+    except RuntimeError:pass
+
+
 def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, fresh: bool = False) -> dict[str, Any]:
     # The synthetic fixture remains offline even when exercising the fresh UI.
-    audit = cached_audit(ref, context) if (not fresh or isinstance(context.get("audits"), Mapping)) else None
+    recovered=pending_result(ref,context,'revision') if scan else None
+    audit = recovered or (cached_audit(ref, context) if (not fresh or isinstance(context.get("audits"), Mapping)) else None)
     if audit is not None:
         old = str(audit.get("old_wikitext", "")); new = str(audit.get("new_wikitext", ""))
         if not old and not new:
             return {"status": "unavailable", "error": "Cached audit has no revision text; no empty diff was rendered.", "flags": []}
+        if scan:
+            try:audit=save_issue_scan(ref,audit,context,'revision',cached=True)
+            except (RuntimeError,OSError) as error:return {'status':'error','flags':[],'error':detector_failure(error)}
         return dict(audit, diff_html=diff_html(old, new))
     if not scan:
         return {"status": "unavailable", "flags": [], "error": "Not scanned yet. Select Scan to make an explicit detector request."}
     try:
+        coverage_scan(ref,context,'revision','running')
         new_record = fetch_revision(ref.lang, ref.revision_id)
         parent = int(new_record.get("parent_id") or ref.parent_id or 0)
         if not parent:
@@ -250,10 +298,12 @@ def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, f
         response.raise_for_status()
         result = validate_detector_result(response.json())
         result.update(status="ok", old_wikitext=body["old_wikitext"], new_wikitext=body["new_wikitext"])
+        result = save_issue_scan(scoped,result,context,'revision')
         path = audit_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         return dict(result, diff_html=diff_html(body["old_wikitext"], body["new_wikitext"]))
     except (requests.RequestException, OSError, RuntimeError, ValueError, KeyError) as error:
+        scan_failed(ref,context,'revision',error)
         return {"status": "error", "flags": [], "error": detector_failure(error)}
 
 
@@ -282,11 +332,13 @@ def cached_page_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str,
 def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool,
                           fresh: bool = False) -> dict[str, Any]:
     # Fixture re-checks are deterministic and must not contact a detector.
-    result = cached_page_audit(ref, context) if (not fresh or isinstance(context.get("page_audits"), Mapping)) else None
+    recovered=pending_result(ref,context,'page') if scan else None
+    result = recovered or (cached_page_audit(ref, context) if (not fresh or isinstance(context.get("page_audits"), Mapping)) else None)
     if result is None and not scan:
         return {"status": "unavailable", "flags": [], "error": "Not checked yet. Select Check this page to make an explicit detector request."}
     try:
         if result is None:
+            coverage_scan(ref,context,'page','running')
             fixture_article = context.get("articles", {}).get(ref.lang) if isinstance(context.get("articles"), Mapping) else None
             if isinstance(fixture_article, Mapping) and fixture_enabled():
                 wikitext = str(fixture_article.get("text", ""))
@@ -300,8 +352,10 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
             response.raise_for_status()
             result = validate_detector_result(response.json())
             result.update(status="ok", wikitext=wikitext)
+            result = save_issue_scan(ref,result,context,'page')
             path = page_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        if scan and (recovered or not result.get('_issue_assessment')):result=save_issue_scan(ref,result,context,'page',cached=True)
         output = dict(result)
         output.setdefault("status", "ok")
         output.setdefault("flags", [])
@@ -309,6 +363,7 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
         output["page_html"] = rendered_page_html(wikitext, ref.lang, ref.title)
         return output
     except (requests.RequestException, OSError, RuntimeError, ValueError, KeyError) as error:
+        scan_failed(ref,context,'page',error)
         return {"status": "error", "flags": [], "error": detector_failure(error)}
 
 
@@ -317,10 +372,17 @@ def article(topic: str):
     if not (topic == "Q-demo" and fixture_enabled()) and not re.fullmatch(r"Q\d{1,15}", topic):
         abort(404)
     tab = request.args.get("tab", "article")
-    if tab not in ("article", "language", "flags"):
+    if tab not in ("article", "language", "flags", "issues"):
         abort(400, description="Choose Article, Language differences or Flags.")
     historical = any(key in request.args for key in ("run", "group", "stamp", "occurrence"))
     fixture = fixture_context(topic)
+    if tab in ('language','flags','issues') and fixture is None and not request.args.get('tools'):
+        from issues_routes import legacy
+        if historical and tab=='language':return legacy(topic)
+        from urllib.parse import urlencode
+        args=request.args.copy();args.poplist('tab');args.poplist('scan')
+        if tab!='issues':args['origin']='language' if tab=='language' else 'flags'
+        return redirect('/article/'+topic+'/issues?'+urlencode(list(args.items(multi=True))))
     if tab == "article" and not historical:
         from app import article_page
         return article_page(topic)

@@ -1,5 +1,5 @@
 <nav class="page-tabs article-workspace-tabs" aria-label="Article views">
-  {% for key,label in [('article','Article'),('language','Language differences'),('flags','Flags')] %}
-  <a id="{{ key }}-tab" {% if active_article_tab == key %}aria-current="page"{% endif %} href="{{ article_view_url(topic,key,tab_lang) }}">{{ label }}</a>
+  {% for key,label in [('article','Article'),('issues','Issues')] %}
+  <a id="{{ key }}-tab" {% if active_article_tab == key %}aria-current="page"{% endif %} href="{{ article_view_url(topic,key,tab_lang,issue.context if issue is defined else none) }}">{{ label }}</a>
   {% endfor %}
 </nav>

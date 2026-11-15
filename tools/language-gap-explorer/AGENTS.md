@@ -1,12 +1,26 @@
 # Existing research implementation
 
-## Unified article preview
+## Unified Issues implementation (current)
+
+`issues.py` is the Flask-independent derived data layer; `issues_routes.py` serves the Article / Issues list, evidence pages, JSON reads and CSRF-protected review updates. The preview is temporary: this functionality must eventually live on native MediaWiki article pages, using native revisions, permissions and wiki-scoped accounts. Preserve public source IDs separately from local wiki IDs during that move. Do not modify or fork upstream core.
+
+Keep the previews until the user verifies parity in MediaWiki, including the complete article content and every Flags interaction. The next histogram iteration must include all detector classifications and link to native Issues with the selected languages, period, type and exact evidence preset, while preserving Back navigation. Do not start inference from navigation.
+
+Use explicit `python issues.py init` and `python issues.py backfill [--topic Q…]` in this directory with the existing research environment. The source records and working flag caches remain authoritative; no automatic backfill or inference occurs on GET. Metadata, coverage and review markers use MariaDB SVT (`WITH SYSTEM VERSIONING`). Assessments/observations are immutable. Language evidence references its immutable paired-occurrence record with an integrity hash; missing/changed evidence fails explicitly.
+
+Default to the newest complete/partial published language checkpoint in the newest indexed run, not the last sighting of every past issue. Detector sets select the newest assessed source revision per edition and check type. A newer successful empty set stays empty; failed/unassessed work does not count as empty. History and explicit run/observation/occurrence URLs preserve older evidence. Snapshot-only comparisons remain separately labeled and filterable. Keep provisional groups scoped to their original run; never group by title or silently merge detector and language issues.
+
+Successful scans are written to a private pending-evidence file and transactionally indexed before replacing a working cache. Failed storage preserves the pending result for saving without another provider call. Cached scans must retain their original assessment identity/time. Exact historical occurrence, selected languages and explorer/list return state survive every handoff. Review markers are shared within this local preview, per observation/edition; they do not resolve issues.
+
+Verification: the pure research regression command includes `test_issues`; opt-in `PALIMPSEST_TEST_ISSUES_DB=1 python -m unittest test_issues -v` creates uniquely named temporary tables and proves SVT history, rescan immutability, idempotence and successful empty-set behavior. It drops only its own test tables. Backfill rereads must not invoke providers or modify source histories. The standalone divergence viewer and native wiki remain separate.
+
+## Previous unified article preview
 
 Article, Language differences and Flags share `templates/article_shell.html`. Preserve exact historical context and repeated language query values across views. Legacy reader/comparison routes remain compatible. `/article/<topic>` defaults to Article. Detector scans require an explicit button; `scan=1` links do not auto-scan. Historical reader mode shows source excerpts/links, never an unrelated snapshot. This is still a Flask preview; do not describe it as native MediaWiki.
 
 ## Latest delivery contract
 
-Main `/explore` uses `lab_explorer.html` and `static/lab-explorer.js/.css`: bare URL opens the centered article/language prompt; explicit topic opens a monthly histogram across the complete source range. Floating zoom controls change the date window, with yearly buckets only when a longer range requires them; month is the finest time unit. Clicking a bucket opens a searchable issue table, not a zoom transition. Counts are period UNIONs with exact selected-pair categories. Clicking an issue opens a wide side-by-side evidence dialog. The constellation view, its unused template/browser assets and its link are removed; legacy read APIs remain compatibility only. The historical notes below describe earlier iterations.
+Main `/explore` uses `lab_explorer.html` and `static/lab-explorer.js/.css`: bare URL opens the centered article/language prompt; explicit topic opens a monthly histogram across the complete source range. Floating zoom controls change the date window, with yearly buckets only when a longer range requires them; month is the finest time unit. Clicking a bucket opens a searchable issue table, not a zoom transition. Counts are period UNIONs with exact selected-pair categories. Clicking an issue opens its full-page Issues evidence; older popup deep links remain compatible. The constellation view, its unused template/browser assets and its link are removed; legacy read APIs remain compatibility only. The historical notes below describe earlier iterations.
 
 `/explore/api/showcase` reads the curated Finnish-history collection and actual preparation status. Partial runs stay visibly partial and usable; an unassessed comparison is not agreement or zero. `article_pipeline.py` can publish successful cached assessments while retaining failed/unresolved cases as unknown, with no failed reservation reset or automatic resend. Unknown grouping checks defer potential duplicate assignments.
 

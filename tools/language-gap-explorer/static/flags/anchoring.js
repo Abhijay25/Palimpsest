@@ -8,7 +8,9 @@
    const quote=String(flag.anchor_text||'').trim();let found=null;
    for(const cell of cells(table,flag.side==='old'?'old':'new'))if(quote&&cell.textContent.includes(quote)){found=cell;break;}
    if(!found){unanchored.push(flag);continue;}
-   const index=found.textContent.indexOf(quote),walker=document.createTreeWalker(found,NodeFilter.SHOW_TEXT),nodes=[];
+   let index=found.textContent.indexOf(quote);
+   if(found.textContent.lastIndexOf(quote)!==index){const context=String(flag.context_sentence||'');const begin=context?found.textContent.indexOf(context):-1;if(begin<0||found.textContent.lastIndexOf(context)!==begin||!context.includes(quote)){unanchored.push(flag);continue;}index=begin+context.indexOf(quote);}
+   const walker=document.createTreeWalker(found,NodeFilter.SHOW_TEXT),nodes=[];
    while(walker.nextNode())nodes.push(walker.currentNode);
    let cursor=0,marks=[];
    for(const node of nodes){

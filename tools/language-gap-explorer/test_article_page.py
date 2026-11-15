@@ -17,15 +17,15 @@ class ArticlePageTests(unittest.TestCase):
         page=response.get_data(as_text=True)
         self.assertEqual(response.status_code,200)
         self.assertIn('aria-label="Article views"',page)
-        self.assertIn('/article/Q-demo?lang=en&amp;tab=language',page)
-        self.assertIn('/article/Q-demo?lang=en&amp;tab=flags',page)
+        self.assertIn('/article/Q-demo/issues?lang=en&amp;tab=issues',page)
+        self.assertNotIn('id="flags-tab"',page)
     def test_default_article_view_does_not_fetch_history_or_scan(self):
         with patch('flags_routes.fetch_history',side_effect=AssertionError('Reader must not fetch history')), patch('flags_routes.requests.post',side_effect=AssertionError('GET must not scan')):
             response=self.client.get('/article/Q-demo?lang=en')
         page=response.get_data(as_text=True)
         self.assertEqual(response.status_code,200)
         self.assertIn('class="wiki-article"',page)
-        self.assertIn('Language differences',page)
+        self.assertIn('Issues',page)
         self.assertNotIn('Read this edition in the',page)
 
     def test_reader_labels_a_different_selected_detector_revision(self):
@@ -43,8 +43,8 @@ class ArticlePageTests(unittest.TestCase):
         with patch('flags_routes.requests.post',side_effect=AssertionError('GET must not scan')):
             response=self.client.get('/article/Q-demo?'+query)
         page=response.get_data(as_text=True)
-        links=re.findall(r'id="(?:article|language|flags)-tab"[^>]*href="([^"]+)"',page)
-        self.assertEqual(len(links),3)
+        links=re.findall(r'id="(?:article|issues)-tab"[^>]*href="([^"]+)"',page)
+        self.assertEqual(len(links),2)
         for link in links:
             args=parse_qs(urlsplit(unescape(link)).query)
             self.assertEqual(args['occurrence'],['c'*64])
@@ -57,7 +57,7 @@ class ArticlePageTests(unittest.TestCase):
     def test_real_flags_context_does_not_render_missing_comparison_data(self):
         context=dict(topic='Q123',title='Real article',current_lang='en',articles={'en':dict(title='Real article')},standalone=True,block_revisions=[])
         with patch('flags_routes.tracker_or_fixture',return_value=context), patch('flags_routes.fixture_enabled',return_value=False):
-            response=self.client.get('/article/Q123?tab=flags')
+            response=self.client.get('/article/Q123?tab=flags&tools=1')
         self.assertEqual(response.status_code,200)
         page=response.get_data(as_text=True)
         self.assertIn('History unavailable',page)
