@@ -22,3 +22,5 @@
 /* Native skins need the same explicit box sizing as the preview shell. */
 .flag-anchored-popover,.flag-anchored-popover .flag-card,.flags-rail .flag-card{box-sizing:border-box}
 .flag-anchored-popover .flag-card{max-width:100%;overflow-wrap:anywhere}
+
+#flags-audit[data-issue-view] .flag-card__reason{white-space:pre-line}.issue-translation{margin:12px 0;padding:12px 0;border-top:1px solid #c8ccd1}.issue-translation>p:first-child{font-weight:600;margin:0 0 8px}.issue-translation button{min-height:32px;padding:4px 10px;margin-bottom:8px}.issue-translation small{display:block;color:#54595d}.issue-translation p[lang=en]{max-width:75ch;line-height:1.6;white-space:pre-wrap}

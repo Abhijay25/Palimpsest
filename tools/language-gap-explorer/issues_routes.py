@@ -143,3 +143,18 @@ def review(iid):
     try:return jsonify(issues.mark_reviewed(topic,iid,body['observation'],body.get('edition','en'),body['reviewed']))
     except ValueError as error:return jsonify(error=str(error)),400
     except LookupError as error:return jsonify(error=str(error)),404
+
+@bp.post('/api/issues/<iid>/translate')
+def translate_issue(iid):
+    token=request.headers.get('X-Review-Token','')
+    if request.headers.get('Sec-Fetch-Site')=='cross-site' or not token or not secrets.compare_digest(token,session.get('review_token','invalid')):
+        return jsonify(error='Reload this page before requesting a translation.'),403
+    body=request.get_json(silent=True) or {};topic=body.get('topic','');validate_topic(topic)
+    if not body.get('observation'):return jsonify(error='Choose an exact observation.'),400
+    try:
+        row=issues.get_observation(topic,iid,body['observation'],body.get('occurrence'),body.get('edition','en'))
+        from issue_context import translate_source
+        return jsonify(translate_source(row,body.get('source_key')))
+    except RuntimeError:return jsonify(error='The local English translator is unavailable. Original passages are preserved; retry when its language model is installed.'),503
+    except ValueError as error:return jsonify(error=str(error)),400
+    except LookupError as error:return jsonify(error=str(error)),404

@@ -176,6 +176,11 @@ def dispatch(payload):
                 source['native_url']=native_url(topic,language,[('source',revision),*((key,value) for key,values in args.items() for value in (values if isinstance(values,list) else [values]) if key not in ('source','lang'))])
                 if source['native_url']:source['native_other_wiki']=language.upper()
         return dict(issue=row, evidence=view, topic=topic)
+    if op == 'translate':
+        row=issues.get_observation(topic,args.get('issue'),args.get('observation'),args.get('occurrence'),edition,review_scope=wiki)
+        from issue_context import translate_source
+        try:return translate_source(row,args.get('translation_source'))
+        except RuntimeError:raise LookupError('The local English translator is unavailable on this server. Original passages are preserved; retry when its language model is installed.') from None
     if op == 'review':
         oid=args.get('observation');iid=args.get('issue')
         if not oid or not iid or not isinstance(payload.get('reviewed'),bool) or int(payload.get('reviewer_id') or 0)<=0:

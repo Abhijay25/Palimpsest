@@ -19,13 +19,24 @@ def cropped_diff(old,new,flag):
 
 def comparison_table(columns):
     headers=''.join('<th scope="col">'+html.escape(c['label'])+'</th>' for c in columns)
-    body=''.join('<td class="mw-diff-inline-'+('deleted' if index==0 else 'added')+'" data-diff-side="'+('old' if index==0 else 'new')+'">'+html.escape(c['text'])+'</td>' for index,c in enumerate(columns))
+    def content(column):
+        source=column.get('source')
+        if not source or source['lang']=='en':return html.escape(column['text'])
+        from issue_context import paragraphs,source_key
+        parts=[];cursor=0
+        for unit in paragraphs(source):
+            parts.append(html.escape(source['quote'][cursor:unit['paragraph_start']]))
+            parts.append('<div class="issue-source-paragraph" lang="'+html.escape(source['lang'])+'">'+html.escape(unit['quote'])+'</div><div class="issue-translation-slot" data-translation-key="'+source_key(unit)+'"></div>')
+            cursor=unit['paragraph_end']
+        parts.append(html.escape(source['quote'][cursor:]))
+        return ''.join(parts)
+    body=''.join('<td class="mw-diff-inline-'+('deleted' if index==0 else 'added')+'" data-diff-side="'+('old' if index==0 else 'new')+'">'+content(c)+'</td>' for index,c in enumerate(columns))
     return Markup('<table style="--comparison-columns:'+str(len(columns))+'" class="flags-diff diff mw-diff-inline"><thead><tr>'+headers+'</tr></thead><tbody><tr>'+body+'</tr></tbody></table>')
 
 def evidence_view(row,edition,expanded=False):
     data=row['evidence'];mode=row['mode'];sources=[];annotations=[];notice='';translations=[]
     if mode in ('language','snapshot'):
-        evidence=list(data.get('evidence',[]))
+        evidence=[dict(e) for e in data.get('evidence',[])]
         evidence.sort(key=lambda e:e.get('lang')!=edition)
         if len(evidence)<2:raise LookupError('The source comparison is incomplete. No substitute passages were used.')
         columns=[]
@@ -39,7 +50,7 @@ def evidence_view(row,edition,expanded=False):
             url=f'https://{lang}.wikipedia.org/w/index.php?oldid={revision}'
             if e.get('url') and e['url']!=url:raise LookupError('The archived revision URL is inconsistent.')
             if row['stamp'] and e.get('stamp','')>row['stamp']:raise LookupError('The source revision exceeds the observation date.')
-            columns.append(dict(label=lang.upper()+' · revision '+str(revision),text=quote))
+            columns.append(dict(label=lang.upper()+' · revision '+str(revision),text=quote,source=e))
             sources.append(dict(label=lang.upper()+' · '+str(revision),url=url,stamp=e.get('stamp','')))
             translated=e.get('translation')
             if not translated and lang!='en':
@@ -48,15 +59,23 @@ def evidence_view(row,edition,expanded=False):
                         c.execute('SELECT translated FROM local_translation WHERE lang=%s AND source=%s ORDER BY created DESC LIMIT 1',(lang,quote));cached=c.fetchone()
                     translated=cached['translated'] if cached else None
                 except Exception:translated=None
-            if isinstance(translated,str) and translated:translations.append(dict(lang=lang,text=translated))
+            if isinstance(translated,str) and translated:
+                e['translation']=translated
+                translations.append(dict(lang=lang,text=translated))
             spans=e.get('highlights') or []
             anchor=quote
             if spans:
                 start,end=spans[0].get('start'),spans[0].get('end')
                 if isinstance(start,int) and isinstance(end,int) and 0<=start<end<=len(quote):anchor=quote[start:end]
             annotations.append(dict(id=row['id']+'-'+str(len(columns)),kind=row['kind'],tier='review',title=row['title'],reason=data.get('reason') or 'Stored language comparison: '+row['label']+'. This annotation identifies the assessed passage; it does not establish which account is correct.',anchor_text=anchor,side='old' if len(columns)==1 else 'new',evidence=[]))
+        from issue_context import description,translation_sources
+        # One logical explanation, anchored on both exact source passages.
+        explained=description(row,evidence)
+        for annotation in annotations:
+            annotation.update(title=explained['title'],reason=explained['reason'],evidence=explained['evidence'],comment_group=row['id'])
         notice='Snapshot-only comparison; historical lifetime is unknown.' if mode=='snapshot' else 'Exact archived source passages. Observations do not establish continuous persistence or a current error.'
-        return dict(diff_html=comparison_table(columns),flags=annotations,sources=sources,notice=notice,focused=True,translations=translations,mode_label='Language editions')
+        return dict(diff_html=comparison_table(columns),flags=annotations,sources=sources,notice=notice,focused=True,translations=translations,
+            title=explained['title'],translation_sources=translation_sources(evidence),explanation_prepared=explained['prepared'],mode_label='Language editions')
     result=data['result'];ref=data['ref'];flag=row['context']['flag'];annotations=[flag]
     if ref.get('lang') not in ('en','fi','sv','ru') or int(ref.get('revision_id') or 0)<=0:raise LookupError('The exact assessed source revision is unavailable.')
     sources=[dict(label=ref['lang'].upper()+' · '+str(ref['revision_id']),url=f"https://{ref['lang']}.wikipedia.org/w/index.php?oldid={ref['revision_id']}",stamp=ref.get('timestamp',''))]
