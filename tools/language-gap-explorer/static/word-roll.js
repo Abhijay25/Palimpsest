@@ -4,20 +4,18 @@
   if (!roll) return;
   const words = [...roll.children], screen = document.getElementById('entry-screen');
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
-  let index = 0, timer, hovering = false;
+  let index = 0, timer;
   function schedule() {
     clearTimeout(timer);
-    if (hovering || reduced.matches || document.hidden || screen.hidden || screen.contains(document.activeElement)) return;
+    if (reduced.matches || document.hidden || screen.hidden || screen.contains(document.activeElement)) return;
     timer = setTimeout(() => {
       words.forEach(word => word.classList.remove('is-previous'));
       words[index].classList.replace('is-current', 'is-previous');
       index = (index + 1) % words.length;
       words[index].classList.add('is-current');
       schedule();
-    }, 2800);
+    }, 1400);
   }
-  roll.addEventListener('pointerenter', () => { hovering = true; schedule(); });
-  roll.addEventListener('pointerleave', () => { hovering = false; schedule(); });
   screen.addEventListener('focusin', schedule);
   screen.addEventListener('focusout', () => queueMicrotask(schedule));
   document.addEventListener('visibilitychange', schedule);
