@@ -89,7 +89,7 @@ final class Hooks {
         }
         unset( $group );
         $query = self::selectionQuery( $skin->getRequest(), $title );
-        $links['views']['issues'] = [ 'text' => 'Issues',
+        $links['views']['issues'] = [ 'text' => 'Issues (New!)',
             'href' => $title->getLocalURL( [ 'action' => 'issues' ] + $query ),
             'class' => $skin->getRequest()->getVal( 'action' ) === 'issues' ? 'selected' : '' ];
         if ( $skin->getRequest()->getVal( 'action' ) === 'issues' && isset( $links['views']['view'] ) ) {
