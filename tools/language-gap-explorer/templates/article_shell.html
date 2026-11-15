@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}{{ title|default(article.title if article is defined else topic) }} · NeoWiki{% endblock %}
+{% block content %}
+{% set tab_lang = current_lang|default(lang|default(source|default('en'))) %}
+{% set active_article_tab = active_article_tab|default('article' if request.endpoint in ['article_page','flags.article'] and request.args.get('tab','article')=='article' else 'issues') %}
+<article class="article-workspace">
+  <div class="article-heading"><h1>{{ title|default(article.title if article is defined else topic) }}</h1></div>
+  {% include 'article_tab_control.html' %}
+  {% if historical %}<p class="note">Historical evidence · {{ historical_date }} · <a href="{{ historical_back }}">Back to overview</a></p>{% endif %}
+  {% block article_content %}{% endblock %}
+</article>
+{% endblock %}

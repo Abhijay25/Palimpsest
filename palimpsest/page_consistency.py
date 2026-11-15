@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -15,10 +16,11 @@ from palimpsest.backends.gemini import (
     DEFAULT_JUDGE_MODEL,
     GeminiClient,
     _GeminiCaller,
+    _env_number,
 )
 from palimpsest.display_text import plain
 
-DEADLINE_S: Final = 8.0
+DEADLINE_S: Final = 45.0
 MAX_GROUPS: Final = 40
 _HEADING: Final = re.compile(r"^={2,}\s*(.*?)\s*={2,}\s*$", re.MULTILINE)
 _WORD: Final = re.compile(r"[^\W\d_][\w'-]*", re.UNICODE)
@@ -160,11 +162,16 @@ class GeminiPageConsistencyJudge:
         client: GeminiClient | None = None,
         caller: _GeminiCaller | None = None,
     ) -> None:
+        self.deadline = min(
+            75.0, _env_number("PALIMPSEST_PAGE_TIMEOUT_SECONDS", DEADLINE_S)
+        )
         self._caller = caller or _GeminiCaller(
-            DEFAULT_JUDGE_MODEL, client, DEFAULT_BACKOFF_SECONDS
+            os.environ.get("GEMINI_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL,
+            client,
+            DEFAULT_BACKOFF_SECONDS,
         )
         if caller is None:
-            self._caller.timeout = DEADLINE_S
+            self._caller.timeout = self.deadline
             self._caller.thinking = types.ThinkingConfig(
                 thinking_level=types.ThinkingLevel.LOW
             )
@@ -193,7 +200,7 @@ class GeminiPageConsistencyJudge:
                 json.dumps(payload, ensure_ascii=False),
                 PageConsistencyAnswers,
             ),
-            DEADLINE_S,
+            self.deadline,
         )
         if isinstance(answer, str):
             raise TypeError(answer)

@@ -170,4 +170,4 @@ def cell_detail(data,languages,group,stamp,current,back,pair='all',kind='all',id
     generated=stored_labels(data['topic']['id'],[group]).get(group,{})
     return dict(id=group,stamp=stamp,occurrence=occurrence['id'],title=generated['title'] if generated.get('status')=='accepted' else question_label(occurrence),kind=occurrence['kind'],label=LABELS[occurrence['kind']],
         evidence=evidence,occurrences=len(supported),assessment_warning=assessment_warning(occurrence),highlight_status=occurrence.get('highlight_status'),highlight_note=evidence_highlight_note(occurrence),destination=' ↔ '.join(e['lang'].upper() for e in evidence),
-        href='/langcompare/'+data['topic']['id']+'?'+urlencode(query))
+        href='/article/'+data['topic']['id']+'/issues/'+__import__('issues').language_id(data['run'],group)+'?'+urlencode(query+[('observation',__import__('issues').identity('occurrence',occurrence['id']))]))

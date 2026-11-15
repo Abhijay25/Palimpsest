@@ -1,0 +1,6 @@
+{% extends 'article_shell.html' %}{% block article_content %}
+<p class="reader-caution">This selection refers to archived revisions. The current snapshot has not been substituted for the selected historical article. Open the original revision to read its full text.</p>
+{% for evidence in historical_evidence %}
+<section class="evidence-column" lang="{{ evidence.lang }}"><h2>{{ evidence.lang|upper }} · {{ evidence.title|default(title,true) }}</h2><p>Revision {{ evidence.rev_id }} · {{ evidence.stamp }}</p><blockquote>{{ evidence.quote }}</blockquote><a href="{{ evidence.url }}" target="_blank" rel="noopener">Read this exact Wikipedia revision ↗</a></section>
+{% endfor %}
+{% endblock %}

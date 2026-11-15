@@ -64,4 +64,63 @@ class FlagsTabTests(unittest.TestCase):
         self.assertEqual(post.call_args.args[0].rsplit('/',1)[-1],'audit-page')
         self.assertEqual(post.call_args.kwargs['json'],{'lang_code':'en','page_title':'Example','revision_id':22,'wikitext':'Current sentence.'})
         self.assertEqual(post.call_args.kwargs['headers'],{'X-Palimpsest-Fresh':'1'})
+    def test_connection_errors_are_readable_and_do_not_expose_internal_urls(self):
+        import flags_routes
+        ref=RevisionRef('en',22,'Example',parent_id=21)
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False), patch('flags_routes.fetch_revision',side_effect=[{'parent_id':21,'wikitext':'new'},{'wikitext':'old'}]), patch('flags_routes.requests.post',side_effect=flags_routes.requests.ConnectionError('HTTPConnectionPool 127.0.0.1:8765 private details')):
+            result=flags_routes.response_payload(ref,{},True)
+        self.assertEqual(result['status'],'error')
+        self.assertIn('Start the detector service',result['error'])
+        self.assertNotIn('127.0.0.1',result['error'])
+
+    def test_failed_page_results_are_not_cached_or_reported_as_success(self):
+        from flags_routes import page_response_payload,page_path
+        ref=RevisionRef('en',22,'Example')
+        class Response:
+            def raise_for_status(self): pass
+            def json(self): return {'status':'error','flags':[],'error':'provider failed with private details'}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False), patch('flags_routes.fetch_revision',return_value={'wikitext':'Article text'}), patch('flags_routes.requests.post',return_value=Response()):
+            result=page_response_payload(ref,{},True)
+            self.assertFalse(page_path(ref).exists())
+        self.assertEqual(result['status'],'error')
+        self.assertNotIn('private details',result['error'])
+
+    def test_previously_failed_cache_entries_are_ignored(self):
+        from flags_routes import cached_audit,cached_page_audit,audit_path,page_path
+        ref=RevisionRef('en',22,'Example')
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ,{'LANGGAP_FLAGS_CACHE':directory},clear=False):
+            for path in [audit_path(ref),page_path(ref)]:
+                path.parent.mkdir(parents=True,exist_ok=True)
+                path.write_text(json.dumps({'status':'error','flags':[]}),encoding='utf-8')
+            self.assertIsNone(cached_audit(ref,{}))
+            self.assertIsNone(cached_page_audit(ref,{}))
+
+    def test_detector_health_distinguishes_offline_unconfigured_and_ready(self):
+        import flags_routes
+        from app import app
+        class Response:
+            def raise_for_status(self): pass
+            def json(self): return {'judge_configured':self.configured}
+        reply=Response()
+        with patch.dict(os.environ,{'LANGGAP_FIXTURES':'0'},clear=False), app.test_client() as client:
+            with patch('flags_routes.requests.get',side_effect=flags_routes.requests.ConnectionError('raw error')):
+                self.assertFalse(client.get('/api/flags/health').get_json()['available'])
+            with patch('flags_routes.requests.get',return_value=reply):
+                reply.configured=False
+                result=client.get('/api/flags/health').get_json()
+                self.assertTrue(result['available']);self.assertFalse(result['configured'])
+                reply.configured=True
+                self.assertTrue(client.get('/api/flags/health').get_json()['configured'])
+
+    def test_preview_serves_the_native_comment_stacking_helper(self):
+        from app import app
+        from pathlib import Path
+        expected=Path(__file__).resolve().parents[2]/'infra/wiki/extensions/PalimpsestFlags/resources/stacking.js'
+        with app.test_client() as client:
+            response=client.get('/assets/flags/stacking.js')
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.mimetype,'application/javascript')
+            self.assertEqual(response.data,expected.read_bytes())
+            response.close()
+
 if __name__=='__main__': unittest.main()

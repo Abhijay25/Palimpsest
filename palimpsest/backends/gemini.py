@@ -161,7 +161,7 @@ class _GeminiCaller:
         config = types.GenerateContentConfig(
             system_instruction=system,
             response_mime_type="application/json",
-            response_schema=schema,
+            response_json_schema=schema.model_json_schema(),
             temperature=0,
             # Fixed seed: repeated audits of the same edit should give the same flags.
             seed=_env_int("GEMINI_SEED", DEFAULT_SEED),
