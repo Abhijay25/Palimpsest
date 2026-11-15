@@ -124,11 +124,27 @@ def demo(command,identity):
     remote(code)
 
 
+def database_validate(identity):
+    if not re.fullmatch('[a-f0-9]{64}',identity or ''):raise ValueError('Use the validated release hash.')
+    remote('''import pathlib,subprocess
+folder=pathlib.Path('/opt/neowiki-on-demand/releases')/IDENTITY
+code="from pathlib import Path; import os,unittest; os.environ['DB_PASSWORD']=Path('/run/secrets/db-password').read_text().strip(); unittest.main(module='test_issues',argv=['unittest','IssueDatabaseTests','-v'])"
+args=['docker','run','--rm','--network','neowiki-research_default','--read-only','--user','10001:10001','--group-add','33','--tmpfs','/tmp:rw,nosuid,nodev,size=64m',
+ '--volume',str(folder)+':/source:ro','--volume','/etc/neowiki-research/secrets/db-password:/run/secrets/db-password:ro',
+ '--workdir','/source/tools/language-gap-explorer','--env','PYTHONPATH=/source','--env','PYTHONDONTWRITEBYTECODE=1','--env','PYTHON_DOTENV_DISABLED=1',
+ '--env','PALIMPSEST_TEST_ISSUES_DB=1','--env','DB_HOST=neowiki-research-db-1','--env','DB_PORT=3306','--env','DB_USER=explorer','--env','DB_NAME=language_gaps',
+ '--env','NEOWIKI_RESEARCH_ROOT=/tmp/fixture-root','--entrypoint','python','sha256:46814597c3e92d171c22ba483ca2978cfaf81630033c56b01eb2a3e66c01052b','-B','-c',code]
+subprocess.run(args,check=True)
+print('Isolated MariaDB/SVT contract tests passed; only their uniquely named test_ui_* tables were created/dropped. No provider keys mounted or calls made.')
+'''.replace('IDENTITY',repr(identity)))
+
+
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('command',choices=('inspect','stage','validate','inventory','framing','demo-prepare','demo-start','demo-status'));parser.add_argument('--release');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('command',choices=('inspect','stage','validate','database-validate','inventory','framing','demo-prepare','demo-start','demo-status'));parser.add_argument('--release');args=parser.parse_args()
     if args.command=='inspect':inspect()
     elif args.command=='stage':stage()
     elif args.command=='inventory':inventory()
     elif args.command=='framing':framing()
     elif args.command.startswith('demo-'):demo(args.command.removeprefix('demo-'),args.release)
+    elif args.command=='database-validate':database_validate(args.release)
     else:validate(args.release)
