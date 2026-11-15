@@ -53,3 +53,4 @@ jobs:
         working-directory: tools/language-gap-explorer
       - run: python scripts/sync_issues_assets.py --check
       - run: node --check infra/wiki/extensions/PalimpsestIssues/resources/jobs.js
+      - run: node tools/language-gap-explorer/test_native_jobs_api.js

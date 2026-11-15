@@ -7,6 +7,7 @@ import asyncio
 import os
 from pathlib import Path
 import unittest
+from contextlib import ExitStack
 from unittest.mock import AsyncMock, patch
 import on_demand_jobs as jobs
 import on_demand_worker as worker
@@ -32,7 +33,18 @@ class DetectorAdapterTests(unittest.TestCase):
         old_client=backend.Client
         old_generate=backend._GeminiCaller.generate
         original_cwd=Path.cwd()
-        with patch.dict(os.environ,GEMINI_API_KEY='OFFLINE-FIXTURE-NOT-A-REAL-KEY'),patch.object(AsyncModels,'generate_content',network),patch.object(api,'get_page_consistency_judge',return_value=object()),patch.object(api,'adjudicate_page',adjudicate),patch('on_demand_worker.disk'):
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ,GEMINI_API_KEY='OFFLINE-FIXTURE-NOT-A-REAL-KEY'))
+            stack.enter_context(patch.object(AsyncModels,'generate_content',network))
+            stack.enter_context(patch.object(api,'get_page_consistency_judge',return_value=object()))
+            stack.enter_context(patch('on_demand_worker.disk'))
+            if hasattr(api,'adjudicate_groups'):
+                async def modern(groups,judge):
+                    _,decisions=await adjudicate('',judge)
+                    return decisions
+                stack.enter_context(patch.object(api,'ordered_candidate_groups',return_value=[]))
+                stack.enter_context(patch.object(api,'adjudicate_groups',modern))
+            else:stack.enter_context(patch.object(api,'adjudicate_page',adjudicate))
             try:return asyncio.run(worker.detector(job))
             finally:
                 backend.Client=old_client;backend._GeminiCaller.generate=old_generate
@@ -67,7 +79,10 @@ class DetectorAdapterTests(unittest.TestCase):
                 # it before the mocked network transport can be invoked again.
                 await AsyncModels.generate_content(object(),**kwargs)
             return [],[]
-        with self.assertRaises(RuntimeError):self.execute(job,sdk,adjudicate)
+        try:
+            result=self.execute(job,sdk,adjudicate)
+        except RuntimeError:pass  # older source-locked API returns status=error
+        else:self.assertTrue(result['partial'])  # newer API retains partial evidence
         sdk.assert_awaited_once()
         self.assertEqual(worker.attempts(job)['failed_or_unknown'],1)
 

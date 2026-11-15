@@ -20,7 +20,7 @@ class IssueTests(unittest.TestCase):
 
     def test_language_evidence_is_escaped_and_missing_current_edition_is_explicit(self):
         view=evidence_view(self.language(),'en')
-        self.assertIn('EN Â· evidence unavailable',view['diff_html'])
+        self.assertIn('EN \u00b7 evidence unavailable',view['diff_html'])
         self.assertIn('&lt;script&gt;',view['diff_html'])
         self.assertNotIn('<script>',view['diff_html'])
         self.assertIn('--comparison-columns:3',view['diff_html'])
@@ -28,7 +28,7 @@ class IssueTests(unittest.TestCase):
 
     def test_language_order_preserves_current_edition(self):
         view=evidence_view(self.language(),'sv')
-        self.assertLess(view['diff_html'].index('SV Â· revision'),view['diff_html'].index('FI Â· revision'))
+        self.assertLess(view['diff_html'].index('SV \u00b7 revision'),view['diff_html'].index('FI \u00b7 revision'))
         self.assertEqual(view['flags'][0]['anchor_text'],'Original wording')
 
     def test_future_or_wrong_source_revision_fails_explicitly(self):

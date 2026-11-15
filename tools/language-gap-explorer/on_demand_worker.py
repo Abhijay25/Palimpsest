@@ -164,15 +164,16 @@ async def detector(job):
             old_wikitext=source['parent_wikitext'], new_wikitext=source['wikitext'], ref_urls=[])
         response = await api.audit_diff(request, api.get_fetcher(), api.get_judge_backend(), api.get_reviewer_backend(), api.get_auditor_provider())
     value = serial(response)
-    if value.get('status', 'ok') != 'ok':
+    raw_status=value.get('status','ok')
+    if raw_status not in ('ok','partial'):
         raise RuntimeError('Detector did not return a successful assessment.')
-    value.update(status='ok', _issue_assessment=job['id'], _issue_assessed_at=jobs.now(),
+    value.update(status='ok',raw_detector_status=raw_status, _issue_assessment=job['id'], _issue_assessed_at=jobs.now(),
                  on_demand_configuration=config, source_sha256=source['sha256'],
                  parent_sha256=source.get('parent_sha256'), provider_usage=attempts(job))
     unavailable=any(value.get(stage,{}).get('status')=='unavailable' or value.get(stage,{}).get('error')
                     for stage in ('citation_dates','citation_lifecycle','cherry_pick','reviewer'))
     value['adapter_errors']=adapter_errors
-    value['partial'] = bool(value.get('partial') or value.get('error') or value['provider_usage']['failed_or_unknown'] or adapter_errors or unavailable)
+    value['partial'] = bool(raw_status=='partial' or value.get('partial') or value.get('error') or value['provider_usage']['failed_or_unknown'] or adapter_errors or unavailable)
     if job['kind'] == 'page':
         from palimpsest.page_consistency import candidate_groups, MAX_GROUPS
         value['partial'] = value['partial'] or len(candidate_groups(source['wikitext'])) >= MAX_GROUPS
