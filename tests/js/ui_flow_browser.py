@@ -291,7 +291,7 @@ def main():
         page.get_by_role("textbox", name="Describe a date query").fill("Latest version before 1 April 2026")
         page.get_by_role("button", name="Interpret date query").click()
         assert "2026-04-01T00:00:00Z" in page.locator(".pb-date-preview").inner_text()
-        assert "does not prove the live source wiki’s state" in page.locator(".pb-date-preview").inner_text()
+        assert "Only imported revisions are available." in page.locator(".pb-date-preview").inner_text()
         page.get_by_role("button", name="Apply these bounds").click()
         page.wait_for_selector(".pb-version")
         assert page.locator(".pb-breakdown").count() == 1, "date search must remain usable without closing the selection breakdown"
