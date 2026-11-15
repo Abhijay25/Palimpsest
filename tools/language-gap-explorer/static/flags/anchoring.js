@@ -1,28 +1,21 @@
 /* Lightweight standalone adaptation of the native Palimpsest anchor resolver. */
-(function(root){
- 'use strict';
- function cells(table,side){return [...table.querySelectorAll('[data-diff-side="'+side+'"].mw-diff-inline-'+(side==='old'?'deleted':'added'))];}
- function resolve(table,flags){
-  const anchored=[],unanchored=[];
-  for(const flag of flags){
-   const quote=String(flag.anchor_text||'').trim();let found=null;
-   for(const cell of cells(table,flag.side==='old'?'old':'new'))if(quote&&cell.textContent.includes(quote)){found=cell;break;}
-   if(!found){unanchored.push(flag);continue;}
-   const index=found.textContent.indexOf(quote),walker=document.createTreeWalker(found,NodeFilter.SHOW_TEXT),nodes=[];
-   while(walker.nextNode())nodes.push(walker.currentNode);
-   let cursor=0,marks=[];
-   for(const node of nodes){
-    const start=cursor,end=cursor+node.nodeValue.length;cursor=end;
-    if(index>=end||index+quote.length<=start)continue;
-    const a=Math.max(index,start)-start,b=Math.min(index+quote.length,end)-start;
-    const after=node.splitText(b),selected=node.splitText(a),mark=document.createElement('mark');
-    mark.className='diff-anchor';mark.dataset.flagId=flag.id;
-    selected.parentNode.replaceChild(mark,selected);mark.append(selected);marks.push(mark);void after;
-   }
-   if(marks.length)anchored.push({flag,marks,mark:marks[0]});else unanchored.push(flag);
-  }
-  return {anchored,unanchored};
- }
- function unwrap(table){table.querySelectorAll('mark.diff-anchor').forEach(mark=>mark.replaceWith(...mark.childNodes));}
- root.PalimpsestFlagsAnchoring={resolve,unwrap};
-})(window);
+(function (root, factory) {
+  'use strict';
+  var api = factory(); if (typeof module === 'object' && module.exports) module.exports = api; root.PalimpsestFlagsAnchoring = api;
+}(window, function () {
+  'use strict';
+  function normalize(text) { return String(text || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function stripQuoteMarks(text) { return String(text || '').replace(/^[\s"“”«»']+|[\s"“”«»']+$/g, ''); }
+  function sideCells(table, side) { return Array.prototype.slice.call(table.querySelectorAll('[data-diff-side="' + side + '"].mw-diff-inline-' + (side === 'old' ? 'deleted' : 'added') + ',[data-diff-side="' + side + '"].mw-diff-inline-changed')); }
+  function textNodes(cell) { var nodes = [], walker = document.createTreeWalker(cell, NodeFilter.SHOW_TEXT, { acceptNode: function (node) { return node.parentElement && !node.parentElement.closest('.diff-anchor,.pf-inline-pin') ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT; } }); while (walker.nextNode()) nodes.push(walker.currentNode); return nodes; }
+  function indexCell(cell) { var text = '', parts = []; textNodes(cell).forEach(function (node) { var start = text.length; text += node.nodeValue; parts.push({ node: node, start: start, end: text.length }); }); return { cell: cell, text: text, normalized: normalize(text), parts: parts }; }
+  function overlapScore(source, context) { if (!context) return 0; var grams = {}, score = 0, normalized = normalize(context); for (var index = 0; index + 2 < normalized.length; index++) grams[normalized.slice(index, index + 3)] = true; for (var cursor = 0; cursor + 2 < source.length; cursor++) if (grams[source.slice(cursor, cursor + 3)]) score++; return score; }
+  // Model quotes are prose; app diffs preserve inserted/deleted markup, so accept links,
+  // emphasis and other wikitext-like punctuation between the quote's tokens.
+  function markupTolerant(entries, anchor, flag) { var tokens = normalize(anchor).match(/[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu) || []; if (tokens.filter(function (token) { return /[\p{L}\p{N}]/u.test(token); }).length < 2) return []; var gap = '(?:\\s|\\[\\[[^\\]|]*\\||[\\[\\]\'*|])*', found = [], pattern = new RegExp(tokens.map(function (token) { return token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }).join(gap), 'gu'); entries.forEach(function (entry, order) { var match; pattern.lastIndex = 0; while ((match = pattern.exec(entry.text)) !== null) { found.push({ entry: entry, start: match.index, end: match.index + match[0].length, order: order, score: overlapScore(entry.normalized, flag.context_sentence) }); if (!match[0].length) pattern.lastIndex++; } }); return found; }
+  function findMatch(entries, flag) { var anchor = stripQuoteMarks(flag.anchor_text), matches = []; if (!anchor) return null; entries.forEach(function (entry, order) { var start = entry.text.indexOf(anchor); while (start !== -1) { matches.push({ entry: entry, start: start, end: start + anchor.length, order: order, score: overlapScore(entry.normalized, flag.context_sentence) }); start = entry.text.indexOf(anchor, start + 1); } }); if (!matches.length) matches = markupTolerant(entries, anchor, flag); if (!matches.length) return null; var approximate = Number.isInteger(flag.anchor_start) ? 1 + flag.anchor_start / 80 : 0; matches.sort(function (a, b) { var changedA = a.entry.cell.querySelector('ins.diffchange,del.diffchange') ? 1 : 0, changedB = b.entry.cell.querySelector('ins.diffchange,del.diffchange') ? 1 : 0; return (b.score - a.score) || (changedB - changedA) || (Math.abs(a.order - approximate) - Math.abs(b.order - approximate)) || (a.order - b.order); }); return matches[0]; }
+  function wrap(match, flag) { var ranges = [], marks = []; match.entry.parts.forEach(function (part) { var from = Math.max(part.start, match.start), to = Math.min(part.end, match.end); if (from < to) ranges.push({ node: part.node, start: from - part.start, end: to - part.start }); }); ranges.reverse().forEach(function (range, index) { var node = range.node, after = node.splitText(range.end), selected = node.splitText(range.start), mark = document.createElement('mark'); mark.className = 'diff-anchor palimpsest-anchor'; mark.dataset.flagId = flag.id; mark.id = index === ranges.length - 1 ? 'pf-mark-' + flag.id : ''; mark.tabIndex = 0; selected.parentNode.replaceChild(mark, selected); mark.appendChild(selected); marks.unshift(mark); void after; }); return marks; }
+  function resolve(table, flags) { var result = { anchored: [], unanchored: [] }; flags.forEach(function (flag) { var entries = sideCells(table, flag.side === 'old' ? 'old' : 'new').map(indexCell), match = findMatch(entries, flag); if (!match) { result.unanchored.push(flag); return; } var marks = wrap(match, flag); if (marks.length) { if (flag.related_anchor_text) { var related = findMatch(entries, Object.assign({}, flag, { anchor_text: flag.related_anchor_text })); if (related) wrap(related, flag).forEach(function (mark) { mark.classList.add('pf-anchor--related'); mark.dataset.pfRelatedId = flag.id; }); } result.anchored.push({ flag: flag, marks: marks, mark: marks[0] }); } else result.unanchored.push(flag); }); return result; }
+  function unwrap(table) { Array.prototype.slice.call(table.querySelectorAll('mark.diff-anchor')).forEach(function (mark) { mark.replaceWith.apply(mark, Array.prototype.slice.call(mark.childNodes)); }); }
+  return { normalize: normalize, stripQuoteMarks: stripQuoteMarks, sideCells: sideCells, resolve: resolve, unwrap: unwrap, findMatch: findMatch };
+}));

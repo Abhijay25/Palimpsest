@@ -265,7 +265,7 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
             body = {"lang_code": ref.lang, "page_title": ref.title,
                     "revision_id": ref.revision_id, "wikitext": wikitext}
             api_url = os.environ.get("PALIMPSEST_API_URL", "http://127.0.0.1:8765").rstrip("/") + "/api/v1/audit-page"
-            response = requests.post(api_url, json=body, timeout=90,
+            response = requests.post(api_url, json=body, timeout=110,
                                      headers={"X-Palimpsest-Fresh": "1"} if fresh else {})
             response.raise_for_status()
             result = response.json()
