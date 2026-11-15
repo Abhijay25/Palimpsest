@@ -46,6 +46,11 @@ final class Hooks {
     }
 
     public static function articleNotice( $output, $skin ): void {
+        $explorer = $output->getConfig()->get( 'PalimpsestIssuesExplorerUrl' );
+        if ( $explorer ) {
+            $output->addJsConfigVars( 'palimpsestExplorerUrl', $explorer );
+            $output->addModules( 'ext.palimpsest.logoLink' );
+        }
         $title = $output->getTitle();
         if ( !$title || $title->getNamespace() !== NS_MAIN || $output->getRequest()->getVal( 'action', 'view' ) !== 'view' ) { return; }
         try {

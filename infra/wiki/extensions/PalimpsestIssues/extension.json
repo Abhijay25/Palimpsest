@@ -59,6 +59,9 @@
     "remoteExtPath": "PalimpsestIssues/resources"
   },
   "ResourceModules": {
+    "ext.palimpsest.logoLink": {
+      "scripts": [ "logo-link.js" ]
+    },
     "ext.palimpsest.issues.article.fi": {
       "styles": [ "source-fi.css" ]
     },
