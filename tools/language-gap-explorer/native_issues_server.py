@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 from native_issues import authenticated, dispatch
+from on_demand_jobs import RequestError
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -41,6 +42,8 @@ class Handler(BaseHTTPRequestHandler):
             payload=json.loads(body)
             if not isinstance(payload,dict):raise ValueError('Invalid request.')
             return self.respond(200,dict(status='ok',data=dispatch(payload)))
+        except RequestError as error:
+            return self.respond(409,dict(error=str(error)))
         except (ValueError,TypeError):
             return self.respond(400,dict(error='Invalid Issues selection.'))
         except LookupError as error:

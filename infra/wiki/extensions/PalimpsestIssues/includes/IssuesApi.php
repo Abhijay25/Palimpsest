@@ -19,7 +19,7 @@ final class IssuesApi extends ApiBase {
             $this->dieWithError( 'apierror-permissiondenied' );
         }
         $op = $params['op'];
-        if ( in_array( $op, [ 'review', 'scan' ], true ) ) {
+        if ( in_array( $op, [ 'review', 'scan', 'jobplan', 'enqueue' ], true ) ) {
             $right = $op === 'review' ? 'palimpsest-review' : 'palimpsest-scan';
             if ( !$this->getUser()->isRegistered() || !$pm->userCan( $right, $this->getUser(), $title ) || $services->getReadOnlyMode()->isReadOnly() ) {
                 $this->dieWithError( 'apierror-permissiondenied' );
@@ -29,7 +29,7 @@ final class IssuesApi extends ApiBase {
             $query = json_decode( $params['selection'], true, 16, JSON_THROW_ON_ERROR );
             if ( !is_array( $query ) ) { throw new DomainException( 'Invalid evidence selection.' ); }
             $extra = [];
-            if ( in_array( $op, [ 'review', 'scan' ], true ) ) {
+            if ( in_array( $op, [ 'review', 'scan', 'jobplan', 'enqueue' ], true ) ) {
                 $extra = [ 'reviewer_id' => $this->getUser()->getId(), 'reviewed' => $params['reviewed'] === 'yes' ];
             }
             if ( $op === 'versions' ) {
@@ -39,22 +39,29 @@ final class IssuesApi extends ApiBase {
                     'local' => $r['local_revision_id'], 'source_parent' => $r['source_parent_id'] ?? null,
                 ], $page['revisions'] ), 'history_complete' => (bool)( $page['history_complete'] ?? false ) ];
             } else {
-                if ( in_array( $op, [ 'scan', 'cached' ], true ) ) {
+                if ( in_array( $op, [ 'scan', 'cached', 'jobplan' ], true ) ) {
                     $selected = $query['revision'] ?? '';
                     if ( !ctype_digit( (string)$selected ) ) { throw new DomainException( 'Select an exact source revision.' ); }
                     $mapped = SourceMap::resolve( $title, (int)$selected, $this->getUser() );
                     $record = $mapped['record'];
-                    if ( $op === 'scan' && $params['mode'] === 'revision' ) {
+                    if ( in_array( $op, [ 'scan', 'jobplan' ], true ) && $params['mode'] === 'revision' ) {
                         $parent = SourceMap::resolve( $title, (int)( $record['source_parent_id'] ?? 0 ), $this->getUser() );
                         if ( $parent['revision']->getId() !== $mapped['revision']->getParentId() ) {
                             throw new DomainException( 'The exact parent revision is not reconciled. No substitute edit was scanned.' );
                         }
                     }
-                    $extra = [ 'source' => [ 'revision_id' => $record['source_revision_id'],
+                    $extra += [ 'source' => [ 'revision_id' => $record['source_revision_id'],
                         'sha256' => $record['sha256'], 'title' => $title->getPrefixedText(),
                         'timestamp' => $record['timestamp'], 'parent_id' => $record['source_parent_id'] ?? null,
                         'lang' => $services->getMainConfig()->get( 'LanguageCode' ) ],
                         'mode' => $params['mode'], 'fresh' => $params['fresh'] === 'yes' ];
+                    if ( $op === 'jobplan' && $params['mode'] === 'revision' ) {
+                        $extra['source_parent'] = [ 'revision_id' => $parent['record']['source_revision_id'],
+                            'sha256' => $parent['record']['sha256'], 'title' => $title->getPrefixedText(),
+                            'timestamp' => $parent['record']['timestamp'],
+                            'parent_id' => $parent['record']['source_parent_id'] ?? null,
+                            'lang' => $services->getMainConfig()->get( 'LanguageCode' ) ];
+                    }
                 }
                 $result = Bridge::request( $title, $op, $query, $extra );
                 if ( in_array( $op, [ 'scan', 'cached' ], true ) ) {
@@ -114,15 +121,15 @@ final class IssuesApi extends ApiBase {
 
     public function getAllowedParams() { return [
         'title' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_REQUIRED => true ],
-        'op' => [ ParamValidator::PARAM_TYPE => [ 'list', 'detail', 'legacy', 'health', 'versions', 'cached', 'scan', 'review', 'translate' ], ParamValidator::PARAM_DEFAULT => 'list' ],
+        'op' => [ ParamValidator::PARAM_TYPE => [ 'list', 'detail', 'legacy', 'health', 'versions', 'cached', 'scan', 'review', 'translate', 'jobpolicy', 'jobplan', 'enqueue', 'jobs', 'job' ], ParamValidator::PARAM_DEFAULT => 'list' ],
         'selection' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '{}' ],
-        'mode' => [ ParamValidator::PARAM_TYPE => [ 'revision', 'page' ], ParamValidator::PARAM_DEFAULT => 'revision' ],
+        'mode' => [ ParamValidator::PARAM_TYPE => [ 'revision', 'page', 'language' ], ParamValidator::PARAM_DEFAULT => 'revision' ],
         // MediaWiki boolean parameters mean presence, even for "false"/"0".
         // Explicit yes/no enums are required for undo and cache-preserving scans.
         'reviewed' => [ ParamValidator::PARAM_TYPE => [ 'yes', 'no' ], ParamValidator::PARAM_DEFAULT => 'no' ],
         'fresh' => [ ParamValidator::PARAM_TYPE => [ 'yes', 'no' ], ParamValidator::PARAM_DEFAULT => 'no' ],
     ]; }
-    public function mustBePosted() { return in_array( $this->getRequest()->getVal( 'op' ), [ 'review', 'scan', 'translate' ], true ); }
+    public function mustBePosted() { return in_array( $this->getRequest()->getVal( 'op' ), [ 'review', 'scan', 'translate', 'jobplan', 'enqueue' ], true ); }
     public function needsToken() { return $this->mustBePosted() ? 'csrf' : false; }
-    public function isWriteMode() { return in_array( $this->getRequest()->getVal( 'op' ), [ 'review', 'scan' ], true ); }
+    public function isWriteMode() { return in_array( $this->getRequest()->getVal( 'op' ), [ 'review', 'scan', 'jobplan', 'enqueue' ], true ); }
 }

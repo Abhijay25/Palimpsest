@@ -70,7 +70,8 @@ def call(endpoint,payload,stage):
     if endpoint!='decisions' and not (endpoint=='responses' and stage=='question_titles'):
         raise APIError('Text generation is enabled only for cached question naming.')
     body=json.dumps(payload,ensure_ascii=False)
-    identity=hashlib.sha256((endpoint+body).encode()).hexdigest()
+    namespace=os.environ.get('NEOWIKI_ON_DEMAND_NAMESPACE','')
+    identity=hashlib.sha256((namespace+endpoint+body).encode()).hexdigest()
     # UTF-8 byte count bounds token count conservatively. Use long-context rates,
     # plus a margin for server serialization; never credit discounts in the ceiling.
     reservation=(len(body.encode())+4096)*.25/1e6+(payload.get('max_output_tokens',0)*1/1e6)

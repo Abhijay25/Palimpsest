@@ -151,6 +151,11 @@ def dispatch(payload):
     if not isinstance(wiki,str) or not re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}',wiki):
         raise ValueError('A native wiki identity is required.')
     op = payload.get('op', 'list')
+    if op in ('jobpolicy','jobplan','enqueue','jobs','job'):
+        from on_demand_bridge import dispatch as job_dispatch
+        return job_dispatch(payload,topic)
+    if op=='scan' and os.environ.get('NEOWIKI_ON_DEMAND_ROOT'):
+        raise ValueError('Use the authenticated background request preview and queue. Synchronous paid scans are disabled.')
     if op == 'list':
         result = issues.list_issues(topic, args, review_scope=wiki)
         result.update(topic=topic, labels=LABELS)
