@@ -1,5 +1,8 @@
 # Explicit owned-runtime overlay. No provider credential is mounted by default.
 services:
+  web:
+    environment:
+      PALIMPSEST_NATIVE_AVAILABILITY_FILE: /var/lib/neowiki/data/native-availability.json
   native-issues:
     working_dir: /opt/neowiki-source/tools/language-gap-explorer
     entrypoint: ["python", "on_demand_runtime.py", "bridge"]
@@ -9,6 +12,7 @@ services:
       PYTHON_DOTENV_DISABLED: "1"
       NEOWIKI_ON_DEMAND_ROOT: /var/lib/neowiki-on-demand
       NEOWIKI_ON_DEMAND_POLICY: /run/neowiki-on-demand/policy.json
+      PALIMPSEST_NATIVE_AVAILABILITY_FILE: /var/lib/neowiki/data/native-availability.json
     volumes:
       - ${NEOWIKI_SOURCE_RELEASE:?Set the current verified source release}:/opt/neowiki-source:ro
       - ${NEOWIKI_ON_DEMAND_ROOT:?Set the owned persistent queue directory}:/var/lib/neowiki-on-demand:rw

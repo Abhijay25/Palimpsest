@@ -183,6 +183,16 @@ are never cleared. Local operator batch actors are recorded explicitly as
 `operator:<authorization_id>` and never impersonate native account IDs. The HTTP
 dispatcher exposes no operator enqueue operation.
 
+The secondary articles currently have archived evidence but no native root
+imports. `export_native_availability.py` explicitly reconciles existing native
+provenance bundles with dataset page/topic identities. Its small derived manifest
+is supplied through `PALIMPSEST_NATIVE_AVAILABILITY_FILE` on viewer/bridge reads.
+Native handoffs are enabled only for matching imported roots; other articles use
+the existing read-only archived preview. Missing/corrupt availability metadata
+fails closed. No source ID is guessed as a local revision, and no import or source
+acquisition happens on a browse request. Exact historical native article bodies
+remain subject to their independent revision reconciliation.
+
 ### Automatic main deployment
 
 The optional `on_demand` block in `/etc/neowiki-main/config.json` supplies `root`,
