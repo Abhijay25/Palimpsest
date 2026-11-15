@@ -18,7 +18,12 @@ class FlagsTabTests(unittest.TestCase):
     def test_diff_is_a_side_by_side_word_diff_with_anchor_cells(self):
         from flags_routes import diff_html
         rendered=diff_html('The harbor used blue lamps in winter.','The harbor used blue lamps in winter. Volunteers recorded arrivals.')
-        self.assertIn('Prior revision',rendered);self.assertIn('Selected revision',rendered);self.assertIn('data-diff-side="old"',rendered);self.assertIn('data-diff-side="new"',rendered);self.assertIn('<ins class="diffchange"> Volunteers recorded arrivals.</ins>',rendered)
+        self.assertIn('Prior revision',rendered);self.assertIn('Selected revision',rendered);self.assertIn('Line 1:',rendered);self.assertIn('data-diff-side="old"',rendered);self.assertIn('data-diff-side="new"',rendered);self.assertIn('<ins class="diffchange"> Volunteers recorded arrivals.</ins>',rendered)
+    def test_diff_collapses_unchanged_lines_between_two_line_context_hunks(self):
+        from flags_routes import diff_html
+        old='\n'.join('Line '+str(index) for index in range(1,21))
+        rendered=diff_html(old,old.replace('Line 4','Changed 4').replace('Line 17','Changed 17'))
+        self.assertIn('unchanged lines collapsed',rendered);self.assertIn('Line 2:',rendered);self.assertIn('Line 15:',rendered);self.assertNotIn('Line 10</td>',rendered)
     def test_proxy_stores_detector_response(self):
         from flags_routes import response_payload
         ref=RevisionRef('en',22,'Example',parent_id=21)

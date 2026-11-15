@@ -36,7 +36,7 @@
       });
       menu.appendChild(el('p', 'palimpsest-filter-hint', 'No types selected means all types are shown.')); filters.append(control, menu); summary.appendChild(filters);
       var nav = el('div', 'palimpsest-nav'), previous = button('palimpsest-nav-button', '‹ Prev'), next = button('palimpsest-nav-button', 'Next ›'), position = shown.findIndex(function (item) { return item.id === state.active; });
-      previous.setAttribute('aria-label', 'Previous item'); next.setAttribute('aria-label', 'Next item'); previous.disabled = next.disabled = shown.length <= 1; previous.addEventListener('click', function () { navigate(-1); }); next.addEventListener('click', function () { navigate(1); }); nav.append(previous, el('span', 'palimpsest-counter', (position < 0 ? '–' : position + 1) + ' of ' + shown.length), next); summary.appendChild(nav);
+      previous.setAttribute('aria-label', 'Previous item'); next.setAttribute('aria-label', 'Next item'); previous.disabled = next.disabled = shown.length <= 1; previous.addEventListener('click', function () { navigate(-1); }); next.addEventListener('click', function () { navigate(1); }); nav.append(previous, el('span', 'palimpsest-counter', (position < 0 ? '0' : position + 1) + ' of ' + shown.length), next); summary.appendChild(nav);
     }
     function setAnchorState(item, on) { anchorsFor(item).forEach(function (anchor) { anchor.classList.toggle('palimpsest-anchor-active', on); }); }
     function renderCards() {

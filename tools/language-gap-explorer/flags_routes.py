@@ -138,8 +138,8 @@ def revision_rows(context: Mapping[str, Any]) -> list[dict[str, Any]]:
     return rank_revisions(rows) if any(row["status"] != "not scanned" for row in rows) else rows
 
 
-def diff_html(old: str, new: str) -> str:
-    """Render a full-width, word-level diff using the native anchor classes."""
+def _word_diff(old: str, new: str) -> tuple[str, str]:
+    """Return escaped, word-level markup for a single pair of source lines."""
     old_tokens = re.findall(r"\s+|\w+|[^\w\s]", old)
     new_tokens = re.findall(r"\s+|\w+|[^\w\s]", new)
     matcher = difflib.SequenceMatcher(a=old_tokens, b=new_tokens)
@@ -158,13 +158,126 @@ def diff_html(old: str, new: str) -> str:
         else:
             old_html.append(f'<del class="diffchange">{old_text}</del>')
             new_html.append(f'<ins class="diffchange">{new_text}</ins>')
+    return "".join(old_html), "".join(new_html)
+
+
+def _diff_hunks(old_lines: list[str], new_lines: list[str], context: int = 2) -> list[tuple[int, int]]:
+    """Group changed opcodes when their two-line contexts touch."""
+    opcodes = difflib.SequenceMatcher(a=old_lines, b=new_lines).get_opcodes()
+    changes = [index for index, opcode in enumerate(opcodes) if opcode[0] != "equal"]
+    if not changes:
+        return []
+    hunks: list[tuple[int, int]] = []
+    first = last = changes[0]
+    for index in changes[1:]:
+        _tag, previous_a0, previous_a1, previous_b0, previous_b1 = opcodes[last]
+        _tag, a0, _a1, b0, _b1 = opcodes[index]
+        if a0 - previous_a1 <= context * 2 or b0 - previous_b1 <= context * 2:
+            last = index
+        else:
+            hunks.append((first, last))
+            first = last = index
+    hunks.append((first, last))
+    return hunks
+
+
+def diff_html(old: str, new: str) -> str:
+    """Render bounded, line-numbered changed hunks with native anchor cells."""
+    old_lines, new_lines = old.splitlines(), new.splitlines()
+    opcodes = difflib.SequenceMatcher(a=old_lines, b=new_lines).get_opcodes()
+    # A page creation has no unchanged material to collapse. Its caller already
+    # bounds the first revision before it reaches this renderer.
+    page_creation = not old_lines or not new_lines
+    hunks = [(0, len(opcodes) - 1)] if page_creation and opcodes else _diff_hunks(old_lines, new_lines)
+    rows: list[str] = []
+    previous_a = previous_b = 0
+    for first, last in hunks:
+        first_opcode, last_opcode = opcodes[first], opcodes[last]
+        _tag, first_a0, _first_a1, first_b0, _first_b1 = first_opcode
+        _tag, _last_a0, last_a1, _last_b0, last_b1 = last_opcode
+        start_a = max(0, first_a0 - (0 if page_creation else 2))
+        start_b = max(0, first_b0 - (0 if page_creation else 2))
+        end_a = min(len(old_lines), last_a1 + (0 if page_creation else 2))
+        end_b = min(len(new_lines), last_b1 + (0 if page_creation else 2))
+        skipped = max(start_a - previous_a, start_b - previous_b)
+        if rows and skipped:
+            rows.append(f'<tr class="flags-diff-gap"><td colspan="2">… {skipped} unchanged line{"s" if skipped != 1 else ""} collapsed …</td></tr>')
+        rows.append(
+            '<tr class="flags-diff-hunk-heading">'
+            f'<th scope="col">Line {start_a + 1}:</th><th scope="col">Line {start_b + 1}:</th>'
+            '</tr>'
+        )
+        cursor_a, cursor_b = start_a, start_b
+        if first and opcodes[first - 1][0] == "equal":
+            _tag, a0, a1, b0, b1 = opcodes[first - 1]
+            context_a, context_b = max(a0, start_a), max(b0, start_b)
+            count = min(a1 - context_a, b1 - context_b)
+            for offset in range(max(0, count)):
+                old_index, new_index = context_a + offset, context_b + offset
+                text = html.escape(old_lines[old_index])
+                rows.append(
+                    '<tr><td class="mw-diff-inline-deleted" data-diff-side="old">'
+                    f'<span class="flags-diff-line-number">{old_index + 1}</span>{text}</td>'
+                    '<td class="mw-diff-inline-added" data-diff-side="new">'
+                    f'<span class="flags-diff-line-number">{new_index + 1}</span>{text}</td></tr>'
+                )
+            cursor_a, cursor_b = context_a + count, context_b + count
+        for index in range(first, last + 1):
+            tag, a0, a1, b0, b1 = opcodes[index]
+            # Equal ranges at a hunk boundary provide its two lines of context.
+            left, right = max(a0, cursor_a), min(a1, end_a)
+            new_left, new_right = max(b0, cursor_b), min(b1, end_b)
+            if tag == "equal":
+                count = min(right - left, new_right - new_left)
+                for offset in range(count):
+                    text = html.escape(old_lines[left + offset])
+                    rows.append(
+                        '<tr><td class="mw-diff-inline-deleted" data-diff-side="old">'
+                        f'<span class="flags-diff-line-number">{left + offset + 1}</span>{text}</td>'
+                        '<td class="mw-diff-inline-added" data-diff-side="new">'
+                        f'<span class="flags-diff-line-number">{new_left + offset + 1}</span>{text}</td></tr>'
+                    )
+                cursor_a, cursor_b = max(cursor_a, right), max(cursor_b, new_right)
+                continue
+            old_chunk = old_lines[max(a0, cursor_a):min(a1, end_a)]
+            new_chunk = new_lines[max(b0, cursor_b):min(b1, end_b)]
+            for offset in range(max(len(old_chunk), len(new_chunk))):
+                old_text = old_chunk[offset] if offset < len(old_chunk) else ""
+                new_text = new_chunk[offset] if offset < len(new_chunk) else ""
+                old_markup, new_markup = _word_diff(old_text, new_text)
+                if tag == "delete" or (tag == "replace" and not new_text):
+                    old_markup = f'<del class="diffchange">{html.escape(old_text)}</del>'
+                if tag == "insert" or (tag == "replace" and not old_text):
+                    new_markup = f'<ins class="diffchange">{html.escape(new_text)}</ins>'
+                old_number = a0 + offset + 1 if offset < len(old_chunk) else ""
+                new_number = b0 + offset + 1 if offset < len(new_chunk) else ""
+                rows.append(
+                    '<tr><td class="mw-diff-inline-deleted" data-diff-side="old">'
+                    f'<span class="flags-diff-line-number">{old_number}</span>{old_markup}</td>'
+                    '<td class="mw-diff-inline-added" data-diff-side="new">'
+                    f'<span class="flags-diff-line-number">{new_number}</span>{new_markup}</td></tr>'
+                )
+            cursor_a, cursor_b = max(cursor_a, min(a1, end_a)), max(cursor_b, min(b1, end_b))
+        # Trailing equal context follows the last changed opcode in each hunk.
+        if last + 1 < len(opcodes) and opcodes[last + 1][0] == "equal":
+            _tag, a0, a1, b0, b1 = opcodes[last + 1]
+            count = min(end_a - max(a0, cursor_a), end_b - max(b0, cursor_b), a1 - a0, b1 - b0)
+            for offset in range(max(0, count)):
+                old_index, new_index = max(a0, cursor_a) + offset, max(b0, cursor_b) + offset
+                text = html.escape(old_lines[old_index])
+                rows.append(
+                    '<tr><td class="mw-diff-inline-deleted" data-diff-side="old">'
+                    f'<span class="flags-diff-line-number">{old_index + 1}</span>{text}</td>'
+                    '<td class="mw-diff-inline-added" data-diff-side="new">'
+                    f'<span class="flags-diff-line-number">{new_index + 1}</span>{text}</td></tr>'
+                )
+        previous_a, previous_b = end_a, end_b
+    if not rows:
+        rows.append('<tr class="flags-diff-gap"><td colspan="2">No text changes.</td></tr>')
     return (
         '<table class="flags-diff diff mw-diff-inline"><thead><tr>'
         '<th scope="col">Prior revision</th><th scope="col">Selected revision</th>'
-        '</tr></thead><tbody><tr>'
-        f'<td class="mw-diff-inline-deleted" data-diff-side="old">{"".join(old_html)}</td>'
-        f'<td class="mw-diff-inline-added" data-diff-side="new">{"".join(new_html)}</td>'
-        '</tr></tbody></table>'
+        '</tr></thead><tbody>' + "".join(rows) + '</tbody></table>'
     )
 
 
@@ -226,8 +339,24 @@ def rendered_page_html(wikitext: str, lang: str, title: str) -> str:
         rendered, _contents = render_article(wikitext, lang, title)
         return str(rendered)
     except (ImportError, ValueError, TypeError):
-        paragraphs = [html.escape(part) for part in wikitext.split("\n\n") if part.strip()]
-        return "".join(f"<p>{part}</p>" for part in paragraphs) or "<p>No revision text is available.</p>"
+        rendered: list[str] = []
+        paragraph: list[str] = []
+        def flush_paragraph() -> None:
+            if paragraph:
+                rendered.append(f"<p>{html.escape(chr(10).join(paragraph))}</p>")
+                paragraph.clear()
+        for line in wikitext.splitlines():
+            heading = re.fullmatch(r"\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*", line)
+            if heading:
+                flush_paragraph()
+                level, text = len(heading.group(1)), html.escape(heading.group(2))
+                rendered.append(f"<h{level}>{text}</h{level}>")
+            elif line.strip():
+                paragraph.append(line)
+            else:
+                flush_paragraph()
+        flush_paragraph()
+        return "".join(rendered) or "<p>No revision text is available.</p>"
 
 
 def cached_page_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -302,7 +431,11 @@ def article(topic: str):
     audit = response_payload(selected_ref, context, False) if selected_ref else None
     # The historical language panel is the same existing template body, not a duplicate reviewer.
     context.update(topic=topic, title=context.get("title", topic), tab=tab, revisions=refs,
-                   selected_revision=selected, audit=audit, fixture=fixture_enabled())
+                   selected_revision=selected, audit=audit, fixture=fixture_context(topic) is not None,
+                   article_text_html={
+                       lang: rendered_page_html(str(article.get("text", "")), str(lang), str(article.get("title", context.get("title", topic))))
+                       for lang, article in context.get("articles", {}).items()
+                   })
     return render_template("article_tabs.html", **context)
 
 

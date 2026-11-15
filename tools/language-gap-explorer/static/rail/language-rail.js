@@ -18,7 +18,17 @@
     var panel = document.querySelector('.article-tabs-page #language-panel');
     if (!panel || !window.PalimpsestRail) return;
     var findings = Array.prototype.slice.call(panel.querySelectorAll('.finding'));
-    if (!findings.length) return;
+    if (!findings.length) {
+      var empty = panel.querySelector('.language-no-findings') || panel.querySelector('.review-empty');
+      if (!empty) { empty = el('p', 'language-no-findings', 'No prepared cross-language findings for this article yet.'); panel.appendChild(empty); }
+      var emptyParent = empty.parentNode, emptySummary = document.createElement('aside'), emptyWorkspace = document.createElement('div'), emptySurface = document.createElement('div'), emptyRail = document.createElement('aside');
+      emptySummary.className = 'palimpsest-summary-bar language-summary-bar'; emptySummary.setAttribute('aria-label', 'Palimpsest language-difference summary');
+      emptySummary.append(el('span', 'palimpsest-brand', 'Palimpsest'), el('span', 'palimpsest-summary-text', '0 differences'));
+      emptyWorkspace.className = 'language-rail-workspace language-rail-workspace--empty'; emptySurface.className = 'language-reading-surface'; emptyRail.className = 'palimpsest-rail language-evidence-rail language-evidence-rail--empty'; emptyRail.setAttribute('aria-label', 'Other-language evidence');
+      empty.classList.add('language-rail-empty'); empty.textContent = 'No prepared cross-language findings for this article yet.';
+      emptyParent.insertBefore(emptySummary, empty); emptyParent.insertBefore(emptyWorkspace, empty); emptyWorkspace.append(emptySurface, emptyRail); emptyRail.appendChild(empty);
+      return;
+    }
     var first = findings[0], parent = first.parentNode, workspace = document.createElement('div'), surface = document.createElement('div'), railNode = document.createElement('aside'), list = document.createElement('ol'), summary = document.createElement('aside');
     workspace.className = 'language-rail-workspace'; surface.className = 'language-reading-surface'; railNode.className = 'palimpsest-rail language-evidence-rail'; railNode.setAttribute('aria-label', 'Other-language evidence'); list.className = 'palimpsest-rail-list'; railNode.appendChild(list); summary.className = 'palimpsest-summary-bar language-summary-bar'; summary.setAttribute('aria-label', 'Palimpsest language-difference summary');
     parent.insertBefore(summary, first); parent.insertBefore(workspace, first); workspace.append(surface, railNode);

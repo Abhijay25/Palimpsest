@@ -1,0 +1,14 @@
+/* Bounded revision labels and line-oriented MediaWiki-style diff hunks. */
+.flags-revision-select{flex:1 1 24rem;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flags-diff{display:table;border-collapse:collapse}
+.flags-diff thead,.flags-diff tbody,.flags-diff tr{display:table-row-group}
+.flags-diff thead{display:table-header-group}.flags-diff tr{display:table-row}
+.flags-diff th,.flags-diff td{display:table-cell}
+.flags-diff td{padding:7px 12px;border-bottom:1px solid #eaecf0}
+.flags-diff-hunk-heading th{padding-top:10px;background:#eaecf0;color:#54595d;font-size:11px}
+.flags-diff-gap td{padding:6px 12px;background:#f8f9fa;color:#72777d;text-align:center;font-size:12px;font-style:italic}
+.flags-diff-line-number{display:inline-block;width:3.5em;margin-right:8px;color:#72777d;font-size:11px;text-align:right;user-select:none}
+@media(max-width:850px){.flags-revision-select{flex-basis:100%;width:100%}}
+.language-rail-workspace--empty{min-height:76px}
+.language-evidence-rail--empty{padding:12px;border:1px solid #c8ccd1;background:#f8f9fa;color:#54595d;font-size:13px;line-height:1.5}
+.language-rail-empty{margin:0}
