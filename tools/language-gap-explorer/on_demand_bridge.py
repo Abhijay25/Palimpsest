@@ -6,6 +6,27 @@ from pathlib import Path
 import on_demand_jobs as jobs
 
 
+def source_api(lang,params):
+    """Bounded Wikimedia read with a separate owned metadata cache."""
+    import json
+    import requests
+    import uuid
+    if lang not in ('en','fi','sv'):raise ValueError('Unsupported source edition.')
+    query=dict(params,format='json',formatversion=2)
+    path=jobs.root()/'source-api'/(jobs.digest([lang,query])+'.json')
+    if path.is_file():return json.loads(path.read_text(encoding='utf-8'))
+    response=requests.get('https://'+lang+'.wikipedia.org/w/api.php',params=query,
+        headers={'User-Agent':'NeoWiki explicit assessment source preparation (https://github.com/Abhijay25/Palimpsest)'},timeout=20)
+    response.raise_for_status();value=response.json()
+    if value.get('error'):raise LookupError('The source wiki could not supply this exact revision.')
+    path.parent.mkdir(exist_ok=True,mode=0o700)
+    temporary=path.with_suffix('.'+uuid.uuid4().hex+'.part')
+    with temporary.open('x',encoding='utf-8') as stream:
+        stream.write(jobs.packed(value));stream.flush();os.fsync(stream.fileno())
+    temporary.replace(path)
+    return value
+
+
 def fetch_source(lang, revision):
     """Read shared immutable sources; acquire misses only into our owned volume."""
     import json
@@ -14,8 +35,7 @@ def fetch_source(lang, revision):
     if hit is not None:return hit
     path=jobs.root()/'sources'/f'{lang}-{int(revision)}.json'
     if path.is_file():return json.loads(path.read_text(encoding='utf-8'))
-    from showcase_history import api
-    answer=api(lang,dict(action='query',prop='revisions',revids=int(revision),rvprop='ids|content|timestamp',rvslots='main'))
+    answer=source_api(lang,dict(action='query',prop='revisions',revids=int(revision),rvprop='ids|content|timestamp',rvslots='main'))
     pages=answer['query']['pages'];page=pages[0] if isinstance(pages,list) else next(iter(pages.values()))
     item=page['revisions'][0];slot=item['slots']['main']
     text=slot.get('content',slot.get('*'))
@@ -34,7 +54,7 @@ def fetch_source(lang, revision):
 
 def implementation_identity():
     base = Path(__file__).resolve().parent
-    names = ('on_demand_jobs.py', 'on_demand_bridge.py', 'on_demand_worker.py',
+    names = ('on_demand_jobs.py', 'on_demand_bridge.py', 'on_demand_worker.py', 'on_demand_runtime.py', 'on_demand_batch.py',
              'article_pipeline.py', 'paired_history.py', 'historical_divergence.py',
              'live_api.py', 'relationship_policy.py', 'candidate_eligibility.py', 'pipeline.py')
     files = {name: hashlib.sha256((base / name).read_bytes()).hexdigest() for name in names}
@@ -49,6 +69,7 @@ def implementation_identity():
 def describe(topic):
     p = jobs.policy()
     return dict(enabled=p.get('enabled') is True, authorization=p.get('authorization', ''),
+                max_provider_calls=p.get('max_provider_calls'),
                 engines={kind: dict(configuration=engine.get('configuration', {}),
                                     allowed=p.get('enabled') is True and engine.get('enabled') is True and topic in engine.get('topics', []),
                                     authorization=engine.get('authorization', ''),
@@ -59,7 +80,7 @@ def describe(topic):
 
 
 def source_record(lang, revision, title=None, expected=None, page_id=None):
-    record = dict(fetch_source(lang, int(revision)))
+    record = dict(expected) if expected and isinstance(expected.get('wikitext'),str) else dict(fetch_source(lang, int(revision)))
     if int(record.get('revision_id', 0)) != int(revision) or not isinstance(record.get('wikitext'), str):
         raise LookupError('Exact source revision content is unavailable.')
     if title is not None and record.get('title', '').replace('_', ' ') != title.replace('_', ' '):
@@ -94,7 +115,6 @@ def prepare(payload, topic):
         if not isinstance(selected, list) or not 2 <= len(selected) <= 3 or len(set(selected)) != len(selected) or edition not in selected or not set(selected) <= {'en', 'fi', 'sv'}:
             raise ValueError('Choose two or three editions including this native edition.')
         from core import connect
-        from showcase_history import api
         with connect() as db, db.cursor() as c:
             c.execute('SELECT lang,page_id,rev_id,title,date_modified FROM article WHERE wikidata_id=%s', (topic,))
             anchors = {row['lang']: row for row in c.fetchall()}
@@ -105,7 +125,7 @@ def prepare(payload, topic):
             # Counterparts never outrun the native selected source time or their
             # dataset anchor. Revision IDs come only from the source response.
             cutoff = min(source['timestamp'], anchor['date_modified'])
-            answer = api(lang, dict(action='query', prop='revisions', pageids=anchor['page_id'],
+            answer = source_api(lang, dict(action='query', prop='revisions', pageids=anchor['page_id'],
                                     rvstart=cutoff, rvdir='older', rvlimit=1, rvprop='ids|timestamp'))
             pages = answer['query']['pages']
             page = pages[0] if isinstance(pages, list) else next(iter(pages.values()))
@@ -121,7 +141,7 @@ def prepare(payload, topic):
     p = jobs.policy()
     config = dict(version='native-on-demand-v1', kind=kind, topic=topic,
                   engine=p['engines'].get(kind, {}).get('configuration', {}),
-                  implementation=implementation_identity(), authorization=jobs.digest(p),
+                  implementation=implementation_identity(), authorization=jobs.digest(p),authorization_id=p.get('authorization_id'),
                   policy_version=p.get('policy_version', 'unconfigured'))
     return jobs.save_plan(payload['wiki'], config, sorted(sources, key=lambda s: s['lang']))
 

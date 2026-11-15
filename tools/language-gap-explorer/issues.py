@@ -109,11 +109,11 @@ def store_scan(topic,ref,result,mode):
         raise PersistenceError('The scan completed but issue storage failed. The previous evidence was preserved; retry saving before re-scanning.') from error
     return result
 
-def backfill(topic=None):
+def backfill(topic=None,run_id=None):
     """Read-only source adapters; only derived unified tables are written."""
     counts=dict(language=0,snapshot=0,flags=0)
     with connect() as source,source.cursor() as c:
-        c.execute('SELECT id,topic,status,summary,updated FROM paired_run WHERE summary IS NOT NULL'+(' AND topic=%s' if topic else ''), (topic,) if topic else ())
+        c.execute('SELECT id,topic,status,summary,updated FROM paired_run WHERE summary IS NOT NULL'+(' AND topic=%s' if topic else '')+(' AND id=%s' if run_id else ''), tuple(([topic] if topic else [])+([run_id] if run_id else [])))
         runs=list(c.fetchall())
     with connect() as db:
         for run in runs:
@@ -142,10 +142,11 @@ def backfill(topic=None):
                         counts['language']+=1
                     observations=summary.get('observations') or [dict(stamp=s,state='unknown') for s in sorted({o['stamp'] for o in occurrences})]
                     for observation in observations:
-                        state={'complete':'completed','ready':'completed','running':'running','failed':'failed'}.get(observation.get('state'),'not assessed')
+                        state={'complete':'completed','ready':'completed','partial':'partial','running':'running','failed':'failed'}.get(observation.get('state'),'not assessed')
                         put_coverage(c,run['topic'],'language',dict(run=run['id'],stamp=observation['stamp'],languages=languages),state,assessed,'Partial or unknown comparisons are not agreement.' if state=='not assessed' else '')
                 db.commit()
             except Exception:db.rollback();raise
+    if run_id:return counts
     # Snapshot findings have no historical lifetime; import their own identities.
     with connect() as db,db.cursor() as c:
         c.execute("SELECT r.id,r.topic,r.updated,r.status,g.id group_id,g.findings FROM review_run r JOIN review_group g ON g.run_id=r.id WHERE g.status='done'"+(' AND r.topic=%s' if topic else ''),(topic,) if topic else ())
@@ -223,15 +224,27 @@ def latest_sets(topic,args):
 
 def list_issues(topic,args,review_scope=None):
     edition=args.get('lang','en');history=args.get('view')=='history'
-    clauses=['i.topic=%s'];values=[topic];selected_set=None
+    clauses=['i.topic=%s'];values=[topic];selected_set=None;selected_assessment=None
+    exact=args.get('assessment')
+    if exact:
+        if not re.fullmatch(r'[a-f0-9]{64}',str(exact)):raise ValueError('Choose an exact assessment identity.')
+        with connect() as db,db.cursor() as c:
+            c.execute("SELECT id,mode,assessed_at,payload FROM unified_assessment WHERE topic=%s AND id=%s AND mode IN ('page','revision')",(topic,exact));stored=c.fetchone()
+        if not stored:raise LookupError('This exact detector assessment is unavailable. No newer assessment was substituted.')
+        data=json.loads(stored['payload']);result=data['result']
+        selected_assessment=dict(id=exact,mode=stored['mode'],ref=data['ref'],assessed_at=stored['assessed_at'],
+            state='partial' if result.get('partial') else 'completed',findings=len(result.get('flags',[])))
     if not history:
-        chosen,selected_set=latest_sets(topic,args)
+        if exact:chosen=[(stored['mode'],exact,None)]
+        else:chosen,selected_set=latest_sets(topic,args)
         options=[]
         for mode,aid,stamp in chosen:
             option='(o.assessment_id=%s';values.append(aid)
             if stamp is not None:option+=' AND o.stamp=%s';values.append(stamp)
             options.append(option+')')
         clauses.append('('+' OR '.join(options)+')' if options else '1=0')
+    elif exact:
+        clauses.append('o.assessment_id=%s');values.append(exact)
     if history and args.get('run'):
         clauses.append("(a.mode IN ('revision','page') OR (a.mode='language' AND JSON_UNQUOTE(JSON_EXTRACT(a.payload,'$.run'))=%s))")
         values.append(args['run'])
@@ -280,7 +293,7 @@ def list_issues(topic,args,review_scope=None):
     for row in rows:
         row['label']=KINDS.get(row['kind'],row['kind'].replace('_',' ').title());row['languages']=row['languages'].split(',')
     for item in coverage:item['scope']=json.loads(item['scope'])
-    return dict(issues=rows,total=total,page=page,pages=max(1,(total+49)//50),coverage=coverage,coverage_counts=coverage_counts,kinds=kinds,breakdown=breakdown,selected_set=selected_set)
+    return dict(issues=rows,total=total,page=page,pages=max(1,(total+49)//50),coverage=coverage,coverage_counts=coverage_counts,kinds=kinds,breakdown=breakdown,selected_set=selected_set,selected_assessment=selected_assessment)
 
 def get_observation(topic,iid,observation=None,occurrence=None,edition='en',review_scope=None):
     clauses=['i.topic=%s','i.id=%s'];values=[topic,iid]

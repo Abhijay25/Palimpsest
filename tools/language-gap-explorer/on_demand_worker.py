@@ -76,7 +76,7 @@ def compatible_scan(job):
             packet=json.loads(row['payload']);value=packet.get('result',{})
             old=value.get('on_demand_configuration')
             if not old:continue  # unversioned legacy results are readable, not declared compatible
-            normalize=lambda cfg:{k:v for k,v in cfg.items() if k!='authorization'}
+            normalize=lambda cfg:{k:v for k,v in cfg.items() if k not in ('authorization','authorization_id')}
             if normalize(old)==normalize(job['config']) and value.get('status')=='ok' and value.get('source_sha256')==source['sha256'] and value.get('parent_sha256')==source.get('parent_sha256'):
                 return dict(value,reused_assessment=packet.get('result',{}).get('_issue_assessment'))
     return None
@@ -98,6 +98,9 @@ async def detector(job):
     from on_demand_bridge import implementation_identity
     config = job['config']
     engine = config['engine']
+    workdir=jobs.root()/'execution'/job['id']
+    workdir.mkdir(parents=True,exist_ok=True,mode=0o700)
+    os.chdir(workdir)  # existing detector-relative caches stay in this owned job
     # Only private worker configuration controls the provider environment.
     os.environ['PYTHON_DOTENV_DISABLED'] = '1'
     for key in list(os.environ):
@@ -112,6 +115,13 @@ async def detector(job):
     from google.genai import Client, types
     from google.genai.models import AsyncModels
     import palimpsest.backends.gemini as backend
+    adapter_errors=[]
+    original_generate=backend._GeminiCaller.generate
+    async def validated_generate(self,*args,**kwargs):
+        result=await original_generate(self,*args,**kwargs)
+        if isinstance(result[0],str):adapter_errors.append('Unvalidated or unavailable detector answer')
+        return result
+    backend._GeminiCaller.generate=validated_generate
     # SDK retries are disabled. The outer detector may attempt a retry, but the
     # durable exact-request reservation rejects it before any network activity.
     backend.Client = lambda **kw: Client(**kw, http_options=types.HttpOptions(retry_options=types.HttpRetryOptions(attempts=1)))
@@ -159,7 +169,10 @@ async def detector(job):
     value.update(status='ok', _issue_assessment=job['id'], _issue_assessed_at=jobs.now(),
                  on_demand_configuration=config, source_sha256=source['sha256'],
                  parent_sha256=source.get('parent_sha256'), provider_usage=attempts(job))
-    value['partial'] = bool(value.get('partial') or value.get('error') or value['provider_usage']['failed_or_unknown'])
+    unavailable=any(value.get(stage,{}).get('status')=='unavailable' or value.get(stage,{}).get('error')
+                    for stage in ('citation_dates','citation_lifecycle','cherry_pick','reviewer'))
+    value['adapter_errors']=adapter_errors
+    value['partial'] = bool(value.get('partial') or value.get('error') or value['provider_usage']['failed_or_unknown'] or adapter_errors or unavailable)
     if job['kind'] == 'page':
         from palimpsest.page_consistency import candidate_groups, MAX_GROUPS
         value['partial'] = value['partial'] or len(candidate_groups(source['wikitext'])) >= MAX_GROUPS
@@ -221,7 +234,7 @@ def language(job):
 def index_result(job, value):
     import issues
     if job['kind'] == 'language':
-        issues.backfill(job['topic'])
+        issues.backfill(job['topic'],run_id=value['run'])
         partial = value['progress']['stage'] != 'ready' or value['provider_usage']['failed_or_unknown'] > 0
         return dict(run=value['run'], findings=len(value['rows']), partial=partial, provider_usage=value['provider_usage'])
     from flags_tab import RevisionRef
@@ -229,7 +242,7 @@ def index_result(job, value):
     ref = RevisionRef(source['lang'],source['revision_id'],source['title'],source['timestamp'],
                       f"https://{source['lang']}.wikipedia.org/w/index.php?oldid={source['revision_id']}",source.get('parent_id'))
     issues.store_scan(job['topic'], ref, value, job['kind'])
-    return dict(assessment=job['id'],findings=len(value['flags']),partial=bool(value.get('partial')),
+    return dict(assessment=value.get('_issue_assessment',job['id']),findings=len(value['flags']),partial=bool(value.get('partial')),
                 provider_usage=value.get('provider_usage', {}))
 
 

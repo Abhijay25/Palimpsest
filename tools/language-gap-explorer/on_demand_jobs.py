@@ -48,8 +48,17 @@ def policy():
     value = json.loads(Path(path).read_text(encoding='utf-8'))
     if value.get('version') != 1 or not isinstance(value.get('engines'), dict):
         raise ValueError('Invalid on-demand policy.')
+    if type(value.get('enabled')) is not bool:raise ValueError('Policy enabled must be a JSON boolean.')
+    if value['enabled'] and not re.fullmatch(r'[A-Za-z0-9_.:-]{1,100}',str(value.get('authorization_id',''))):
+        raise ValueError('An enabled policy requires a stable explicit authorization ID.')
+    if value.get('max_provider_calls') is not None and (type(value['max_provider_calls']) is not int or value['max_provider_calls']<=0):
+        raise ValueError('The total provider-call allowance must be a positive integer.')
+    if value.get('max_jobs') is not None and (type(value['max_jobs']) is not int or value['max_jobs']<=0):
+        raise ValueError('The job allowance must be a positive integer.')
     for kind,engine in value['engines'].items():
         config=engine.get('configuration',{})
+        if type(engine.get('enabled')) is not bool or type(engine.get('allow_rescan',False)) is not bool:
+            raise ValueError('Engine switches must be JSON booleans.')
         allowed={'provider','model','reviewer_model','triage_model','prompt_version','policy_version','max_output_tokens'}
         if kind not in ('page','revision','language') or not isinstance(config,dict) or set(config)-allowed:
             raise ValueError('Invalid public engine configuration; credentials do not belong in policy.')
@@ -68,16 +77,21 @@ def permit(config, current=None):
     engine = p.get('engines', {}).get(config['kind'], {})
     # Exact immutable authorization revision is rechecked at enqueue, claim and
     # every provider call. Rotating/revoking a policy blocks outstanding work.
-    if not p.get('enabled') or not engine.get('enabled'):
+    if p.get('enabled') is not True or engine.get('enabled') is not True:
         return False, 'New on-demand inference is disabled by server policy.'
     if config.get('authorization') != digest(p):
         return False, 'The server policy changed. Prepare a new request.'
+    if config.get('authorization_id')!=p.get('authorization_id'):
+        return False, 'The spending authorization identity changed. Prepare a new request.'
     if not p.get('authorization') or not engine.get('authorization'):
         return False, 'An explicit on-demand authorization record is required.'
     if config['topic'] not in engine.get('topics', []):
         return False, 'This article is outside the on-demand spending authorization.'
     if config['engine'] != engine.get('configuration'):
         return False, 'The requested engine configuration is no longer authorized.'
+    permitted=engine.get('source_allowlist')
+    if permitted is not None and any(s['revision_id'] not in permitted.get(s['lang'],[]) for s in config.get('sources',[])):
+        return False, 'This exact source revision is outside the approved batch.'
     limit = engine.get('max_provider_calls')
     if type(limit) is not int or limit <= 0:
         return False, 'A positive provider-call allowance is required; historical campaign approval does not apply.'
@@ -118,7 +132,7 @@ def init():
           config TEXT NOT NULL,sources TEXT NOT NULL,created REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS job(id TEXT PRIMARY KEY,base TEXT NOT NULL,previous TEXT,
           scope TEXT NOT NULL,topic TEXT NOT NULL,kind TEXT NOT NULL,config TEXT NOT NULL,sources TEXT NOT NULL,
-          requester INTEGER NOT NULL,status TEXT NOT NULL,progress TEXT NOT NULL,result TEXT,error TEXT,
+          requester TEXT NOT NULL,status TEXT NOT NULL,progress TEXT NOT NULL,result TEXT,error TEXT,
           created TEXT NOT NULL,updated TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS job_scope ON job(scope,topic,created);
         CREATE INDEX IF NOT EXISTS job_base ON job(base,created);
@@ -181,12 +195,24 @@ def recent(scope, topic):
 def enqueue(plan_id, scope, topic, requester, previous=None):
     if type(requester) is not int or requester <= 0:
         raise RequestError('A registered native requester is required.')
+    return _enqueue(plan_id,scope,topic,str(requester),previous)
+
+
+def enqueue_operator(plan_id,scope,topic,authorization_id):
+    """Explicit local operator batch only; never exposed by the HTTP dispatcher."""
+    p=policy()
+    if p.get('allow_operator_batch') is not True or p.get('authorization_id')!=authorization_id:
+        raise RequestError('This operator batch has no matching explicit authorization.')
+    return _enqueue(plan_id,scope,topic,'operator:'+authorization_id)
+
+
+def _enqueue(plan_id, scope, topic, requester, previous=None):
     with database(True) as db:
         row = db.execute('SELECT * FROM plan WHERE id=? AND scope=? AND topic=?', (plan_id, scope, topic)).fetchone()
         if not row or time.time() - row['created'] > 1800:
             raise LookupError('Request preview expired. Prepare it again.')
         config = json.loads(row['config'])
-        base = digest({k: v for k, v in config.items() if k != 'authorization'})
+        base = digest({k: v for k, v in config.items() if k not in ('authorization','authorization_id')})
         identity = digest([base, previous])
         # A repeat POST recovers the same job even if policy was since revoked.
         existing = db.execute('SELECT * FROM job WHERE id=?', (identity,)).fetchone()
@@ -206,6 +232,10 @@ def enqueue(plan_id, scope, topic, requester, previous=None):
                 raise RequestError('Rescan requires an exact successful complete job. Partial/failed/unknown requests require operator reconciliation.')
             if not policy()['engines'][config['kind']].get('allow_rescan'):
                 raise RequestError('Fresh rescans are not authorized by server policy.')
+        p=policy()
+        if p.get('max_jobs') is not None:
+            count=db.execute("SELECT COUNT(*) FROM job WHERE json_extract(config,'$.authorization_id')=?",(p['authorization_id'],)).fetchone()[0]
+            if count>=p['max_jobs']:raise RequestError('The authorized job count has been reached. Existing jobs and reservations are retained.')
         created = now()
         db.execute('INSERT INTO job VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
                    (identity, base, previous, scope, topic, config['kind'], packed(config), row['sources'], requester, 'queued', packed(dict(stage='queued')), None, None, created, created))
@@ -238,14 +268,15 @@ def recover_interrupted():
 
 
 def reserve_attempt(job, request):
-    allowed, message = permit(job['config'])
+    current=policy()
+    allowed, message = permit(job['config'],current)
     if not allowed:
         raise ValueError(message)
     config = job['config']
     # Request identity includes exact source/config and a deliberate rescan generation.
     rid = digest([job['id'], request])
-    authorization = config['authorization']
-    limit = policy()['engines'][config['kind']]['max_provider_calls']
+    authorization = config['authorization_id']
+    limit = current['engines'][config['kind']]['max_provider_calls']
     with database(True) as db:
         old = db.execute('SELECT * FROM attempt WHERE id=?', (rid,)).fetchone()
         if old:
@@ -255,6 +286,9 @@ def reserve_attempt(job, request):
         count = db.execute('SELECT COUNT(*) FROM attempt WHERE authorization=? AND kind=?', (authorization, config['kind'])).fetchone()[0]
         if count >= limit:
             raise RuntimeError('The on-demand provider-call allowance is exhausted. Reservations are retained.')
+        total=current.get('max_provider_calls')
+        if total is not None and db.execute('SELECT COUNT(*) FROM attempt WHERE authorization=?',(authorization,)).fetchone()[0]>=total:
+            raise RuntimeError('The total on-demand provider-call allowance is exhausted. Reservations are retained.')
         created = now()
         db.execute('INSERT INTO attempt VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                    (rid, job['id'], authorization, config['kind'], digest(request), packed(request), 'reserved', None, None, created, created))

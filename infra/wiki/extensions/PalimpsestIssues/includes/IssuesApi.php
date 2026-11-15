@@ -55,12 +55,23 @@ final class IssuesApi extends ApiBase {
                         'timestamp' => $record['timestamp'], 'parent_id' => $record['source_parent_id'] ?? null,
                         'lang' => $services->getMainConfig()->get( 'LanguageCode' ) ],
                         'mode' => $params['mode'], 'fresh' => $params['fresh'] === 'yes' ];
+                    if ( $op === 'jobplan' ) {
+                        // SourceMap already verified this exact readable native
+                        // content against the imported source hash. Pass it only
+                        // over HMAC, avoiding an unnecessary source-site refetch.
+                        $extra['source']['wikitext'] = $mapped['revision']->getContentOrThrow(
+                            \MediaWiki\Revision\SlotRecord::MAIN, \MediaWiki\Revision\RevisionRecord::FOR_PUBLIC
+                        )->getText();
+                    }
                     if ( $op === 'jobplan' && $params['mode'] === 'revision' ) {
                         $extra['source_parent'] = [ 'revision_id' => $parent['record']['source_revision_id'],
                             'sha256' => $parent['record']['sha256'], 'title' => $title->getPrefixedText(),
                             'timestamp' => $parent['record']['timestamp'],
                             'parent_id' => $parent['record']['source_parent_id'] ?? null,
-                            'lang' => $services->getMainConfig()->get( 'LanguageCode' ) ];
+                            'lang' => $services->getMainConfig()->get( 'LanguageCode' ),
+                            'wikitext' => $parent['revision']->getContentOrThrow(
+                                \MediaWiki\Revision\SlotRecord::MAIN, \MediaWiki\Revision\RevisionRecord::FOR_PUBLIC
+                            )->getText() ];
                     }
                 }
                 $result = Bridge::request( $title, $op, $query, $extra );

@@ -50,7 +50,7 @@ PalimpsestJobs.mount({host:document.getElementById('native-jobs'),call,url:()=>'
                 for lang in (selection.get('languages',['en']) if kind=='language' else ['en']):
                     text='Synthetic offline source '+lang
                     sources.append(dict(lang=lang,title='Winter War',page_id=12,revision_id=123,parent_id=122,timestamp='2020-01-01T00:00:00Z',wikitext=text,sha256=hashlib.sha256(text.encode()).hexdigest()))
-                value={'plan':jobs.save_plan(SCOPE,dict(version='offline-fixture',kind=kind,topic=TOPIC,engine=p['engines'][kind]['configuration'],authorization=jobs.digest(p),implementation='offline-fixture',policy_version='OFFLINE FIXTURE'),sources)}
+                value={'plan':jobs.save_plan(SCOPE,dict(version='offline-fixture',kind=kind,topic=TOPIC,engine=p['engines'][kind]['configuration'],authorization=jobs.digest(p),authorization_id=p['authorization_id'],implementation='offline-fixture',policy_version='OFFLINE FIXTURE'),sources)}
             elif op=='enqueue':
                 job=jobs.enqueue(selection['plan'],SCOPE,TOPIC,1,selection.get('previous'));value={'job':job}
                 if job['status']=='queued':threading.Thread(target=complete,args=(job['id'],),daemon=True).start()
@@ -69,7 +69,7 @@ def main():
     directory=tempfile.TemporaryDirectory(prefix='neowiki-offline-browser-')
     folder=Path(directory.name);os.environ['NEOWIKI_ON_DEMAND_ROOT']=str(folder/'queue');os.environ['NEOWIKI_ON_DEMAND_POLICY']=str(folder/'policy.json')
     detector=dict(provider='gemini',model='OFFLINE-FIXTURE-NO-PROVIDER',reviewer_model='offline',triage_model='offline',prompt_version='offline',policy_version='offline',max_output_tokens=1)
-    policy=dict(version=1,policy_version='offline',enabled=True,authorization='OFFLINE SYNTHETIC FIXTURE — NO INFERENCE',engines={k:dict(configuration=detector if k!='language' else dict(provider='openai',model='OFFLINE-FIXTURE-NO-PROVIDER',prompt_version='offline',policy_version='offline'),enabled=True,topics=[TOPIC],authorization='OFFLINE FIXTURE',max_provider_calls=1,allow_rescan=True) for k in ('page','revision','language')})
+    policy=dict(version=1,policy_version='offline',enabled=True,authorization_id='offline-fixture',authorization='OFFLINE SYNTHETIC FIXTURE — NO INFERENCE',engines={k:dict(configuration=detector if k!='language' else dict(provider='openai',model='OFFLINE-FIXTURE-NO-PROVIDER',prompt_version='offline',policy_version='offline'),enabled=True,topics=[TOPIC],authorization='OFFLINE FIXTURE',max_provider_calls=1,allow_rescan=True) for k in ('page','revision','language')})
     (folder/'policy.json').write_text(json.dumps(policy),encoding='utf-8');jobs.init()
     print(f'Offline UI fixture http://127.0.0.1:{args.port}',flush=True)
     try:ThreadingHTTPServer(('127.0.0.1',args.port),Handler).serve_forever()

@@ -34,7 +34,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(404,dict(error='Unknown operation.'))
         try:
             size=int(self.headers.get('Content-Length','0'))
-            if not 0<size<=65536:
+            if not 0<size<=2*1024*1024:
                 return self.respond(413,dict(error='Invalid request size.'))
             body=self.rfile.read(size)
             if not authenticated(body,self.headers.get('X-Issues-Time'),self.headers.get('X-Issues-Signature'),self.server.secret):

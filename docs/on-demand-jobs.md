@@ -29,6 +29,9 @@ mounted into the bridge and its one worker, never into the public Flask reader.
 Network filesystems are not supported. Shared research data/model mounts stay
 read-only in the bridge. Missing source texts are acquired on explicit preview
 POSTs into the separate owned source cache, with no inference.
+Verified native selected/parent text is sent over HMAC directly; counterpart
+metadata/content cache writes use only the owned volume, never shared research
+cache directories.
 
 ## Explicit setup
 
@@ -68,6 +71,12 @@ The UI shows this limit. Changing authorization does not turn a failed job into
 a retry. No unattended topic wildcard or inherited historical-campaign allowance
 exists. To enforce a dollar ceiling additionally, use the existing configured
 OpenAI ledger limit; this code never raises or resets it.
+
+An enabled policy also requires a stable `authorization_id`. Reservations are
+counted against that ID, so editing policy wording/scopes does not reset the
+allowance. Optional top-level `max_provider_calls` additionally limits the sum
+across all check types. Model/scope/policy changes revoke old previews/jobs but
+retain their reserved usage. A new authorization ID requires a new approval.
 
 Each engine (`revision`, `page`, `language`) has:
 
@@ -153,3 +162,44 @@ services. Production cutover must preserve the automatic main updater's retained
 operator overrides and avoid parallel native/VPS mutations. Keep the paused
 OpenAI campaign and separately owned Winter War historical Gemini backfill
 unchanged. Staging/tests do not establish that a paid production request ran.
+
+### Approved demo population
+
+On 2026-11-15 the user separately approved Continuation War, Finnish Civil War,
+Lapland War and History of Finland: twelve EN/FI/SV dataset snapshots and their
+twelve exact preceding source edits, at most **100 Gemini provider calls total**,
+with no dollar ceiling. `on_demand_batch.py` freezes those twelve enumerated
+dataset anchors and refuses changed anchors. The private policy additionally
+limits exact source revisions, job count (24), and the shared call allowance.
+No fresh rescan is enabled. Language/OpenAI work and Winter War are excluded.
+
+`scripts/on_demand_vps.py demo-prepare|demo-start|demo-status --release <hash>`
+owns the separate `/srv/neowiki-on-demand/demo-four-20261115` queue and
+`neowiki-demo-detector-four-20261115` worker. It verifies the immutable release,
+native provenance/content or exact public source text, and exact parents before
+enqueueing. Only the worker receives a private Gemini-only credential file; no
+OpenAI key is mounted. Repeated starts inspect the existing worker. Reservations
+are never cleared. Local operator batch actors are recorded explicitly as
+`operator:<authorization_id>` and never impersonate native account IDs. The HTTP
+dispatcher exposes no operator enqueue operation.
+
+### Automatic main deployment
+
+The optional `on_demand` block in `/etc/neowiki-main/config.json` supplies `root`,
+`policy_file`, and the installed dependency `image`. With it configured,
+`scripts/vps_main_update.py` adds the release's `compose.on-demand.yaml` and its
+owned worker. Both bridge/worker source mounts follow the same verified main
+release as the viewer/native extension. No pinned feature overlay shadows future
+main changes. The default compose profile mounts no provider credentials; an
+explicit separately reviewed `credential_overlay` is optional.
+
+Initialize the owned queue explicitly before enabling this profile. The updater
+does not run schema initialization, source preparation or paid jobs. Its failure
+path restores the previous source/profile/image; a failed first rollout stops
+only the newly owned on-demand worker and restores the previous cached bridge.
+Existing campaign containers/reservations remain untouched.
+
+When updating this operator driver/configuration, stop the timer, wait for the
+oneshot service and its flock to become idle, apply the reviewed change, verify
+all reader/native health checks, then restore the timer and verify a successful
+or no-op run. Never interrupt an in-flight main deployment.

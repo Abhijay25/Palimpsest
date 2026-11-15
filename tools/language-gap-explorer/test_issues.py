@@ -123,6 +123,19 @@ class IssueDatabaseTests(unittest.TestCase):
             for name in ('native_review','review','coverage','observation','assessment','issue'):c.execute('DROP TABLE '+self.prefix+name)
     def result(self,aid='a',title='A finding'):
         return dict(status='ok',_issue_assessment=issues.identity(aid),_issue_assessed_at='2026-01-01',old_wikitext='Old value',new_wikitext='New value',flags=[dict(id='f',kind='FACT',title=title,anchor_text='New value',side='new')])
+    def test_exact_job_assessment_links_preserve_older_and_successful_empty_results(self):
+        ref=RevisionRef('en',22,'Synthetic test','2025-01-01',parent_id=21)
+        old=self.result('exact-old');issues.store_scan('Q999999',ref,old,'revision')
+        empty=self.result('exact-empty');empty['flags']=[];empty['_issue_assessed_at']='2026-02-01'
+        issues.store_scan('Q999999',ref,empty,'revision')
+        selected=issues.list_issues('Q999999',MultiDict(assessment=old['_issue_assessment']))
+        self.assertEqual(selected['total'],1)
+        self.assertEqual(selected['issues'][0]['assessment_id'],old['_issue_assessment'])
+        clean=issues.list_issues('Q999999',MultiDict(assessment=empty['_issue_assessment']))
+        self.assertEqual(clean['total'],0)
+        self.assertEqual(clean['selected_assessment']['state'],'completed')
+        self.assertEqual(clean['selected_assessment']['findings'],0)
+        with self.assertRaises(LookupError):issues.list_issues('Q999998',MultiDict(assessment=old['_issue_assessment']))
     def test_immutable_scans_idempotence_latest_empty_set_and_system_time(self):
         ref=RevisionRef('en',22,'Synthetic test','2025-01-01',parent_id=21)
         issues.store_scan('Q999999',ref,self.result(),'revision')
