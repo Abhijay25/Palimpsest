@@ -87,6 +87,7 @@ from palimpsest.page_consistency import (
     PageConsistencyDecision,
     PageConsistencyJudge,
     adjudicate_groups,
+    display_quote,
     ordered_candidate_groups,
 )
 from palimpsest.pipeline import (
@@ -612,15 +613,15 @@ def _page_consistency_flags(
                 title="Internal page conflict",
                 reason=decision.reason,
                 confidence=decision.confidence,
-                anchor_text=group.first.text,
+                anchor_text=display_quote(group.first.text),
                 anchor_start=group.first.position,
                 anchor_end=group.first.position + len(group.first.text),
-                related_anchor_text=group.second.text,
-                context_sentence=group.first.text,
+                related_anchor_text=display_quote(group.second.text),
+                context_sentence=display_quote(group.first.text),
                 evidence=[
                     FlagEvidence(
                         source="page",
-                        quote=group.second.text,
+                        quote=display_quote(group.second.text),
                         section=group.second.section,
                         url=article_url(lang_code, page_title, group.second.section),
                     )
@@ -635,38 +636,9 @@ def _page_consistency_flags(
 def _page_consistency_candidate_flags(
     groups: list[CandidateGroup], lang_code: str, page_title: str
 ) -> list[Flag]:
-    """Keep deterministic candidate flags visible when model adjudication fails."""
-    return [
-        Flag(
-            id=f"page-{group.group_id}",
-            kind="OUT_OF_SYNC",
-            check="consistency",
-            side="new",
-            tier="review",
-            title="Potential internal page conflict",
-            reason=(
-                "Candidate claims have different values; automated adjudication "
-                "did not complete."
-            ),
-            confidence=0.0,
-            anchor_text=group.first.text,
-            anchor_start=group.first.position,
-            anchor_end=group.first.position + len(group.first.text),
-            related_anchor_text=group.second.text,
-            context_sentence=group.first.text,
-            evidence=[
-                FlagEvidence(
-                    source="page",
-                    quote=group.second.text,
-                    section=group.second.section,
-                    url=article_url(lang_code, page_title, group.second.section),
-                )
-            ],
-            citations=[],
-            neutral_rewrite=None,
-        )
-        for group in groups[:20]
-    ]
+    """Candidates stay hidden until an adjudication and verification complete."""
+    del groups, lang_code, page_title
+    return []
 
 
 @app.post("/api/v1/audit-page", response_model=AuditPageResponse)

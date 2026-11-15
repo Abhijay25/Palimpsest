@@ -34,9 +34,13 @@ _CATEGORY_OR_INTERWIKI_LINE_RE = re.compile(
 )
 _HEADING_RE = re.compile(r"^\s*(=+)\s*.*?\s*\1\s*$")
 _REFERENCE_HEADING_RE = re.compile(
-    r"^\s*=+\s*(?:lähteet|viitteet|references|notes|sources|bibliography|"
-    r"kirjallisuus|aiheesta muualla)\s*=+\s*$",
+    r"^\s*=+\s*(?:fotnoter|noter|referenser|källor|lähteet|viitteet|"
+    r"references|notes|sources|bibliography|kirjallisuus|aiheesta muualla)\s*=+\s*$",
     re.IGNORECASE,
+)
+_REFERENCES_TAG_RE = re.compile(
+    r"<references\b[^>]*?/\s*>|<references\b[^>]*>.*?</references\s*>",
+    re.DOTALL | re.IGNORECASE,
 )
 _MAX_TYPO_DISTANCE = 2
 _TYPO_RELATIVE_DISTANCE = 0.25
@@ -129,11 +133,13 @@ def _without_reference_lists(wikitext: str) -> str:
 
 def _reader_visible_prose_wikitext(wikitext: str) -> str:
     """Keep article prose while excluding non-reader-content deletion noise."""
-    wikitext = _without_reference_lists(_GALLERY_RE.sub("", wikitext))
+    wikitext = _without_reference_lists(_REFERENCES_TAG_RE.sub("", wikitext))
+    wikitext = _GALLERY_RE.sub("", wikitext)
     wikitext = "\n".join(
         line
         for line in wikitext.splitlines()
         if not _CATEGORY_OR_INTERWIKI_LINE_RE.match(line)
+        and not _HEADING_RE.match(line)
     )
     code = _parse(_FILE_LINK_RE.sub("", wikitext))
     for template in code.filter_templates(recursive=True):

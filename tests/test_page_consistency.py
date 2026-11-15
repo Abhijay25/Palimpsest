@@ -251,7 +251,7 @@ def test_audit_page_timeout_is_partial_and_not_cached(
     for response in (first, second):
         payload = response.json()
         assert payload["status"] == "partial"
-        assert payload["flags"]
+        assert payload["flags"] == []
         assert "TimeoutError" in payload["error"]
         assert payload["cached"] is False
     assert caller.calls == 4
@@ -512,7 +512,7 @@ def test_whole_page_failure_returns_partial_grouped_candidates() -> None:
     )
 
     assert response.json()["status"] == "partial"
-    assert response.json()["flags"]
+    assert response.json()["flags"] == []
 
 
 class _VerifyingJudge:
@@ -651,7 +651,7 @@ def test_verification_keeps_a_genuine_conflict() -> None:
     assert [flag["id"] for flag in response.json()["flags"]] == ["page-g000"]
 
 
-def test_verifier_failure_returns_partial_deterministic_candidates() -> None:
+def test_verifier_failure_returns_partial_without_unverified_candidates() -> None:
     class FailingVerifier(_VerifyingJudge):
         async def verify(
             self,
@@ -675,7 +675,84 @@ def test_verifier_failure_returns_partial_deterministic_candidates() -> None:
     )
 
     assert response.json()["status"] == "partial"
-    assert [flag["id"] for flag in response.json()["flags"]] == ["page-g000"]
+    assert response.json()["flags"] == []
+
+
+def test_overlong_whole_page_response_item_is_dropped_without_losing_valid_item() -> (
+    None
+):
+    first = "The North Bridge was completed in 1952."
+    second = "The North Bridge was completed in 1954."
+    overlong = "Not present in the article. " * 20
+    answer = page_consistency.WholePageConsistencyAnswers.model_validate(
+        {
+            "conflicts": [
+                {
+                    "event_label": "hallucinated conflict",
+                    "quote_a": overlong,
+                    "quote_b": second,
+                    "value_a": "1952",
+                    "value_b": "1954",
+                },
+                {
+                    "event_label": "bridge completion",
+                    "quote_a": first,
+                    "quote_b": second,
+                    "value_a": "1952",
+                    "value_b": "1954",
+                },
+            ]
+        }
+    )
+
+    class PageCaller:
+        async def generate(
+            self, *_: object
+        ) -> tuple[page_consistency.WholePageConsistencyAnswers, float]:
+            return answer, 0.0
+
+    judge = GeminiPageConsistencyJudge(caller=cast(Any, PageCaller()))
+    conflicts = asyncio.run(judge.whole_page(f"{first} {second}"))
+    groups = page_consistency._whole_page_groups(
+        conflicts,
+        page_consistency._PagePassContext(
+            f"{first} {second}",
+            (f"{first} {second}",),
+            tuple(page_consistency._page_sentences(f"{first} {second}")),
+        ),
+        [],
+    )
+
+    assert len(overlong) > page_consistency.DISPLAY_QUOTE_MAX_CHARS
+    assert [group.group_id for group in groups] == ["p000"]
+
+
+def test_page_consistency_uses_a_75_second_total_budget() -> None:
+    assert page_consistency.DEADLINE_S == 75.0
+
+
+def test_grounded_page_quotes_are_truncated_for_flag_storage() -> None:
+    first = "The North Bridge was completed in 1952 " + "with detail " * 30 + "."
+    second = "The North Bridge was completed in 1954 " + "with detail " * 30 + "."
+    judge = _StubJudge()
+    _use_page_judge(judge)
+
+    response = asyncio.run(
+        _post_page(
+            {
+                "lang_code": "en",
+                "page_title": "North Bridge",
+                "revision_id": 4,
+                "wikitext": f"{first}\n\n== History ==\n{second}",
+            }
+        )
+    )
+
+    flag = response.json()["flags"][0]
+    assert len(flag["anchor_text"]) <= page_consistency.DISPLAY_QUOTE_MAX_CHARS
+    assert flag["anchor_text"].endswith("…")
+    assert flag["anchor_end"] > len(flag["anchor_text"])
+    assert flag["evidence"][0]["quote"].endswith("…")
 
 
 def test_audit_diff_cache_and_fresh_bypass(

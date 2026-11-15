@@ -5,10 +5,10 @@ import difflib
 import json
 import os
 import re
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Any, Final, Protocol, cast
 from unicodedata import normalize
 
 from google.genai import types
@@ -22,7 +22,7 @@ from palimpsest.backends.gemini import (
 )
 from palimpsest.display_text import plain
 
-DEADLINE_S: Final = 45.0
+DEADLINE_S: Final = 75.0
 MAX_GROUPS: Final = 40
 MAX_BATCHES: Final = 3
 MAX_GROUPS_PER_BATCH: Final = (MAX_GROUPS + MAX_BATCHES - 1) // MAX_BATCHES
@@ -32,6 +32,7 @@ PAGE_PASS_MODEL: Final = "gemini-4-argon"
 PAGE_VERIFY_MODEL: Final = "gemini-4-argon"
 MAX_VERIFICATION_PAIRS: Final = 20
 MAX_VERIFICATION_BATCHES: Final = 2
+DISPLAY_QUOTE_MAX_CHARS: Final = 300
 _HEADING: Final = re.compile(r"^={2,}\s*(.*?)\s*={2,}\s*$", re.MULTILINE)
 _WORD: Final = re.compile(r"[^\W\d_][\w'-]*", re.UNICODE)
 _PROPER_NAME: Final = re.compile(
@@ -189,7 +190,7 @@ class PageConsistencyDecision(BaseModel):
     group_id: str
     conflict: bool
     confidence: float = Field(ge=0, le=1)
-    reason: str = Field(max_length=240)
+    reason: str
 
 
 class PageConsistencyAnswers(BaseModel):
@@ -199,22 +200,32 @@ class PageConsistencyAnswers(BaseModel):
 class WholePageConflict(BaseModel):
     """A page-wide conflict whose quoted evidence is checked locally."""
 
-    event_label: str = Field(max_length=160)
-    quote_a: str = Field(max_length=300)
-    quote_b: str = Field(max_length=300)
-    value_a: str = Field(max_length=80)
-    value_b: str = Field(max_length=80)
+    event_label: str
+    quote_a: str
+    quote_b: str
+    value_a: str
+    value_b: str
+
+
+class WholePageConflictAnswer(BaseModel):
+    """Permissive response item; each item is validated before it is used."""
+
+    event_label: Any = None
+    quote_a: Any = None
+    quote_b: Any = None
+    value_a: Any = None
+    value_b: Any = None
 
 
 class WholePageConsistencyAnswers(BaseModel):
-    conflicts: list[WholePageConflict]
+    conflicts: list[WholePageConflictAnswer]
 
 
 class PageConsistencyVerification(BaseModel):
     group_id: str
     same_event: bool
     values_conflict: bool
-    compatible_explanation: str | None = Field(default=None, max_length=240)
+    compatible_explanation: str | None = None
 
 
 class PageConsistencyVerificationAnswers(BaseModel):
@@ -361,7 +372,13 @@ class GeminiPageConsistencyJudge:
         )
         if isinstance(answer, str):
             raise TypeError(answer)
-        return answer.conflicts
+        conflicts: list[WholePageConflict] = []
+        for item in answer.conflicts:
+            try:
+                conflicts.append(WholePageConflict.model_validate(item.model_dump()))
+            except ValueError:
+                continue
+        return conflicts
 
     async def verify(
         self,
@@ -651,6 +668,13 @@ def _contains_normalised(text: str, quote: str) -> bool:
     return bool(normalised_quote) and normalised_quote in _normalised_comparison(text)
 
 
+def display_quote(text: str) -> str:
+    """Bound stored and displayed evidence after its full text has been grounded."""
+    if len(text) <= DISPLAY_QUOTE_MAX_CHARS:
+        return text
+    return text[: DISPLAY_QUOTE_MAX_CHARS - 1].rstrip() + "…"
+
+
 def _sentence_for_quote(
     sentences: Sequence[PageSentence], quote: str
 ) -> PageSentence | None:
@@ -774,17 +798,28 @@ async def adjudicate_groups(
 
     context = _page_pass_context.get()
     whole_page = getattr(judge, "whole_page", None)
-    if not (_page_pass_enabled() and context is not None and callable(whole_page)):
-        decisions = await grouped()
-        return await _verify_conflicts(groups, decisions, judge, context, started)
+    page_pass = _page_pass_enabled() and context is not None and callable(whole_page)
+    page_tasks: tuple[Awaitable[list[WholePageConflict]], ...] = ()
+    if page_pass:
+        assert context is not None
+        assert callable(whole_page)
+        page_tasks = tuple(
+            whole_page(page_text) for page_text in context.page_pass_texts
+        )
     results = await asyncio.wait_for(
-        asyncio.gather(
-            grouped(), *(whole_page(page_text) for page_text in context.page_pass_texts)
-        ),
+        asyncio.gather(grouped(), *page_tasks),
         _deadline_remaining(started),
     )
-    grouped_decisions = results[0]
-    conflicts = [conflict for result in results[1:] for conflict in result]
+    grouped_decisions = cast(list[PageConsistencyDecision], results[0])
+    if not page_pass or context is None:
+        return await _verify_conflicts(
+            groups, grouped_decisions, judge, context, started
+        )
+    conflicts = [
+        conflict
+        for result in results[1:]
+        for conflict in cast(list[WholePageConflict], result)
+    ]
     page_groups = _whole_page_groups(conflicts, context, groups)
     groups.extend(page_groups)
     decisions = [
