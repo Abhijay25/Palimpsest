@@ -1,5 +1,9 @@
 # NeoWiki exploration registry
 
+## Language quality and issue context
+
+[Language evidence quality](../../tools/language-gap-explorer/docs/language-quality.md) documents source-bound contextual comments, lazy cached English translations beneath foreign diff paragraphs, exact-witness Decisions question preparation, and conservative offline policy replay. Published source observations and historical identities remain unchanged. Real cached failures and a separate controlled synthetic baseline have regression coverage; independently verified multilingual precision/recall gains are still unestablished. No paid assessment or model training ran for this iteration.
+
 ## Native Issues integration (in verification)
 
 The later [Wikipedia-style defaults](../wikipedia-defaults.md) retire the legacy

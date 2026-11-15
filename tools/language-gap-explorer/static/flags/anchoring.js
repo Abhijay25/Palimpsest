@@ -2,16 +2,15 @@
 (function(root){
  'use strict';
  function cells(table,side){return [...table.querySelectorAll('[data-diff-side="'+side+'"].mw-diff-inline-'+(side==='old'?'deleted':'added'))];}
+ function sourceNodes(cell){const walker=document.createTreeWalker(cell,NodeFilter.SHOW_TEXT),nodes=[];while(walker.nextNode()){const node=walker.currentNode;if(!node.parentElement?.closest('.issue-translation-slot,.flag-inline-pin'))nodes.push(node);}return nodes;}
  function resolve(table,flags){
   const anchored=[],unanchored=[];
   for(const flag of flags){
    const quote=String(flag.anchor_text||'').trim();let found=null;
-   for(const cell of cells(table,flag.side==='old'?'old':'new'))if(quote&&cell.textContent.includes(quote)){found=cell;break;}
+   for(const cell of cells(table,flag.side==='old'?'old':'new'))if(quote&&sourceNodes(cell).map(n=>n.nodeValue).join('').includes(quote)){found=cell;break;}
    if(!found){unanchored.push(flag);continue;}
-   let index=found.textContent.indexOf(quote);
-   if(found.textContent.lastIndexOf(quote)!==index){const context=String(flag.context_sentence||'');const begin=context?found.textContent.indexOf(context):-1;if(begin<0||found.textContent.lastIndexOf(context)!==begin||!context.includes(quote)){unanchored.push(flag);continue;}index=begin+context.indexOf(quote);}
-   const walker=document.createTreeWalker(found,NodeFilter.SHOW_TEXT),nodes=[];
-   while(walker.nextNode())nodes.push(walker.currentNode);
+   const nodes=sourceNodes(found),text=nodes.map(n=>n.nodeValue).join('');let index=text.indexOf(quote);
+   if(text.lastIndexOf(quote)!==index){const context=String(flag.context_sentence||'');const begin=context?text.indexOf(context):-1;if(begin<0||text.lastIndexOf(context)!==begin||!context.includes(quote)){unanchored.push(flag);continue;}index=begin+context.indexOf(quote);}
    let cursor=0,marks=[];
    for(const node of nodes){
     const start=cursor,end=cursor+node.nodeValue.length;cursor=end;

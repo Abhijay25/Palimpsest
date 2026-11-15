@@ -63,6 +63,16 @@ def load_model(lang):
     translator=ctranslate2.Translator(str(root/'model'),device='cpu',compute_type='int8',intra_threads=2)
     return tokenizer,translator
 
+def cached_translation(text,lang):
+    """Read the exact current model/text cache identity; never load a model."""
+    if lang not in MODEL_VERSIONS:return None
+    model=f'argos-{lang}-en-{MODEL_VERSIONS[lang]}-int8'
+    identity=hashlib.sha256((model+'\0'+text).encode()).hexdigest()
+    with connect() as db,db.cursor() as c:
+        c.execute('SELECT translated FROM local_translation WHERE id=%s',(identity,));old=c.fetchone()
+    return {'text':old['translated'],'model':model,'cached':True} if old else None
+
+
 def translate(text,lang):
     if lang=='en':return {'text':text,'model':'original-English','cached':True}
     if lang not in MODEL_VERSIONS:raise ValueError('Only Finnish, Swedish and Russian to English are supported.')
@@ -74,6 +84,9 @@ def translate(text,lang):
     if old:return {'text':old['translated'],'model':model,'cached':True}
     # Keep CPU use bounded; split long sentences without silently truncating input.
     with _lock:
+        # Another request may have filled this exact model/text while we waited.
+        cached=cached_translation(text,lang)
+        if cached:return cached
         tokenizer,translator=load_model(lang)
         segments=[]
         for sentence in re.split(r'(?<=[.!?])\s+|\n+',text):
@@ -81,9 +94,9 @@ def translate(text,lang):
             for start in range(0,len(ids),200):segments.append(ids[start:start+200])
         output=translator.translate_batch(segments,beam_size=2,max_batch_size=8,max_input_length=0,max_decoding_length=512)
         translated=' '.join(tokenizer.decode(o.hypotheses[0]) for o in output)
-    with connect() as db,db.cursor() as c:
-        c.execute('INSERT IGNORE INTO local_translation(id,lang,model,source,translated) VALUES (%s,%s,%s,%s,%s)',
-          (identity,lang,model,text,translated))
+        with connect() as db,db.cursor() as c:
+            c.execute('INSERT IGNORE INTO local_translation(id,lang,model,source,translated) VALUES (%s,%s,%s,%s,%s)',
+              (identity,lang,model,text,translated))
     return {'text':translated,'model':model,'cached':False}
 
 if __name__=='__main__':

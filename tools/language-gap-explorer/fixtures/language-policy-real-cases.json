@@ -1,0 +1,123 @@
+{
+  "attribution": "Wikipedia contributors",
+  "license": "CC BY-SA 4.0",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "cases": [
+    {
+      "id": "72ab7a0ab6100d2818d38bf098e41d14283d31d64842f217590a2b04c53b97ae",
+      "topic": "Q12375230",
+      "original_kind": "contradiction",
+      "scores": {
+        "related": {
+          "type": "predicate",
+          "name": "p2_related",
+          "probability": 1.0
+        },
+        "contradiction": {
+          "type": "predicate",
+          "name": "p2_contradiction",
+          "probability": 0.98
+        },
+        "same_scope": {
+          "type": "predicate",
+          "name": "p2_same_scope",
+          "probability": 1.0
+        },
+        "framing": {
+          "type": "predicate",
+          "name": "p2_framing",
+          "probability": 0.91
+        },
+        "coverage": {
+          "type": "predicate",
+          "name": "p2_coverage",
+          "probability": 0.0
+        },
+        "compatible": {
+          "type": "predicate",
+          "name": "p2_compatible",
+          "probability": 1.0
+        }
+      },
+      "sources": [
+        {
+          "lang": "en",
+          "quote": "After the king returned to Poland, conflicts arose among the nobility about Karl's position as a regent. In this conflict, Finland's leader Klaus Fleming sided with the king. At the Arboga diet in 1597, Karl was still named as regent. At this time, he declared his opponents, especially Klaus Fleming, to be rebels.",
+          "revision": 1257030008,
+          "stamp": "2024-11-12T21:17:31Z",
+          "url": "https://en.wikipedia.org/w/index.php?oldid=1257030008",
+          "start": 30747,
+          "end": 31062
+        },
+        {
+          "lang": "fi",
+          "quote": "Kuninkaan palattua Puolaan, nousi aateliston kesken erimielisyyksiä Kaarle-herttuan asemasta valtionhoitajana. Tässä kiistassa Suomen käskynhaltija Klaus Fleming asettui kuninkaan puolelle. Arbogan valtiopäivillä 1597 Kaarle kuitenkin nimettiin valtionhoitajaksi. Tällöin hän myös julisti vastustajansa, ennen kaikkea Klaus Flemingin kapinallisiksi.",
+          "revision": 22871773,
+          "stamp": "2024-12-02T16:58:37Z",
+          "url": "https://fi.wikipedia.org/w/index.php?oldid=22871773",
+          "start": 36735,
+          "end": 37084
+        }
+      ],
+      "semantic_reference_status": "provisional_assistant; no independently verified bilingual label"
+    },
+    {
+      "id": "8fba7c90ebf4a42e8b4edc42e910a2eff5b494b16b01183c9c2e48f134301002",
+      "topic": "Q1326909",
+      "original_kind": "framing",
+      "scores": {
+        "related": {
+          "type": "predicate",
+          "name": "p0_related",
+          "probability": 0.89
+        },
+        "contradiction": {
+          "type": "predicate",
+          "name": "p0_contradiction",
+          "probability": 0.95
+        },
+        "same_scope": {
+          "type": "predicate",
+          "name": "p0_same_scope",
+          "probability": 0.45
+        },
+        "framing": {
+          "type": "predicate",
+          "name": "p0_framing",
+          "probability": 0.99
+        },
+        "coverage": {
+          "type": "predicate",
+          "name": "p0_coverage",
+          "probability": 0.99
+        },
+        "compatible": {
+          "type": "predicate",
+          "name": "p0_compatible",
+          "probability": 0.0
+        }
+      },
+      "sources": [
+        {
+          "lang": "en",
+          "quote": "Rafael Erich's cabinet was the sixth Government of Republic of Finland. The cabinet's time period was March 15, 1920 – April 9, 1921. It was a minority government.",
+          "revision": 919767587,
+          "stamp": "2019-10-05T17:32:03Z",
+          "url": "https://en.wikipedia.org/w/index.php?oldid=919767587",
+          "start": 0,
+          "end": 163
+        },
+        {
+          "lang": "sv",
+          "quote": "Regeringen Erich var Republiken Finlands sjätte regering bestående av Samlingspartiet, Framstegspartiet, Agrarförbundet och Svenska folkpartiet. Regeringen var en majoritetsregering. Krigsministern var opolitisk. Ministären regerade från 15 mars 1920 till 9 april 1921.",
+          "revision": 47054831,
+          "stamp": "2019-12-29T20:23:28Z",
+          "url": "https://sv.wikipedia.org/w/index.php?oldid=47054831",
+          "start": 0,
+          "end": 269
+        }
+      ],
+      "semantic_reference_status": "provisional_assistant; no independently verified bilingual label"
+    }
+  ]
+}

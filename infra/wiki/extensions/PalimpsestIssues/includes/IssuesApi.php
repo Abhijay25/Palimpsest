@@ -114,7 +114,7 @@ final class IssuesApi extends ApiBase {
 
     public function getAllowedParams() { return [
         'title' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_REQUIRED => true ],
-        'op' => [ ParamValidator::PARAM_TYPE => [ 'list', 'detail', 'legacy', 'health', 'versions', 'cached', 'scan', 'review' ], ParamValidator::PARAM_DEFAULT => 'list' ],
+        'op' => [ ParamValidator::PARAM_TYPE => [ 'list', 'detail', 'legacy', 'health', 'versions', 'cached', 'scan', 'review', 'translate' ], ParamValidator::PARAM_DEFAULT => 'list' ],
         'selection' => [ ParamValidator::PARAM_TYPE => 'string', ParamValidator::PARAM_DEFAULT => '{}' ],
         'mode' => [ ParamValidator::PARAM_TYPE => [ 'revision', 'page' ], ParamValidator::PARAM_DEFAULT => 'revision' ],
         // MediaWiki boolean parameters mean presence, even for "false"/"0".
@@ -122,7 +122,7 @@ final class IssuesApi extends ApiBase {
         'reviewed' => [ ParamValidator::PARAM_TYPE => [ 'yes', 'no' ], ParamValidator::PARAM_DEFAULT => 'no' ],
         'fresh' => [ ParamValidator::PARAM_TYPE => [ 'yes', 'no' ], ParamValidator::PARAM_DEFAULT => 'no' ],
     ]; }
-    public function mustBePosted() { return in_array( $this->getRequest()->getVal( 'op' ), [ 'review', 'scan' ], true ); }
+    public function mustBePosted() { return in_array( $this->getRequest()->getVal( 'op' ), [ 'review', 'scan', 'translate' ], true ); }
     public function needsToken() { return $this->mustBePosted() ? 'csrf' : false; }
-    public function isWriteMode() { return $this->mustBePosted(); }
+    public function isWriteMode() { return in_array( $this->getRequest()->getVal( 'op' ), [ 'review', 'scan' ], true ); }
 }

@@ -10,6 +10,7 @@ ROOT=Path(__file__).resolve().parents[1]
 TARGET=ROOT/'infra/wiki/extensions/PalimpsestIssues/resources'
 SOURCES={name:ROOT/'tools/language-gap-explorer/static/flags'/name for name in ('flags.js','flags.css','anchoring.js')}
 SOURCES['stacking.js']=ROOT/'infra/wiki/extensions/PalimpsestFlags/resources/stacking.js'
+SOURCES['issue-translations.js']=ROOT/'tools/language-gap-explorer/static/issue-translations.js'
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--check',action='store_true');args=parser.parse_args()
