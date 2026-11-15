@@ -87,8 +87,9 @@ class ArticleContext:
     @property
     def cache(self):return ROOT/'data'/'article-history'/self.topic
     def configuration(self):
+        from pipeline import PASSAGE_VERSION
         return dict(topic=self.topic,title=self.title,anchors=[asdict(a) for a in sorted(self.anchors,key=lambda a:a.lang)],
-                    languages=list(self.languages),mode=self.mode,since=self.since,version=VERSION)
+                    languages=list(self.languages),mode=self.mode,since=self.since,version=VERSION,passage_policy=PASSAGE_VERSION)
 
 
 def article_context(topic,languages=None,mode='history',since='2020-01-01',workers=6):
