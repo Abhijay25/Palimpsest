@@ -10,7 +10,7 @@
 	"Hooks": { "DifferenceEngineViewHeader": "MediaWiki\\Extension\\PalimpsestFlags\\Hooks::onDifferenceEngineViewHeader" },
 	"ServiceWiringFiles": [ "ServiceWiring.php" ],
 	"config": {
-		"PalimpsestFlagsApiUrl": { "value": "", "description": "Base URL for the Palimpsest audit API; empty disables diff flags." },
+		"PalimpsestFlagsApiUrl": { "value": "", "description": "Base URL for the NeoWiki audit API; empty disables diff flags." },
 		"PalimpsestFlagsTimeout": { "value": 60, "description": "Server-to-server audit request timeout in seconds." },
 		"PalimpsestFlagsApiVersion": { "value": "v1", "description": "Audit API contract version included in cache keys." }
 	},

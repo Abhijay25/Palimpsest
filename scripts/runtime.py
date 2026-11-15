@@ -525,7 +525,7 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
             f"--dbname={install_values['INSTALL_DB_NAME']}", "--dbserver=db", f"--dbuser={install_values['INSTALL_DB_USER']}",
             "--dbpassfile=/run/secrets/install-db-password", f"--server={install_values['INSTALL_SERVER']}",
             f"--lang={lang}", "--passfile=/run/secrets/install-admin-password", "--confpath=/tmp/palimpsest-config",
-            "--scriptpath=", f"Palimpsest {lang.upper()}", "admin"]
+            "--scriptpath=", f"NeoWiki {lang.upper()}", "admin"]
         run(install_cmd, env=docker_env, timeout=300)
         configure_runtime_settings(data_root, lang, prefix, docker_env)
         marker["initialized"][lang] = True

@@ -1,6 +1,7 @@
 <?php
 // Per-language settings appended after MediaWiki's generated installer config.
 $wgLanguageCode = getenv('MW_LANG') ?: $wgLanguageCode;
+$wgSitename = 'NeoWiki';
 $wgLocaltimezone = 'UTC';
 $wgDefaultSkin = 'vector-2022';
 // Reader/editor defaults checked against Wikimedia production configuration.
