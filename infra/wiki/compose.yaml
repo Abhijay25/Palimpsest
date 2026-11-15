@@ -61,6 +61,7 @@ services:
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
       - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
       - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/wikipedia-logo.png:/var/www/html/wikipedia-logo.png:ro
       - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
     ports: ["127.0.0.1:${PORT_FI}:80"]
     healthcheck:
@@ -84,6 +85,7 @@ services:
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
       - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
       - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/wikipedia-logo.png:/var/www/html/wikipedia-logo.png:ro
       - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
     ports: ["127.0.0.1:${PORT_SV}:80"]
     healthcheck:
@@ -107,6 +109,7 @@ services:
       - ./infra/wiki/runtime/healthcheck.php:/usr/local/bin/palimpsest-healthcheck.php:ro
       - ./infra/wiki/runtime/configure-interwiki.php:/usr/local/bin/palimpsest-configure-interwiki.php:ro
       - ./infra/wiki/runtime/palimpsest-logo.svg:/var/www/html/palimpsest-logo.svg:ro
+      - ./infra/wiki/runtime/wikipedia-logo.png:/var/www/html/wikipedia-logo.png:ro
       - ./infra/wiki/runtime/palimpsest-icon.svg:/var/www/html/palimpsest-icon.svg:ro
     ports: ["127.0.0.1:${PORT_EN}:80"]
     healthcheck:

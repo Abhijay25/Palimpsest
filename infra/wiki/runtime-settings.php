@@ -33,8 +33,8 @@ $wgVectorMaxWidthOptions = [
     'include' => [ 'Special:Preferences', 'Special:Userlogin', 'Special:CreateAccount' ],
 ];
 $wgLogos = [
-    '1x' => '/palimpsest-logo.svg',
-    'icon' => '/palimpsest-icon.svg',
+    '1x' => '/wikipedia-logo.png',
+    'icon' => '/wikipedia-logo.png',
     'wordmark' => [
         'src' => '/palimpsest-logo.svg',
         'width' => 172,
