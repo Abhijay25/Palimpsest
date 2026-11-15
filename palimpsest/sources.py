@@ -1,9 +1,7 @@
-"""Stage 1: Exa-backed citation source windows with a JSON-file cache."""
+"""Stage 1: Exa-backed citation source windows with a stable evidence cache."""
 
 import asyncio
 import datetime
-import hashlib
-import json
 import os
 import re
 import sys
@@ -16,6 +14,7 @@ import httpx
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
+from palimpsest.evidence_cache import EvidenceCache
 from palimpsest.schema import SourceWindow
 
 EXA_CONTENTS_URL: Final = "https://api.exa.ai/contents"
@@ -34,12 +33,6 @@ NEGATIVE_CACHE_TTL_S: Final = 6 * 3600
 _SENTENCE_SPLIT: Final = re.compile(r"(?<=[.!?])\s+")
 _TOKEN: Final = re.compile(r"\w+")
 _HEADING: Final = re.compile(r"^#{1,6}\s")
-
-
-class _CachedText(BaseModel):
-    text: str
-    # Set on a negative entry: the fetch ran and failed or returned a stub.
-    failed_at: float | None = None
 
 
 class _FetchOutcome(BaseModel):
@@ -178,24 +171,9 @@ def _highlights_window(highlights: list[str]) -> str:
 
 
 def _merge_highlights(highlights: list[str], full_text: str | None) -> list[str]:
-    """Deduplicate Exa snippets, preserving document order when text is cached."""
-    unique: list[str] = []
-    for highlight in highlights:
-        cleaned = highlight.strip()
-        if cleaned and cleaned not in unique:
-            unique.append(cleaned)
-    if full_text is None:
-        return unique
-    indexed = [
-        (full_text.find(highlight), index, highlight)
-        for index, highlight in enumerate(unique)
-    ]
-    return [
-        highlight
-        for _, _, highlight in sorted(
-            indexed, key=lambda item: (item[0] < 0, item[0], item[1])
-        )
-    ]
+    """Deduplicate Exa snippets in the order supplied to the judge."""
+    del full_text
+    return sorted({highlight.strip() for highlight in highlights if highlight.strip()})
 
 
 class SourceFetcher:
@@ -209,6 +187,9 @@ class SourceFetcher:
         self._api_key = api_key or None
         self._daily_cap = daily_cap
         self._cache_dir = cache_dir
+        self._evidence_cache = EvidenceCache(str(cache_dir))
+        # Set on a negative entry: the fetch ran and failed or returned a stub.
+        self._failed: dict[str, float] = {}
         self._client = client
         self._max_calls = _max_exa_calls()
         self._budget_logged = False
@@ -226,61 +207,59 @@ class SourceFetcher:
         )
         child._max_calls = min(max_calls, self._max_calls)
         child._inflight = self._inflight
+        child._evidence_cache = self._evidence_cache
+        child._failed = self._failed
         return child
 
-    def _cache_path(self, key: str) -> Path:
-        return self._cache_dir / f"{hashlib.sha256(key.encode()).hexdigest()}.json"
+    @staticmethod
+    def _text_parameters() -> dict[str, bool]:
+        return {"text": True}
 
-    def _read_entry(self, key: str) -> _CachedText | None:
-        path = self._cache_path(key)
-        if not path.exists():
-            return None
-        try:
-            return _CachedText.model_validate_json(path.read_text())
-        except (OSError, ValidationError):
-            return None
+    @staticmethod
+    def _highlight_parameters(query: str) -> dict[str, object]:
+        return {"highlights": {"query": query, "maxCharacters": MAX_WINDOW_CHARS}}
 
-    def _read_cache(self, key: str) -> str | None:
-        entry = self._read_entry(key)
-        return None if entry is None or entry.failed_at is not None else entry.text
+    def _read_cache(self, url: str) -> str | None:
+        cached = self._evidence_cache.get(
+            EXA_CONTENTS_URL, url, self._text_parameters()
+        )
+        return cached if isinstance(cached, str) else None
 
     def _recently_failed(self, key: str) -> bool:
-        entry = self._read_entry(key)
-        return (
-            entry is not None
-            and entry.failed_at is not None
-            and time.time() - entry.failed_at < NEGATIVE_CACHE_TTL_S
-        )
+        failed_at = self._failed.get(key)
+        return failed_at is not None and time.time() - failed_at < NEGATIVE_CACHE_TTL_S
 
     def _write_failure(self, key: str) -> None:
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-        self._cache_path(key).write_text(
-            _CachedText(text="", failed_at=time.time()).model_dump_json()
-        )
+        self._failed[key] = time.time()
 
     def cached_text(self, url: str) -> str | None:
         """Cached page text for url, or None; never calls the network."""
         return self._read_cache(url)
 
     def _write_cache(self, key: str, text: str) -> None:
-        self._cache_dir.mkdir(parents=True, exist_ok=True)
-        self._cache_path(key).write_text(_CachedText(text=text).model_dump_json())
+        self._evidence_cache.put(EXA_CONTENTS_URL, key, self._text_parameters(), text)
 
     @staticmethod
     def _highlights_key(url: str, query: str) -> str:
         return f"highlights\0{url}\0{query}"
 
     def _read_highlights(self, url: str, query: str) -> list[str] | None:
-        cached = self._read_cache(self._highlights_key(url, query))
-        if cached is None:
-            return None
-        try:
-            parsed = json.loads(cached)
-        except json.JSONDecodeError:
-            return None
-        if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
-            return parsed
+        cached = self._evidence_cache.get(
+            EXA_CONTENTS_URL, url, self._highlight_parameters(query)
+        )
+        if isinstance(cached, list) and all(isinstance(item, str) for item in cached):
+            return sorted(item.strip() for item in cached if item.strip())
         return None
+
+    def _write_highlights(self, url: str, query: str, highlights: list[str]) -> None:
+        self._evidence_cache.put(
+            EXA_CONTENTS_URL,
+            url,
+            self._highlight_parameters(query),
+            sorted(
+                {highlight.strip() for highlight in highlights if highlight.strip()}
+            ),
+        )
 
     async def _contents(self, body: dict[str, object]) -> bytes | None:
         """One budgeted Exa contents request; errors remain retryable."""
@@ -382,9 +361,12 @@ class SourceFetcher:
     ) -> list[str] | None:
         key = self._highlights_key(url, query)
         outcome = await self._fetch_highlights(url, query)
-        if outcome.highlights:
-            self._write_cache(key, json.dumps(outcome.highlights))
-            return outcome.highlights
+        highlights = sorted(
+            {highlight.strip() for highlight in outcome.highlights if highlight.strip()}
+        )
+        if highlights:
+            self._write_highlights(url, query, highlights)
+            return highlights
         if outcome.permanent_failure:
             self._write_failure(key)
         return None
@@ -467,6 +449,7 @@ class SourceFetcher:
                     for highlight in highlights
                     if (cleaned := on_text(highlight)) is not None
                 ]
+            highlights = sorted(set(highlights))
             window = _highlights_window(highlights)
             latency_ms = (time.perf_counter() - started) * 1000
             if window:

@@ -47,11 +47,18 @@ def read_result(endpoint: str, request: BaseModel) -> dict[str, object] | None:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        return None
+    if data.get("status", "ok") != "ok" or data.get("partial", False):
+        return None
+    return data
 
 
 def write_result(endpoint: str, request: BaseModel, response: BaseModel) -> None:
     """Atomically persist a complete response when the optional cache is enabled."""
+    status = getattr(response, "status", "ok")
+    if status != "ok" or getattr(response, "partial", False):
+        return
     directory = os.environ.get(_CACHE_ENV)
     if not directory:
         return

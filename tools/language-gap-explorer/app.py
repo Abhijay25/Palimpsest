@@ -218,6 +218,20 @@ def update_issue_count(rows,lang):
     return sum(reviews.get(i['id'],{}).get('action','pending') in ('pending','needs_update') for i in issue_items(rows,lang))
 
 @app.context_processor
+def article_tab_context():
+    from urllib.parse import urlencode
+
+    def article_tab_url(tab, topic, lang=None):
+        params=[(key,value) for key,value in request.args.items(multi=True)
+                if key != 'tab' and (lang is None or key != 'lang')]
+        if lang:
+            params.append(('lang',lang))
+        params.append(('tab',tab))
+        return '/article/'+topic+'?'+urlencode(params)
+
+    return dict(article_tab_url=article_tab_url)
+
+@app.context_processor
 def showcase_context():
     from urllib.parse import urlencode
     chosen=request.args.getlist('languages')

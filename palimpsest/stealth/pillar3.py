@@ -3,7 +3,7 @@ import re
 from palimpsest.stealth.models import HiddenFinding, VectorType
 from palimpsest.stealth.render import HiddenReason, RenderAudit
 from palimpsest.stealth.sanitizer import looks_like_instruction
-from palimpsest.stealth.scanner import SCREEN_CLASSIFICATION, scan
+from palimpsest.stealth.scanner import scan
 
 MIN_NODE_TOKENS = 4
 FED_TO_JUDGE_RATIO = 0.6
@@ -59,33 +59,15 @@ def fetched_html_findings(html: str) -> list[HiddenFinding]:
     """Detect hidden channels retained only in a cited page's fetched HTML.
 
     The same scanner used for edit wikitext sees comments, scripts, hidden
-    elements, invisible controls, and accessibility-hidden text. Plain comments
-    remain non-findings; a non-instruction hidden channel is reviewable here
-    because it was fetched from a cited page rather than authored in the edit.
+    elements, invisible controls, and accessibility-hidden text. Cited pages
+    commonly include hidden navigation and consent UI, so only instruction-like
+    hidden channels are findings.
     """
-    findings: list[HiddenFinding] = []
-    for finding in scan(html, "EXTERNAL_REF_PAGE").hidden_findings:
-        if finding.classification in {
-            SCREEN_CLASSIFICATION,
-            "BENIGN_EDITOR_NOTE_PROVISIONAL",
-            "INFO_ZERO_WIDTH",
-        }:
-            continue
-        if finding.classification == "NEEDS_TRIAGE":
-            if finding.vector_type == VectorType.HTML_COMMENT:
-                continue
-            findings.append(
-                finding.model_copy(
-                    update={
-                        "classification": "FLAG_CSS_CLOAKING",
-                        "confidence": max(finding.confidence, 0.6),
-                        "explanation": "Fetched cited page contains text hidden from readers.",
-                    }
-                )
-            )
-            continue
-        findings.append(finding)
-    return findings
+    return [
+        finding
+        for finding in scan(html, "EXTERNAL_REF_PAGE").hidden_findings
+        if finding.classification == "FLAG_STEALTH_PROMPT_INJECTION"
+    ]
 
 
 def _deduplicate(findings: list[HiddenFinding]) -> list[HiddenFinding]:
@@ -109,6 +91,8 @@ def render_findings(audit: RenderAudit, judged_text: str | None) -> list[HiddenF
     for node in audit.hidden_nodes:
         tokens = _tokens(node.text)
         if len(tokens) < MIN_NODE_TOKENS:
+            continue
+        if not looks_like_instruction(node.text):
             continue
         # Responsive duplicates (mobile menu, repeated headline) are also visible.
         if " ".join(tokens) in visible_normalized:
@@ -136,8 +120,8 @@ def render_findings(audit: RenderAudit, judged_text: str | None) -> list[HiddenF
                 raw_snippet=node.text[:300],
                 decoded_hidden_text=node.text,
                 char_span=(0, 0),
-                classification="NEEDS_TRIAGE",
-                confidence=0.6,
+                classification="FLAG_STEALTH_PROMPT_INJECTION",
+                confidence=0.95,
                 explanation=f"Text hidden from humans ({node.reason}); {seen}.",
             )
         )
@@ -149,6 +133,8 @@ def render_findings(audit: RenderAudit, judged_text: str | None) -> list[HiddenF
             tokens = _tokens(sentence)
             if len(tokens) < MIN_SENTENCE_TOKENS:
                 continue
+            if not looks_like_instruction(sentence):
+                continue
             # Containment bounds Jaccard from above, so containment < 0.5 implies Jaccard < 0.5.
             contained = _containment(tokens, human_tokens)
             in_dom = _containment(tokens, dom_tokens) >= IN_DOM_CONTAINMENT
@@ -159,8 +145,8 @@ def render_findings(audit: RenderAudit, judged_text: str | None) -> list[HiddenF
                         raw_snippet=sentence.strip()[:300],
                         decoded_hidden_text=sentence.strip(),
                         char_span=(0, 0),
-                        classification="NEEDS_TRIAGE",
-                        confidence=0.5,
+                        classification="FLAG_STEALTH_PROMPT_INJECTION",
+                        confidence=0.95,
                         explanation="Text given to the judge is not visible on the rendered page",
                     )
                 )

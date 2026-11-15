@@ -124,6 +124,8 @@ def _screen_chunks(
 def scan(text: str, target_type: TargetType, old_text: str | None = None) -> ScanResult:
     started = time.perf_counter()
 
+    external_page = target_type == "EXTERNAL_REF_PAGE"
+
     def is_new(snippet: str) -> bool:
         return old_text is None or snippet not in old_text
 
@@ -139,7 +141,9 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
     tags = decode_unicode_tags(text)
     for payload in tags.payloads:
         raw = text[payload.span[0] : payload.span[1]]
-        if not is_new(raw):
+        if not is_new(raw) or (
+            external_page and not looks_like_instruction(payload.decoded)
+        ):
             continue
         add(
             HiddenFinding(
@@ -159,7 +163,7 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
     intra_word_runs = {match.span() for match in _INTRA_WORD_INVISIBLE.finditer(text)}
     for run in controls.runs:
         raw = text[run.span[0] : run.span[1]]
-        if not is_new(raw):
+        if not is_new(raw) or external_page:
             continue
         intra_word = run.span in intra_word_runs
         add(
@@ -188,7 +192,7 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
         )
 
     for homoglyph in detect_homoglyphs(text):
-        if not is_new(homoglyph.token):
+        if not is_new(homoglyph.token) or external_page:
             continue
         add(
             HiddenFinding(
@@ -222,7 +226,9 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
             StealthStatus.BENIGN_NOTES_ONLY,
         )
     for item in channels.quarantined_items:
-        if not is_new(item.raw_snippet):
+        if not is_new(item.raw_snippet) or (
+            external_page and not item.instruction_like
+        ):
             continue
         if item.vector_type in _TRIAGE_FIRST_VECTORS and not item.instruction_like:
             classification = "NEEDS_TRIAGE"
@@ -320,7 +326,7 @@ def scan(text: str, target_type: TargetType, old_text: str | None = None) -> Sca
             )
 
     for item in channels.screen_items:
-        if is_new(item.raw_snippet):
+        if is_new(item.raw_snippet) and not external_page:
             add(
                 HiddenFinding(
                     vector_type=item.vector_type,

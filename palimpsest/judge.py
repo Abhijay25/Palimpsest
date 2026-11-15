@@ -8,8 +8,17 @@ from typing import Final, Protocol, runtime_checkable
 from pydantic import BaseModel, ValidationError
 
 from palimpsest.guided import GuidedAnswers, guided_to_audit
-from palimpsest.schema import AuditOutput, Case, SourceWindow, Verdict
-from palimpsest.stage0 import Stage0Result
+from palimpsest.schema import (
+    AuditOutput,
+    Case,
+    FlagEvidence,
+    FlaggedSpan,
+    Guideline,
+    SourceWindow,
+    SpanType,
+    Verdict,
+)
+from palimpsest.stage0 import Stage0Result, removal_summary
 from palimpsest.stealth.models import ScanResult, VectorType
 from palimpsest.value_check import ValueCheckReport
 
@@ -46,6 +55,7 @@ class PreparedCase(BaseModel):
     ref_scan: ScanResult | None = None
     stealth_ms: float = 0.0
     value_check: ValueCheckReport | None = None
+    linked_evidence: list[FlagEvidence] = []
 
 
 class _ResultLine(BaseModel):
@@ -86,9 +96,74 @@ async def judge_with_latencies(
     entries it wrote to latencies_ms are popped so the dict does not grow.
     """
     if isinstance(backend, TimedJudge):
-        return await backend.judge_timed(cases)
+        results, latencies = await backend.judge_timed(cases)
+        return _apply_removal_rules(cases, results), latencies
     results = await backend.judge(cases)
-    return results, {cid: backend.latencies_ms.pop(cid, 0.0) for cid in results}
+    return _apply_removal_rules(cases, results), {
+        cid: backend.latencies_ms.pop(cid, 0.0) for cid in results
+    }
+
+
+def _apply_removal_rules(
+    cases: list[PreparedCase], results: dict[str, AuditOutput | str]
+) -> dict[str, AuditOutput | str]:
+    by_id = {pc.case.case_id: pc for pc in cases}
+    return {
+        case_id: (
+            _apply_removal_rule(pc, result)
+            if (pc := by_id.get(case_id)) is not None
+            and isinstance(result, AuditOutput)
+            else result
+        )
+        for case_id, result in results.items()
+    }
+
+
+def _apply_removal_rule(pc: PreparedCase, output: AuditOutput) -> AuditOutput:
+    """Add non-model removal findings that are unsafe to leave unreported."""
+    old_wikitext = pc.case.old_wikitext or pc.case.old_text
+    new_wikitext = pc.case.new_wikitext or pc.case.new_text
+    summary = removal_summary(old_wikitext, new_wikitext)
+    if not (summary.most_of_page_removed or summary.has_multiple_cited_removals):
+        return output
+    cited = summary.removed_cited_sentences
+    anchor = cited[0] if cited else pc.case.old_text[:500]
+    reason = (
+        "Most of the page was removed "
+        f"({summary.removed_plain_size} plain-text characters removed)."
+        if summary.most_of_page_removed
+        else "Multiple cited sentences were removed without replacement."
+    )
+    if cited:
+        reason += " Removed cited sentences: " + " | ".join(cited)
+    span = FlaggedSpan(
+        exact_substring=anchor,
+        guideline_violated=Guideline.G2_FRAMING,
+        explanation=reason,
+        span_type=SpanType.REMOVED_QUALIFIER,
+    )
+    if output.verdict in {Verdict.CLEAN_PASS, Verdict.EXPAND_CONTEXT}:
+        return AuditOutput(
+            verdict=Verdict.FLAG_G2_FRAMING,
+            confidence=0.95 if summary.most_of_page_removed else 0.65,
+            expand_direction="NONE",
+            atomic_propositions=output.atomic_propositions,
+            flagged_spans=[span],
+            neutral_rewrite=output.neutral_rewrite,
+        )
+    if any(
+        existing.span_type == SpanType.REMOVED_QUALIFIER
+        for existing in output.flagged_spans
+    ):
+        return output
+    return output.model_copy(
+        update={
+            "confidence": max(
+                output.confidence, 0.95 if summary.most_of_page_removed else 0.65
+            ),
+            "flagged_spans": [*output.flagged_spans, span],
+        }
+    )
 
 
 def _neutralise(text: str) -> str:
@@ -126,12 +201,22 @@ def render_case_payload(pc: PreparedCase) -> str:
             f"CITATION_DISCOURSE_WINDOW:\n{note}"
             f"{_untrusted_field('CITATION_DISCOURSE_WINDOW', window.text)}\n"
         )
+    linked_block = ""
+    if pc.linked_evidence:
+        linked_text = "\n\n".join(
+            f"{item.url}\n{item.quote}" for item in pc.linked_evidence
+        )
+        linked_block = (
+            "LINKED_WIKIPEDIA_CONTEXT:\n"
+            f"{_untrusted_field('LINKED_WIKIPEDIA_CONTEXT', linked_text)}\n"
+        )
     case_id = " ".join(_neutralise(pc.case.case_id).split())
     return (
         f"=== CASE {case_id} ===\n"
         f"OLD_TEXT:\n{_untrusted_field('OLD_TEXT', pc.case.old_text)}\n\n"
         f"NEW_TEXT:\n{_untrusted_field('NEW_TEXT', pc.case.new_text)}\n\n"
         f"{window_block}\n"
+        f"{linked_block}"
         "DOMAIN_TRUST_TIER: UNKNOWN\n"
     )
 
@@ -231,16 +316,22 @@ class FileExchangeBackend:
                         and (pc := prepared.get(case_id)) is not None
                     ):
                         answers = GuidedAnswers.model_validate(raw_output)
-                        results[case_id] = guided_to_audit(
+                        output = guided_to_audit(
                             answers,
                             pc.case.old_text,
                             pc.case.new_text,
                             pc.window.text if pc.window is not None else "",
                         )
                     else:
-                        results[case_id] = AuditOutput.model_validate(
+                        output = AuditOutput.model_validate(
                             normalize_non_flag_output(raw_output)
                         )
+                    results[case_id] = (
+                        _apply_removal_rule(pc, output)
+                        if prepared is not None
+                        and (pc := prepared.get(case_id)) is not None
+                        else output
+                    )
                 except (ValueError, KeyError, ValidationError) as exc:
                     results[case_id] = f"{type(exc).__name__}: {str(exc)[:200]}"
         return results

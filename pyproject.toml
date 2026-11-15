@@ -28,7 +28,7 @@ packages = ["palimpsest"]
 [tool.mypy]
 strict = true
 # Teammates' infra, blame and library code has its own checks; strict mypy covers the detector.
-exclude = ["^scripts/", "^apps/", "^infra/", "^tools/", "^eval/dev/", "^eval/stealth/build/", "^tests/(infra|runtime|blame|blame_provenance|data|js|divergence)/"]
+exclude = ["^scripts/", "^apps/", "^infra/", "^tools/", "^eval/(cycle|dev|stealth/build)/", "^tests/(infra|runtime|blame|blame_provenance|data|js|divergence)/"]
 plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]

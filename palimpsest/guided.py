@@ -2,6 +2,7 @@
 
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -513,7 +514,10 @@ def guided_to_audit(
 
 
 def apply_value_swap_rule(
-    output: AuditOutput, old_text: str, new_text: str
+    output: AuditOutput,
+    old_text: str,
+    new_text: str,
+    citation_backed_claim: Callable[[str], bool] | None = None,
 ) -> AuditOutput:
     """Escalate unsupported clean-pass value replacements to the review queue."""
     if (
@@ -536,6 +540,8 @@ def apply_value_swap_rule(
         ]
         if pairs:
             old_value, replacement = pairs[0]
+            if citation_backed_claim is not None and citation_backed_claim(replacement):
+                continue
             matched.append((old_value, replacement, len(pairs)))
     spans: list[FlaggedSpan] = []
     for old_value, replacement, _ in matched[:3]:

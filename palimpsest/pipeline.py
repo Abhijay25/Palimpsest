@@ -15,6 +15,7 @@ from palimpsest.context_reads import (
     ContextReadBudget,
     append_highlights,
     candidate_for_output,
+    linked_page_evidence,
     read_more,
 )
 from palimpsest.guided import apply_value_swap_rule
@@ -48,7 +49,12 @@ from palimpsest.schema import (
 )
 from palimpsest.scoring import score
 from palimpsest.sources import SourceFetcher, load_exa_api_key
-from palimpsest.stage0 import changed_region_has_citation, prefilter, strip_wikitext
+from palimpsest.stage0 import (
+    changed_claim_has_added_citation,
+    changed_region_has_citation,
+    prefilter,
+    strip_wikitext,
+)
 from palimpsest.stealth.models import ScanResult, StealthStatus
 from palimpsest.stealth.scanner import reportable_findings, scan, worst_status
 from palimpsest.value_check import check_case
@@ -110,8 +116,7 @@ async def _window_for(
     urls = case.changed_ref_urls or case.ref_urls
     if case.changed_ref_urls is not None and not case.changed_ref_urls:
         has_changed_citation = (
-            bool(case.ref_urls)
-            and case.old_wikitext is not None
+            case.old_wikitext is not None
             and case.new_wikitext is not None
             and changed_region_has_citation(case.old_wikitext, case.new_wikitext)
         )
@@ -128,7 +133,7 @@ async def _window_for(
                 old_claim=old_claim,
                 source_mode=source_mode,
             )
-            for url in urls[:MAX_SOURCE_URLS]
+            for url in sorted(urls)[:MAX_SOURCE_URLS]
         )
     )
     best: tuple[SourceWindow, int] | None = None
@@ -196,6 +201,12 @@ async def prepare(
         ref_scans: list[ScanResult] = []
         async with semaphore:
             window = await _window_for(case, fetcher, ref_scans, source_mode)
+            linked_evidence = await linked_page_evidence(
+                strip_wikitext(case.new_text),
+                case.new_wikitext or case.new_text,
+                case.lang,
+                fetcher,
+            )
         return PreparedCase(
             case=case,
             stage0=stage0,
@@ -204,6 +215,7 @@ async def prepare(
             ref_scan=_worst_scan(ref_scans),
             stealth_ms=stealth_ms + sum(s.scan_latency_ms for s in ref_scans),
             value_check=value_report,
+            linked_evidence=linked_evidence,
         )
 
     prepared = list(await asyncio.gather(*(prepare_one(c) for c in cases.values())))
@@ -263,6 +275,7 @@ def _review_flag(pc: PreparedCase, output: AuditOutput, index: int) -> Flag:
         if pc.window is not None and pc.window.text
         else []
     )
+    evidence.extend(pc.linked_evidence)
     return Flag(
         id=f"{pc.case.case_id}-s{index}",
         kind=kind,
@@ -290,6 +303,8 @@ def _borderline_candidate(
     if output.verdict != Verdict.CLEAN_PASS or not swaps(
         pc.case.old_text, pc.case.new_text
     ):
+        return None
+    if _value_swaps_have_added_citations(pc):
         return None
     return ReviewerCandidate(
         candidate_id=f"{pc.case.case_id}-borderline",
@@ -399,7 +414,7 @@ async def _judge_with_gemini(
                 continue
             reviewed_output, reviewer = await _review_output(
                 pc,
-                apply_value_swap_rule(outcome, pc.case.old_text, pc.case.new_text),
+                _apply_value_swap_rule(pc, outcome),
                 fetcher,
                 reviewer_backend,
                 context_mode,
@@ -510,6 +525,35 @@ def _stealth_vectors(pc: PreparedCase) -> list[str]:
     )
 
 
+def _citation_backs_claim(pc: PreparedCase, claim: str) -> bool:
+    old_wikitext = pc.case.old_wikitext
+    new_wikitext = pc.case.new_wikitext
+    return (
+        changed_claim_has_added_citation(old_wikitext, new_wikitext, claim)
+        if old_wikitext is not None and new_wikitext is not None
+        else False
+    )
+
+
+def _value_swaps_have_added_citations(pc: PreparedCase) -> bool:
+    value_swaps = swaps(pc.case.old_text, pc.case.new_text)
+    return bool(value_swaps) and all(
+        _citation_backs_claim(pc, new_value)
+        for change in value_swaps
+        for _, new_value in change.pairs
+    )
+
+
+def _apply_value_swap_rule(pc: PreparedCase, output: AuditOutput) -> AuditOutput:
+    """Do not label a value swap unsourced when its changed sentence adds a citation."""
+    return apply_value_swap_rule(
+        output,
+        pc.case.old_text,
+        pc.case.new_text,
+        lambda claim: _citation_backs_claim(pc, claim),
+    )
+
+
 def _case_result(
     pc: PreparedCase,
     model: str,
@@ -540,7 +584,7 @@ def _case_result(
     return CaseResult(
         **base,
         stage_reached=2,
-        output=apply_value_swap_rule(outcome, pc.case.old_text, pc.case.new_text),
+        output=_apply_value_swap_rule(pc, outcome),
         parse_error=None,
     )
 

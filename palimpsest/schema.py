@@ -201,7 +201,14 @@ FlagCheck = Literal[
     "cherry_pick",
     "consistency",
 ]
-FlagEvidenceSource = Literal["cited", "old", "new", "wikidata", "page"]
+FlagEvidenceSource = Literal[
+    "cited",
+    "linked_page",
+    "old",
+    "new",
+    "wikidata",
+    "page",
+]
 
 
 class FlagEvidence(BaseModel):
