@@ -4,8 +4,18 @@ import difflib
 import re
 from dataclasses import dataclass
 
+from palimpsest.display_text import plain
+
 _TOKEN = re.compile(r"\d[\d.,]*|[A-ZÅÄÖ][\w'-]+(?:\s[A-ZÅÄÖ][\w'-]+)*")
 _NUMBER = re.compile(r"\d[\d.,]*")
+_NAMESPACED_LINK = re.compile(r"\[\[\s*:?[^\]|:]+:[^\]]*\]\]")
+
+
+def value_text(wikitext: str) -> str:
+    """Return visible text only, for comparing values rather than wiki markup."""
+    # Namespaced links include media such as [[File:...]]; neither their filenames
+    # nor their option text is prose evidence for a changed value.
+    return plain(_NAMESPACED_LINK.sub("", wikitext))
 
 
 def _norm(value: str) -> str:
@@ -55,6 +65,8 @@ class ValueSwap:
 
 def swaps(old_text: str, new_text: str) -> list[ValueSwap]:
     """Return positional, non-equivalent value pairs for small replace operations."""
+    old_text = value_text(old_text)
+    new_text = value_text(new_text)
     old_words, new_words = old_text.split(), new_text.split()
     found: list[ValueSwap] = []
     for operation, old_start, old_end, new_start, new_end in difflib.SequenceMatcher(

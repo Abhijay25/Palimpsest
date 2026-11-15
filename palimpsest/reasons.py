@@ -85,6 +85,10 @@ def span_policy(
         if _source_states_span(span, window):
             return SpanPolicy(None, None, None)
         return SpanPolicy("FACT", "review", _SPAN_TITLE[span_type])
+    if span_type == "REMOVED_QUALIFIER" and span.explanation.startswith(
+        "Multiple cited sentences were removed"
+    ):
+        return SpanPolicy("REMOVED_CONTEXT", "review", _SPAN_TITLE[span_type])
     return SpanPolicy(_SPAN_FLAG_KIND[span_type], judge_tier, _SPAN_TITLE[span_type])
 
 

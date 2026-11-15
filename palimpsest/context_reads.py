@@ -1,10 +1,12 @@
 """Bounded, policy-driven reads beyond the initially cited source excerpt."""
 
 import asyncio
+import os
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
+from urllib.parse import quote
 
 from palimpsest.schema import AuditOutput, Entailment, Flag, FlagEvidence, SourceWindow
 
@@ -16,7 +18,9 @@ ContextMode = Literal["never", "rule", "always"]
 MAX_CALLS_PER_CANDIDATE = 2
 MAX_CALLS_PER_REQUEST = 6
 CONTEXT_DEADLINE_S = 6.0
+_LINKED_EVIDENCE_ENV = "PALIMPSEST_LINKED_EVIDENCE"
 _WORD = re.compile(r"[\w'-]+")
+_WIKILINK = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 _CAUSAL = re.compile(r"\b(?:because|caused|due to|in order to|to\s+\w+)", re.IGNORECASE)
 _ABSENCE = re.compile(
     r"\b(?:unsupported|not (?:stated|mentioned|supported|established)|"
@@ -27,6 +31,65 @@ _ABSENCE = re.compile(
 
 class HighlightsFetcher(Protocol):
     async def highlights(self, url: str, query: str) -> list[str] | None: ...
+
+
+def linked_evidence_enabled() -> bool:
+    """Whether same-language linked-article context is enabled for this process."""
+    return os.environ.get(_LINKED_EVIDENCE_ENV, "1").casefold() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
+def linked_page_urls(sentence_wikitext: str, language: str) -> list[str]:
+    """Return the first three distinct same-language Wikipedia link targets."""
+    urls: list[str] = []
+    for match in _WIKILINK.finditer(sentence_wikitext):
+        target = match.group(1).strip()
+        if not target:
+            continue
+        title = quote(target.replace(" ", "_"), safe="()'/:#")
+        url = f"https://{language}.wikipedia.org/wiki/{title}"
+        if url not in urls:
+            urls.append(url)
+        if len(urls) == 3:
+            break
+    return urls
+
+
+async def linked_page_evidence(
+    claim: str,
+    sentence_wikitext: str,
+    language: str,
+    fetcher: HighlightsFetcher,
+) -> list[FlagEvidence]:
+    """Fetch bounded, non-citation context from links named in a checked sentence."""
+    if not linked_evidence_enabled():
+        return []
+
+    async def one(url: str) -> list[FlagEvidence]:
+        try:
+            highlights = await fetcher.highlights(url, claim)
+        except Exception:  # noqa: BLE001 - linked context is always optional
+            return []
+        return [
+            FlagEvidence(source="linked_page", quote=text, url=url)
+            for highlight in highlights or []
+            if (text := highlight.strip())
+        ]
+
+    evidence = await asyncio.gather(
+        *(one(url) for url in linked_page_urls(sentence_wikitext, language))
+    )
+    unique = {
+        (item.url or "", item.quote): item for items in evidence for item in items
+    }
+    return sorted(
+        unique.values(),
+        key=lambda item: (item.url or "", item.quote),
+    )
 
 
 @dataclass(frozen=True)
@@ -182,7 +245,7 @@ async def read_more(
     checked = False
     candidate_calls = 0
     for query in _queries(candidate, classification):
-        for url in candidate.citations:
+        for url in sorted(candidate.citations):
             if candidate_calls >= MAX_CALLS_PER_CANDIDATE or not budget.acquire():
                 return ContextRead(
                     classification,
@@ -210,6 +273,7 @@ async def read_more(
                 cleaned = passage.strip()
                 if cleaned and cleaned not in passages:
                     passages.append(cleaned)
+    passages.sort()
     return ContextRead(
         classification, passages, checked, _supports(candidate.claim, passages)
     )
@@ -220,7 +284,12 @@ def apply_to_flag(flag: Flag, read: ContextRead) -> Flag:
     if not read.checked:
         return flag
     quote = evidence_quote(read)
-    evidence = [*flag.evidence, FlagEvidence(source="cited", quote=quote)]
+    linked = [item for item in flag.evidence if item.source == "linked_page"]
+    evidence = [
+        *(item for item in flag.evidence if item.source != "linked_page"),
+        FlagEvidence(source="cited", quote=quote),
+        *linked,
+    ]
     tier = flag.tier
     if read.classification == "ABSENCE" and read.supports_claim and tier == "admin":
         tier = "review"

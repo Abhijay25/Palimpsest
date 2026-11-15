@@ -3,22 +3,25 @@
  const $=selector=>document.querySelector(selector);
  const esc=value=>String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
  const safeUrl=value=>/^https?:\/\//.test(String(value||''))?String(value):'';
- const labels={contradiction:'Contradiction',framing:'Framing difference',coverage:'Missing context',FACT:'Fact',FRAMING:'Wording',MOTIVE:'Motive',REMOVED_CONTEXT:'Removed context',HIDDEN_TEXT:'Hidden text',CITATION_DATE:'Citation date',CITED_PAGE:'Cited page',CHERRY_PICK:'Selective quote',OUT_OF_SYNC:'Out of sync'};
+ const labels={contradiction:'Contradiction',framing:'Framing difference',coverage:'Missing context',FACT:'Fact',FRAMING:'Wording',MOTIVE:'Motive',REMOVED_CONTEXT:'Removed context',HIDDEN_TEXT:'Hidden text',CITATION_DATE:'Citation date',CITED_PAGE:'Cited page',CHERRY_PICK:'Selective quote',OUT_OF_SYNC:'Out of sync'},icons={contradiction:'!',framing:'≈',coverage:'+',FACT:'!',FRAMING:'≈',MOTIVE:'◆',REMOVED_CONTEXT:'+',HIDDEN_TEXT:'◐',CITATION_DATE:'◷',CITED_PAGE:'↗',CHERRY_PICK:'◆',OUT_OF_SYNC:'↔'};
  const root=$('#flags-audit'),rail=$('.flags-rail__list'),summary=$('.flags-summary-bar'),tray=$('.flags-unanchored-tray');
  const fetchFlags=(...args)=>window.PalimpsestNativeIssues?window.PalimpsestNativeIssues.fetchFlags(...args):fetch(...args);
- let flags=[],active=-1,hovered=-1,filter=new Set(),busy=false,serviceReady=false,anchoredRows=[],layoutFrame=0;
+ let flags=[],active=-1,hovered=-1,filter=new Set(),busy=false,serviceReady=false,anchoredRows=[],layoutFrame=0,viewMode=null;
+ const viewStorageKey='palimpsest-flags-diff-view';
+ function savedViewMode(){try{const value=localStorage.getItem(viewStorageKey);return value==='flagged'||value==='all'?value:null;}catch(error){return null;}}
+ function setViewMode(mode){viewMode=mode;try{localStorage.setItem(viewStorageKey,mode);}catch(error){}applyDiffVisibility();scheduleLayout();renderSummary();}
  const scanControls=['#scan-revisions','#rescan-revisions','#check-page','#rescan-page'];
  function controls(){for(const selector of scanControls){const button=$(selector);if(button)button.disabled=busy||!serviceReady||Boolean(window.PalimpsestNativeIssues&&!window.PalimpsestNativeIssues.canScan)||!$('#flags-revision')?.options.length;}if($('#flags-revision'))$('#flags-revision').disabled=busy;}
  async function health(){const status=$('#detector-service-status');if(!status)return;try{const response=await fetchFlags('/api/flags/health'),data=await response.json();serviceReady=response.ok&&data.available&&data.configured;status.textContent=data.message||'The detector is unavailable.';}catch(error){serviceReady=false;status.textContent='Cannot check the detector. Retry the connection.';}controls();}
  function clearPage(){const cards=$('.page-consistency-cards'),view=$('.page-text-view');cards?.replaceChildren();view?.replaceChildren();if($('#page-status'))$('#page-status').textContent='';if($('#rescan-page'))$('#rescan-page').hidden=true;}
 
- const visibleFlags=()=>flags.filter(flag=>!filter.size||filter.has(flag.kind));
+ const visibleFlags=()=>flags.filter(flag=>filter.has(flag.kind));
  const representative=flag=>flag.comment_group?flags.find(item=>item.comment_group===flag.comment_group):flag;
  const indexOf=flag=>flags.indexOf(representative(flag));
  function card(flag,index){
   const item=document.createElement('li');item.className='flags-rail__item';item.dataset.flagId=flag.id;
   const article=document.createElement('article');article.className='flag-card flag-card--'+String(flag.kind||'').toLowerCase()+(flag.tier==='admin'?' flag-card--admin':'');article.dataset.flagId=flag.id;article.tabIndex=0;article.setAttribute('role','button');article.setAttribute('aria-expanded','false');
-  article.innerHTML=`<div class="flag-card__meta"><span class="flag-card__pill">${esc(labels[flag.kind]||flag.kind)}</span><span class="flag-card__confidence">${flag.confidence?Math.round(flag.confidence*100)+'% confidence':''}</span></div><div class="flag-card__title">${esc(flag.title||labels[flag.kind]||'Flag')}</div><div class="flag-card__body"><p class="flag-card__reason">${esc(flag.reason)}</p>${(flag.evidence||[]).map(e=>`<blockquote class="flag-card__evidence">${e.source?`<strong>${esc(e.source)}:</strong> `:''}${esc(e.quote)}${safeUrl(e.url)?` <a href="${esc(safeUrl(e.url))}" target="_blank" rel="noopener">source</a>`:''}</blockquote>`).join('')}${flag.neutral_rewrite?`<p class="flag-card__suggestion-label">Suggested wording</p><div class="flag-card__suggestion">${esc(flag.neutral_rewrite)}</div>`:''}</div>`;
+  article.innerHTML=`<div class="flag-card__meta"><span class="flag-card__pill"><span class="flag-card__kind-icon" aria-hidden="true">${esc(icons[flag.kind]||'•')}</span>${esc(labels[flag.kind]||flag.kind)}</span><span class="flag-card__confidence">${flag.confidence?Math.round(flag.confidence*100)+'% confidence':''}</span></div><div class="flag-card__title">${esc(flag.title||labels[flag.kind]||'Flag')}</div><p class="flag-card__reason">${esc(flag.reason)}</p><div class="flag-card__body">${(flag.evidence||[]).map(e=>`<blockquote class="flag-card__evidence">${e.source?`<strong>${esc(e.source)}:</strong> `:''}${esc(e.quote)}${safeUrl(e.url)?` <a href="${esc(safeUrl(e.url))}" target="_blank" rel="noopener">source</a>`:''}</blockquote>`).join('')}${flag.neutral_rewrite?`<p class="flag-card__suggestion-label">Suggested wording</p><div class="flag-card__suggestion">${esc(flag.neutral_rewrite)}</div>`:''}</div>`;
   article.addEventListener('mouseenter',()=>setHover(index,true));article.addEventListener('mouseleave',()=>setHover(index,false));
   article.addEventListener('click',()=>activate(index,true));article.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();activate(index,true);}});
   item.append(article);return item;
@@ -38,14 +41,17 @@
  }
  function renderSummary(){
   if(!flags.length){summary.hidden=true;return;}summary.hidden=false;summary.replaceChildren();
-  const count=document.createElement('span');count.className='flags-summary-count';const logical=flags.filter(flag=>representative(flag)===flag),admins=logical.filter(flag=>flag.tier==='admin').length;
+  const count=document.createElement('span');count.className='flags-summary-count';const logical=visibleFlags().filter(flag=>representative(flag)===flag),admins=logical.filter(flag=>flag.tier==='admin').length;
   count.innerHTML=`<strong>${logical.length} ${root?.dataset.issueView?'comment':'flag'}${logical.length===1?'':'s'}</strong>${admins?` · <em>${admins} for admin review</em>`:''}`;summary.append(count);
+  const views=document.createElement('fieldset');views.className='flags-view-switch';views.setAttribute('aria-label','Diff view');
+  for(const [mode,label] of [['flagged','Flagged only'],['all','All changes']]){const input=document.createElement('input'),labelNode=document.createElement('label'),id='flags-view-'+mode;input.type='radio';input.name='flags-diff-view';input.id=id;input.value=mode;input.checked=viewMode===mode;input.addEventListener('change',()=>{if(input.checked)setViewMode(mode);});labelNode.htmlFor=id;labelNode.textContent=label;views.append(input,labelNode);}summary.append(views);
   const details=document.createElement('details');details.className='flags-filter';
   const trigger=document.createElement('summary');trigger.className='flags-filter__trigger';trigger.textContent='Filter types';details.append(trigger);
   const menu=document.createElement('div');menu.className='flags-filter__menu';menu.setAttribute('aria-label','Filter flags by type');
-  const kinds=[...new Set(flags.map(flag=>flag.kind))];
-  for(const kind of kinds){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=!filter.size||filter.has(kind);box.addEventListener('change',()=>{const next=filter.size?new Set(filter):new Set(kinds);if(box.checked)next.add(kind);else next.delete(kind);filter=next.size===kinds.length?new Set():next;renderCards();renderSummary();});label.append(box,document.createTextNode(labels[kind]||kind));menu.append(label);}
+  const kinds=[...new Set(flags.map(flag=>flag.kind))],actions=document.createElement('div'),selectAll=document.createElement('button'),clear=document.createElement('button');actions.className='flags-filter__actions';selectAll.type='button';selectAll.className='flags-filter__select-all';selectAll.textContent='Select all';selectAll.addEventListener('click',()=>{filter=new Set(kinds);renderCards();renderSummary();});clear.type='button';clear.className='flags-filter__clear';clear.textContent='Clear';clear.addEventListener('click',()=>{filter=new Set();renderCards();renderSummary();});actions.append(selectAll,clear);menu.append(actions);
+  for(const kind of kinds){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=filter.has(kind);box.addEventListener('change',()=>{const next=new Set(filter);if(box.checked)next.add(kind);else next.delete(kind);filter=next;renderCards();renderSummary();});label.append(box,document.createTextNode(labels[kind]||kind));menu.append(label);}
   details.append(menu);summary.append(details);
+  if(!logical.length){const empty=document.createElement('span');empty.className='flags-empty-note';empty.textContent='No comment types selected.';summary.append(empty);}
   const stepper=document.createElement('div');stepper.className='flags-stepper';
   for(const [word,delta] of [['Previous',-1],['Next',1]]){const button=document.createElement('button');button.type='button';button.textContent=word;button.addEventListener('click',()=>{const rows=visibleFlags().filter(flag=>representative(flag)===flag);if(!rows.length)return;const position=rows.indexOf(flags[active]);activate(indexOf(rows[(position+delta+rows.length)%rows.length]),true);});stepper.append(button);}summary.append(stepper);
  }
@@ -53,11 +59,31 @@
   if(!rail||!root)return;closePopover();rail.replaceChildren();const table=$('#flags-diff table');if(table){table.querySelectorAll('.flag-inline-pin').forEach(pin=>pin.remove());window.PalimpsestFlagsAnchoring.unwrap(table);}
   const visible=visibleFlags(),resolved=table?window.PalimpsestFlagsAnchoring.resolve(table,visible):{anchored:[],unanchored:visible};
   anchoredRows=resolved.anchored;
+  if(viewMode===null)viewMode=savedViewMode()||(anchoredRows.length?'flagged':'all');
   const renderedGroups=new Set();
   resolved.anchored.forEach(({flag,marks})=>{const index=indexOf(flag);marks.forEach(mark=>{mark.addEventListener('mouseenter',()=>setHover(index,true));mark.addEventListener('mouseleave',()=>setHover(index,false));mark.tabIndex=0;mark.setAttribute('role','button');mark.setAttribute('aria-label','Inspect issue: '+flag.title);mark.addEventListener('click',event=>{event.stopPropagation();activate(index,false);});mark.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();activate(index,false);}});});const key=flag.comment_group||flag.id;if(!renderedGroups.has(key)){rail.append(card(representative(flag),index));renderedGroups.add(key);}});
   tray.replaceChildren();tray.hidden=!resolved.unanchored.length;
   if(resolved.unanchored.length){const heading=document.createElement('h3');heading.textContent='Unanchored flags';const list=document.createElement('ol');list.className='flags-unanchored-list';resolved.unanchored.forEach(flag=>list.append(card(flag,indexOf(flag))));tray.append(heading,list);}
-  active=-1;hovered=-1;syncHighlights();scheduleLayout();
+  active=-1;hovered=-1;syncHighlights();applyDiffVisibility(table);scheduleLayout();
+ }
+ function diffUnits(table){
+  const rows=[...table.querySelectorAll('tbody > tr')].filter(row=>!row.classList.contains('flags-hidden-changes'));
+  if(rows.length>1)return {kind:'rows',items:rows};
+  const paragraphs=[...table.querySelectorAll('.issue-source-paragraph')];
+  return {kind:'paragraphs',items:paragraphs};
+ }
+ function unitNodes(unit,kind){return kind==='paragraphs'?[unit,...(unit.nextElementSibling?.matches('.issue-translation-slot')?[unit.nextElementSibling]:[])]:[unit];}
+ function hiddenNotice(count){const row=document.createElement('tr');row.className='flags-hidden-changes';const cell=document.createElement('td'),button=document.createElement('button');cell.colSpan=$('#flags-diff table thead tr')?.children.length||1;button.type='button';button.textContent='Show all';button.addEventListener('click',()=>setViewMode('all'));cell.append(document.createTextNode(`${count} unflagged change${count===1?'':'s'} hidden · `),button);row.append(cell);return row;}
+ function applyDiffVisibility(existingTable){
+  const table=existingTable||$('#flags-diff table');if(!table)return;
+  table.querySelectorAll('.flags-hidden-changes').forEach(node=>node.remove());
+  const {kind,items}=diffUnits(table);for(const item of items)unitNodes(item,kind).forEach(node=>node.hidden=false);
+  if(viewMode!=='flagged'||!items.length)return;
+  const shown=new Set();
+  items.forEach((item,index)=>{if(item.querySelector('.diff-anchor')){shown.add(index);if(index)shown.add(index-1);if(index+1<items.length)shown.add(index+1);}});
+  let first=-1;
+  const flush=end=>{if(first<0)return;const hidden=items.slice(first,end),last=hidden[hidden.length-1];if(kind==='rows')last.after(hiddenNotice(hidden.length));else{const notice=document.createElement('div');notice.className='flags-hidden-changes';const button=document.createElement('button');button.type='button';button.textContent='Show all';button.addEventListener('click',()=>setViewMode('all'));notice.append(document.createTextNode(`${hidden.length} unflagged change${hidden.length===1?'':'s'} hidden · `),button);unitNodes(last,kind).at(-1).after(notice);}first=-1;};
+  items.forEach((item,index)=>{const hide=!shown.has(index);unitNodes(item,kind).forEach(node=>node.hidden=hide);if(hide&&first<0)first=index;if((!hide||index===items.length-1)&&first>=0)flush(hide&&index===items.length-1?index+1:index);});
  }
  function railMode(){const workspace=$('.flags-workspace');return innerWidth>=1000&&workspace?.clientWidth>=760;}
  function closePopover(){document.querySelector('.flag-anchored-popover')?.remove();}
@@ -84,7 +110,7 @@
  if(window.ResizeObserver&&$('.flags-diff-pane'))new ResizeObserver(scheduleLayout).observe($('.flags-diff-pane'));
  document.fonts?.ready.then(scheduleLayout);
  function receive(data){
-  flags=Array.isArray(data.flags)?data.flags:[];let diff=$('#flags-diff'),pane=$('.flags-diff-pane');
+  flags=Array.isArray(data.flags)?data.flags:[];filter=new Set(flags.map(flag=>flag.kind));let diff=$('#flags-diff'),pane=$('.flags-diff-pane');
   if(data.diff_html&&!diff){diff=document.createElement('div');diff.id='flags-diff';pane.querySelector('.flags-unavailable')?.remove();pane.prepend(diff);}
   if(diff&&data.diff_html)diff.innerHTML=data.diff_html;
   if(!data.diff_html){diff?.remove();let message=pane?.querySelector('.flags-unavailable');if(!message&&pane){message=document.createElement('p');message.className='flags-unavailable';pane.prepend(message);}if(message)message.textContent=data.error||'Not scanned yet. Select Scan to check this revision.';}
@@ -100,7 +126,7 @@
  function highlightPageSentence(quote){const view=$('.page-text-view');if(!view||!quote)return false;view.querySelectorAll('mark.page-anchor').forEach(mark=>mark.replaceWith(...mark.childNodes));const walker=document.createTreeWalker(view,NodeFilter.SHOW_TEXT);let node;while(node=walker.nextNode()){const index=node.nodeValue.indexOf(quote);if(index<0)continue;const after=node.splitText(index+quote.length),selected=node.splitText(index),mark=document.createElement('mark');mark.className='page-anchor';selected.parentNode.replaceChild(mark,selected);mark.append(selected);mark.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});void after;return true;}return false;}
  function receivePage(data){const results=$('#page-consistency-results'),cards=$('.page-consistency-cards'),view=$('.page-text-view'),status=$('#page-status');if(!results||!cards||!view)return;cards.replaceChildren();view.innerHTML=data.page_html||'';window.PalimpsestNativeIssues?.pageRendered?.(view,data);(Array.isArray(data.flags)?data.flags:[]).forEach(flag=>cards.append(pageCard(flag)));status.textContent=data.flags?.length?`${data.flags.length} page consistency flag${data.flags.length===1?'':'s'}.`:'No page consistency flags returned.';$('#rescan-page').hidden=false;}
  async function readPageCache(){if(busy)return;const status=$('#page-status');busy=true;controls();clearPage();status.textContent='Reading saved page check…';try{const response=await fetchFlags(auditUrl('/api/flags/page'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...current(),scan:false})}),data=await response.json();if(!response.ok||data.status!=='ok')throw Error(data.error||'No saved page check is available for this exact revision.');receivePage(data);}catch(error){status.textContent=error.message;}finally{busy=false;controls();}}
- async function checkPage(fresh=false){if(busy||!serviceReady)return;const status=$('#page-status');busy=true;controls();clearPage();status.textContent='Checking page consistency…';try{const response=await fetchFlags(auditUrl('/api/flags/page'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...current(),scan:true,fresh})}),data=await response.json();if(!response.ok||data.status!=='ok')throw Error(data.error||'Page consistency could not be completed.');receivePage(data);}catch(error){status.textContent=error instanceof TypeError?'Cannot reach the preview. Check the connection and try again.':error.message;}finally{busy=false;controls();}}
+ async function checkPage(fresh=false){if(busy||!serviceReady)return;const status=$('#page-status');busy=true;controls();clearPage();status.textContent='Checking page consistency…';try{const response=await fetchFlags(auditUrl('/api/flags/page'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...current(),scan:true,fresh})}),data=await response.json();if(!response.ok||!['ok','partial'].includes(data.status))throw Error(data.error||'Page consistency could not be completed.');receivePage(data);if(data.status==='partial')status.textContent=data.error||'Page consistency is partial; no unverified findings are shown.';}catch(error){status.textContent=error instanceof TypeError?'Cannot reach the preview. Check the connection and try again.':error.message;}finally{busy=false;controls();}}
  $('#flags-revision')?.addEventListener('change',()=>{const revision=$('#flags-revision').value,url=new URL(location);url.searchParams.set('revision',revision);url.searchParams.delete('scan');history.replaceState(null,'',url);document.querySelectorAll('.article-workspace-tabs a').forEach(link=>{const destination=new URL(link.href);destination.searchParams.set('revision',revision);link.href=destination.pathname+destination.search;});const original=$('#original-revision-diff');if(original){const destination=new URL(original.href);destination.searchParams.set('diff',revision);original.href=destination.href;}clearPage();receive({status:'unavailable',flags:[],error:'Loading the selected revision…'});renderSeverity();audit(false);});$('#scan-revisions')?.addEventListener('click',()=>scanAll(false));$('#rescan-revisions')?.addEventListener('click',()=>scanAll(true));$('#read-page-cache')?.addEventListener('click',readPageCache);$('#check-page')?.addEventListener('click',()=>checkPage(false));$('#rescan-page')?.addEventListener('click',()=>checkPage(true));renderSeverity();$('#retry-detector')?.addEventListener('click',health);controls();health();
  try{const data=JSON.parse($('#flags-data')?.textContent||'null');if(data)receive(data);}catch(error){}
 })();

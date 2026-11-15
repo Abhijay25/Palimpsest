@@ -10,6 +10,7 @@ import html
 import json
 import os
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -42,6 +43,7 @@ from flags_tab import RevisionRef, audit_payload, block_revisions, rank_revision
 from revision_text import cache_root, fetch_history, fetch_revision
 
 bp = Blueprint("flags", __name__)
+PAGE_CREATION_TEXT_LIMIT = 60_000
 
 
 @bp.get("/assets/flags/stacking.js")
@@ -84,6 +86,15 @@ def validate_detector_result(result):
         if "timeout" in str(result.get("error", "")).lower():
             raise DetectorResultError("The detector timed out before finishing. Retry the check or choose another revision; no successful result was saved.")
         raise DetectorResultError("The detector could not complete the scan. Check its provider configuration and try again; no successful result was saved.")
+    return result
+
+
+def validate_page_result(result):
+    """Accept a completed page audit or its explicit partial result."""
+    if not isinstance(result, dict) or not isinstance(result.get("flags"), list):
+        raise DetectorResultError("The detector returned an invalid response. No result was saved.")
+    if result.get("status", "ok") not in {"ok", "partial"}:
+        return validate_detector_result(result)
     return result
 
 
@@ -176,10 +187,15 @@ def cached_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str, Any]
     if isinstance(fixture, dict) and fixture.get("status", "ok") == "ok":
         return dict(fixture)
     try:
-        data = json.loads(audit_path(ref).read_text(encoding="utf-8"))
+        path = audit_path(ref)
+        data = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(data, dict) or data.get("status", "ok") != "ok":
             return None
         data.setdefault("status", "ok")
+        data.setdefault(
+            "stored_at",
+            datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
+        )
         return data
     except (OSError, ValueError):
         return None
@@ -197,10 +213,150 @@ def revision_rows(context: Mapping[str, Any]) -> list[dict[str, Any]]:
     return rank_revisions(rows) if any(row["status"] != "not scanned" for row in rows) else rows
 
 
-from issue_diff import diff_html
+def _word_diff(old: str, new: str) -> tuple[str, str]:
+    """Return escaped, word-level markup for a single pair of source lines."""
+    old_tokens = re.findall(r"\s+|\w+|[^\w\s]", old)
+    new_tokens = re.findall(r"\s+|\w+|[^\w\s]", new)
+    matcher = difflib.SequenceMatcher(a=old_tokens, b=new_tokens)
+    old_html: list[str] = []
+    new_html: list[str] = []
+    for opcode, a0, a1, b0, b1 in matcher.get_opcodes():
+        old_text = html.escape("".join(old_tokens[a0:a1]))
+        new_text = html.escape("".join(new_tokens[b0:b1]))
+        if opcode == "equal":
+            old_html.append(old_text)
+            new_html.append(new_text)
+        elif opcode == "delete":
+            old_html.append(f'<del class="diffchange">{old_text}</del>')
+        elif opcode == "insert":
+            new_html.append(f'<ins class="diffchange">{new_text}</ins>')
+        else:
+            old_html.append(f'<del class="diffchange">{old_text}</del>')
+            new_html.append(f'<ins class="diffchange">{new_text}</ins>')
+    return "".join(old_html), "".join(new_html)
 
 
-def pending_result(ref,context,mode):
+def _diff_hunks(old_lines: list[str], new_lines: list[str], context: int = 2) -> list[tuple[int, int]]:
+    """Group changed opcodes when their two-line contexts touch."""
+    opcodes = difflib.SequenceMatcher(a=old_lines, b=new_lines).get_opcodes()
+    changes = [index for index, opcode in enumerate(opcodes) if opcode[0] != "equal"]
+    if not changes:
+        return []
+    hunks: list[tuple[int, int]] = []
+    first = last = changes[0]
+    for index in changes[1:]:
+        _tag, previous_a0, previous_a1, previous_b0, previous_b1 = opcodes[last]
+        _tag, a0, _a1, b0, _b1 = opcodes[index]
+        if a0 - previous_a1 <= context * 2 or b0 - previous_b1 <= context * 2:
+            last = index
+        else:
+            hunks.append((first, last))
+            first = last = index
+    hunks.append((first, last))
+    return hunks
+
+
+def diff_html(old: str, new: str) -> str:
+    """Render bounded, line-numbered changed hunks with native anchor cells."""
+    old_lines, new_lines = old.splitlines(), new.splitlines()
+    opcodes = difflib.SequenceMatcher(a=old_lines, b=new_lines).get_opcodes()
+    # A page creation has no unchanged material to collapse. Its caller already
+    # bounds the first revision before it reaches this renderer.
+    page_creation = not old_lines or not new_lines
+    hunks = [(0, len(opcodes) - 1)] if page_creation and opcodes else _diff_hunks(old_lines, new_lines)
+    rows: list[str] = []
+    previous_a = previous_b = 0
+    for first, last in hunks:
+        first_opcode, last_opcode = opcodes[first], opcodes[last]
+        _tag, first_a0, _first_a1, first_b0, _first_b1 = first_opcode
+        _tag, _last_a0, last_a1, _last_b0, last_b1 = last_opcode
+        start_a = max(0, first_a0 - (0 if page_creation else 2))
+        start_b = max(0, first_b0 - (0 if page_creation else 2))
+        end_a = min(len(old_lines), last_a1 + (0 if page_creation else 2))
+        end_b = min(len(new_lines), last_b1 + (0 if page_creation else 2))
+        skipped = max(start_a - previous_a, start_b - previous_b)
+        if rows and skipped:
+            rows.append(f'<tr class="flags-diff-gap"><td colspan="2">… {skipped} unchanged line{"s" if skipped != 1 else ""} collapsed …</td></tr>')
+        rows.append(
+            '<tr class="flags-diff-hunk-heading">'
+            f'<th scope="col">Line {start_a + 1}:</th><th scope="col">Line {start_b + 1}:</th>'
+            '</tr>'
+        )
+        cursor_a, cursor_b = start_a, start_b
+        if first and opcodes[first - 1][0] == "equal":
+            _tag, a0, a1, b0, b1 = opcodes[first - 1]
+            context_a, context_b = max(a0, start_a), max(b0, start_b)
+            count = min(a1 - context_a, b1 - context_b)
+            for offset in range(max(0, count)):
+                old_index, new_index = context_a + offset, context_b + offset
+                text = html.escape(old_lines[old_index])
+                rows.append(
+                    '<tr><td class="mw-diff-inline-deleted" data-diff-side="old">'
+                    f'<span class="flags-diff-line-number">{old_index + 1}</span>{text}</td>'
+                    '<td class="mw-diff-inline-added" data-diff-side="new">'
+                    f'<span class="flags-diff-line-number">{new_index + 1}</span>{text}</td></tr>'
+                )
+            cursor_a, cursor_b = context_a + count, context_b + count
+        for index in range(first, last + 1):
+            tag, a0, a1, b0, b1 = opcodes[index]
+            # Equal ranges at a hunk boundary provide its two lines of context.
+            left, right = max(a0, cursor_a), min(a1, end_a)
+            new_left, new_right = max(b0, cursor_b), min(b1, end_b)
+            if tag == "equal":
+                count = min(right - left, new_right - new_left)
+                for offset in range(count):
+                    text = html.escape(old_lines[left + offset])
+                    rows.append(
+                        '<tr><td class="mw-diff-inline-deleted" data-diff-side="old">'
+                        f'<span class="flags-diff-line-number">{left + offset + 1}</span>{text}</td>'
+                        '<td class="mw-diff-inline-added" data-diff-side="new">'
+                        f'<span class="flags-diff-line-number">{new_left + offset + 1}</span>{text}</td></tr>'
+                    )
+                cursor_a, cursor_b = max(cursor_a, right), max(cursor_b, new_right)
+                continue
+            old_chunk = old_lines[max(a0, cursor_a):min(a1, end_a)]
+            new_chunk = new_lines[max(b0, cursor_b):min(b1, end_b)]
+            for offset in range(max(len(old_chunk), len(new_chunk))):
+                old_text = old_chunk[offset] if offset < len(old_chunk) else ""
+                new_text = new_chunk[offset] if offset < len(new_chunk) else ""
+                old_markup, new_markup = _word_diff(old_text, new_text)
+                if tag == "delete" or (tag == "replace" and not new_text):
+                    old_markup = f'<del class="diffchange">{html.escape(old_text)}</del>'
+                if tag == "insert" or (tag == "replace" and not old_text):
+                    new_markup = f'<ins class="diffchange">{html.escape(new_text)}</ins>'
+                old_number = a0 + offset + 1 if offset < len(old_chunk) else ""
+                new_number = b0 + offset + 1 if offset < len(new_chunk) else ""
+                rows.append(
+                    '<tr><td class="mw-diff-inline-deleted" data-diff-side="old">'
+                    f'<span class="flags-diff-line-number">{old_number}</span>{old_markup}</td>'
+                    '<td class="mw-diff-inline-added" data-diff-side="new">'
+                    f'<span class="flags-diff-line-number">{new_number}</span>{new_markup}</td></tr>'
+                )
+            cursor_a, cursor_b = max(cursor_a, min(a1, end_a)), max(cursor_b, min(b1, end_b))
+        # Trailing equal context follows the last changed opcode in each hunk.
+        if last + 1 < len(opcodes) and opcodes[last + 1][0] == "equal":
+            _tag, a0, a1, b0, b1 = opcodes[last + 1]
+            count = min(end_a - max(a0, cursor_a), end_b - max(b0, cursor_b), a1 - a0, b1 - b0)
+            for offset in range(max(0, count)):
+                old_index, new_index = max(a0, cursor_a) + offset, max(b0, cursor_b) + offset
+                text = html.escape(old_lines[old_index])
+                rows.append(
+                    '<tr><td class="mw-diff-inline-deleted" data-diff-side="old">'
+                    f'<span class="flags-diff-line-number">{old_index + 1}</span>{text}</td>'
+                    '<td class="mw-diff-inline-added" data-diff-side="new">'
+                    f'<span class="flags-diff-line-number">{new_index + 1}</span>{text}</td></tr>'
+                )
+        previous_a, previous_b = end_a, end_b
+    if not rows:
+        rows.append('<tr class="flags-diff-gap"><td colspan="2">No text changes.</td></tr>')
+    return (
+        '<table class="flags-diff diff mw-diff-inline"><thead><tr>'
+        '<th scope="col">Prior revision</th><th scope="col">Selected revision</th>'
+        '</tr></thead><tbody>' + "".join(rows) + '</tbody></table>'
+    )
+
+
+def pending_result(ref, context, mode):
     if not context.get('topic') or fixture_enabled():return None
     path=cache_root()/'pending-issues'/f'{mode}-{ref.lang}-{ref.revision_id}.json'
     if not path.exists():return None
@@ -253,24 +409,42 @@ def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, f
         if scan:
             try:audit=save_issue_scan(ref,audit,context,'revision',cached=True)
             except (RuntimeError,OSError) as error:return {'status':'error','flags':[],'error':detector_failure(error)}
-        return dict(audit, diff_html=diff_html(old, new))
+        return dict(audit, stored=True, diff_html=diff_html(old, new))
     if not scan:
         return {"status": "unavailable", "flags": [], "error": "Not scanned yet. Select Scan to make an explicit detector request."}
     try:
         coverage_scan(ref,context,'revision','running')
         new_record = fetch_revision(ref.lang, ref.revision_id)
-        parent = int(new_record.get("parent_id") or ref.parent_id or 0)
-        if not parent:
-            raise RuntimeError("The revision has no parent text; no empty diff was rendered.")
-        old_record = fetch_revision(ref.lang, parent)
+        parent_value = new_record.get("parent_id")
+        parent = int(parent_value if parent_value is not None else ref.parent_id or 0)
+        page_created = not parent
+        truncated = page_created and len(str(new_record["wikitext"])) > PAGE_CREATION_TEXT_LIMIT
+        new_wikitext = str(new_record["wikitext"])[:PAGE_CREATION_TEXT_LIMIT] if truncated else str(new_record["wikitext"])
+        if page_created:
+            old_wikitext = ""
+        else:
+            try:
+                old_record = fetch_revision(ref.lang, parent)
+            except (OSError, RuntimeError, ValueError, KeyError):
+                return {"status": "unavailable", "flags": [], "error": "The previous revision is hidden or deleted, so this edit cannot be compared."}
+            if "texthidden" in old_record or "missing" in old_record:
+                return {"status": "unavailable", "flags": [], "error": "The previous revision is hidden or deleted, so this edit cannot be compared."}
+            old_wikitext = str(old_record["wikitext"])
         scoped = RevisionRef(ref.lang, ref.revision_id, str(new_record.get("title") or ref.title), ref.timestamp, ref.url, parent)
-        body = audit_payload(scoped, str(old_record["wikitext"]), str(new_record["wikitext"]))
+        body = audit_payload(scoped, old_wikitext, new_wikitext)
         api_url = os.environ.get("PALIMPSEST_API_URL", "http://127.0.0.1:8765").rstrip("/") + "/api/v1/audit-diff"
         response = requests.post(api_url, json=body, timeout=90,
                                  headers={"X-Palimpsest-Fresh": "1"} if fresh else {})
         response.raise_for_status()
         result = validate_detector_result(response.json())
-        result.update(status="ok", old_wikitext=body["old_wikitext"], new_wikitext=body["new_wikitext"])
+        result.update(
+            status="ok",
+            old_wikitext=body["old_wikitext"],
+            new_wikitext=body["new_wikitext"],
+            stored_at=datetime.now(UTC).replace(microsecond=0).isoformat(),
+        )
+        if page_created:
+            result.update(page_created=True, truncated=truncated)
         result = save_issue_scan(scoped,result,context,'revision')
         path = audit_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
@@ -287,8 +461,24 @@ def rendered_page_html(wikitext: str, lang: str, title: str) -> str:
         rendered, _contents = render_article(wikitext, lang, title)
         return str(rendered)
     except (ImportError, ValueError, TypeError):
-        paragraphs = [html.escape(part) for part in wikitext.split("\n\n") if part.strip()]
-        return "".join(f"<p>{part}</p>" for part in paragraphs) or "<p>No revision text is available.</p>"
+        rendered: list[str] = []
+        paragraph: list[str] = []
+        def flush_paragraph() -> None:
+            if paragraph:
+                rendered.append(f"<p>{html.escape(chr(10).join(paragraph))}</p>")
+                paragraph.clear()
+        for line in wikitext.splitlines():
+            heading = re.fullmatch(r"\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*", line)
+            if heading:
+                flush_paragraph()
+                level, text = len(heading.group(1)), html.escape(heading.group(2))
+                rendered.append(f"<h{level}>{text}</h{level}>")
+            elif line.strip():
+                paragraph.append(line)
+            else:
+                flush_paragraph()
+        flush_paragraph()
+        return "".join(rendered) or "<p>No revision text is available.</p>"
 
 
 def cached_page_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -296,8 +486,15 @@ def cached_page_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str,
     if isinstance(fixture, dict) and fixture.get("status", "ok") == "ok":
         return dict(fixture)
     try:
-        data = json.loads(page_path(ref).read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) and data.get("status", "ok") == "ok" else None
+        path = page_path(ref)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or data.get("status", "ok") != "ok":
+            return None
+        data.setdefault(
+            "stored_at",
+            datetime.fromtimestamp(path.stat().st_mtime, UTC).isoformat(),
+        )
+        return data
     except (OSError, ValueError):
         return None
 
@@ -307,6 +504,7 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
     # Fixture re-checks are deterministic and must not contact a detector.
     recovered=pending_result(ref,context,'page') if scan else None
     result = recovered or (cached_page_audit(ref, context) if (not fresh or isinstance(context.get("page_audits"), Mapping)) else None)
+    stored = result is not None
     if result is None and not scan:
         return {"status": "unavailable", "flags": [], "error": "Not checked yet. Select Check this page to make an explicit detector request."}
     try:
@@ -320,18 +518,27 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
             body = {"lang_code": ref.lang, "page_title": ref.title,
                     "revision_id": ref.revision_id, "wikitext": wikitext}
             api_url = os.environ.get("PALIMPSEST_API_URL", "http://127.0.0.1:8765").rstrip("/") + "/api/v1/audit-page"
-            response = requests.post(api_url, json=body, timeout=90,
+            response = requests.post(api_url, json=body, timeout=110,
                                      headers={"X-Palimpsest-Fresh": "1"} if fresh else {})
             response.raise_for_status()
-            result = validate_detector_result(response.json())
-            result.update(status="ok", wikitext=wikitext)
-            result = save_issue_scan(ref,result,context,'page')
-            path = page_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
-        if scan and (recovered or not result.get('_issue_assessment')):result=save_issue_scan(ref,result,context,'page',cached=True)
+            result = validate_page_result(response.json())
+            result.update(wikitext=wikitext)
+            if result.get("status", "ok") == "partial":
+                result["partial"] = True
+            else:
+                result["stored_at"] = datetime.now(UTC).replace(microsecond=0).isoformat()
+                result = save_issue_scan(ref,result,context,'page')
+                path = page_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        if scan and result.get("status", "ok") == "ok" and (
+            recovered or not result.get('_issue_assessment')
+        ):
+            result = save_issue_scan(ref,result,context,'page',cached=True)
         output = dict(result)
         output.setdefault("status", "ok")
         output.setdefault("flags", [])
+        if stored:
+            output["stored"] = True
         if render_page:
             wikitext = str(output.get("wikitext") or context.get("articles", {}).get(ref.lang, {}).get("text", ""))
             output["page_html"] = rendered_page_html(wikitext, ref.lang, ref.title)
@@ -376,7 +583,11 @@ def article(topic: str):
     audit = response_payload(selected_ref, context, False) if selected_ref else None
     # The historical language panel is the same existing template body, not a duplicate reviewer.
     context.update(topic=topic, title=context.get("title", topic), tab=tab, revisions=refs,
-                   selected_revision=selected, audit=audit, fixture=fixture_enabled())
+                   selected_revision=selected, audit=audit, fixture=fixture_context(topic) is not None,
+                   article_text_html={
+                       lang: rendered_page_html(str(article.get("text", "")), str(lang), str(article.get("title", context.get("title", topic))))
+                       for lang, article in context.get("articles", {}).items()
+                   })
     return render_template("article_tabs.html", **context)
 
 
@@ -403,7 +614,14 @@ def audit_api():
     ref = next((item for item in block_revisions(context) if item.lang == lang and item.revision_id == revision), None)
     if ref is None:
         return jsonify(status="error", error="That revision is not in this block's current edition.", flags=[]), 404
-    return jsonify(response_payload(ref, context, bool(data.get("scan")), bool(data.get("fresh"))))
+    return jsonify(
+        response_payload(
+            ref,
+            context,
+            bool(data.get("scan")),
+            request.args.get("fresh") == "1",
+        )
+    )
 
 
 @bp.post("/api/flags/page")
@@ -419,4 +637,11 @@ def page_api():
     ref = next((item for item in refs if item.lang == lang and (revision is None or item.revision_id == revision)), None)
     if ref is None:
         return jsonify(status="error", error="That revision is not available for this article.", flags=[]), 404
-    return jsonify(page_response_payload(ref, context, bool(data.get("scan")), bool(data.get("fresh"))))
+    return jsonify(
+        page_response_payload(
+            ref,
+            context,
+            bool(data.get("scan")),
+            request.args.get("fresh") == "1",
+        )
+    )

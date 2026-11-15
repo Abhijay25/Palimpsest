@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from datetime import date
 from functools import cache
 from typing import Annotated, Final, Literal, cast
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from dotenv import load_dotenv
@@ -57,6 +58,7 @@ from palimpsest.context_reads import (
     ContextReadBudget,
     append_highlights,
     candidate_for_output,
+    linked_page_evidence,
     read_more,
 )
 from palimpsest.crosslingual import (
@@ -70,6 +72,7 @@ from palimpsest.flags import (
     build_flags,
     cherry_pick_flags,
     consistency_flags,
+    order_flags,
     suppress_out_of_sync_duplicates,
 )
 from palimpsest.judge import (
@@ -83,7 +86,9 @@ from palimpsest.page_consistency import (
     GeminiPageConsistencyJudge,
     PageConsistencyDecision,
     PageConsistencyJudge,
-    adjudicate_page,
+    adjudicate_groups,
+    display_quote,
+    ordered_candidate_groups,
 )
 from palimpsest.pipeline import (
     CACHE_DIR,
@@ -126,7 +131,12 @@ from palimpsest.schema import (
 from palimpsest.scoring import ADMIN_FLAG_STATUSES, FLAGS, Route, route
 from palimpsest.segment import EditUnit, changed_chars, split_edit
 from palimpsest.sources import DailyCallCap, SourceFetcher, load_exa_api_key
-from palimpsest.stage0 import extract_ref_urls, prefilter, refs_for_changed_sentences
+from palimpsest.stage0 import (
+    extract_ref_urls,
+    prefilter,
+    refs_for_changed_sentences,
+    strip_wikitext,
+)
 from palimpsest.stealth.models import HiddenFinding, ScanResult, StealthStatus
 from palimpsest.stealth.scanner import (
     TargetType,
@@ -173,6 +183,24 @@ LIVE_CITATION_TIMEOUT_S: Final = 4.0
 TRIAGE_TIMEOUT_S: Final = 6.0
 _CITATION_WIKITEXT_RE: Final = re.compile(r"{{|<ref\b", re.IGNORECASE)
 _REF_TAG_RE: Final = re.compile(r"<ref\b[^>]*>.*?</ref>", re.DOTALL | re.IGNORECASE)
+_ARCHIVE_URL_PARAM_RE: Final = re.compile(
+    r"\|\s*(?:archive-url|archiveurl|archive_url)\s*=\s*(https?://[^|\s}]+)",
+    re.IGNORECASE,
+)
+_WEB_ARCHIVE_HOSTS: Final = frozenset(
+    {
+        "archive.org",
+        "archive.today",
+        "archive.ph",
+        "archive.is",
+        "archive.li",
+        "archive.md",
+        "webcitation.org",
+        "arkisto.fi",
+        "perma.cc",
+        "arquivo.pt",
+    }
+)
 # These are wiki configuration template parameter names, not prose date labels.
 _CITATION_PARAM_RE: Final = re.compile(
     r"\|\s*(access-date|accessdate|access_date|accessed|luettu|hämtdatum|hämtad)\s*=\s*([^|}\n]+)",
@@ -415,7 +443,7 @@ class AuditDiffResponse(BaseModel):
 
 
 class AuditPageResponse(BaseModel):
-    status: Literal["ok", "error"]
+    status: Literal["ok", "partial", "error"]
     flags: list[Flag]
     latency_ms: float
     error: str | None = None
@@ -585,15 +613,15 @@ def _page_consistency_flags(
                 title="Internal page conflict",
                 reason=decision.reason,
                 confidence=decision.confidence,
-                anchor_text=group.first.text,
+                anchor_text=display_quote(group.first.text),
                 anchor_start=group.first.position,
                 anchor_end=group.first.position + len(group.first.text),
-                related_anchor_text=group.second.text,
-                context_sentence=group.first.text,
+                related_anchor_text=display_quote(group.second.text),
+                context_sentence=display_quote(group.first.text),
                 evidence=[
                     FlagEvidence(
                         source="page",
-                        quote=group.second.text,
+                        quote=display_quote(group.second.text),
                         section=group.second.section,
                         url=article_url(lang_code, page_title, group.second.section),
                     )
@@ -603,6 +631,14 @@ def _page_consistency_flags(
             )
         )
     return sorted(flags, key=lambda flag: (flag.anchor_start or -1, flag.kind))[:20]
+
+
+def _page_consistency_candidate_flags(
+    groups: list[CandidateGroup], lang_code: str, page_title: str
+) -> list[Flag]:
+    """Candidates stay hidden until an adjudication and verification complete."""
+    del groups, lang_code, page_title
+    return []
 
 
 @app.post("/api/v1/audit-page", response_model=AuditPageResponse)
@@ -629,17 +665,20 @@ async def audit_page(
         if truncated
         else None
     )
+    groups = ordered_candidate_groups(wikitext)
     if judge is None:
         return AuditPageResponse(
-            status="error",
-            flags=[],
+            status="partial",
+            flags=_page_consistency_candidate_flags(
+                groups, req.lang_code, req.page_title
+            ),
             latency_ms=(time.perf_counter() - started) * 1000,
             error="Gemini page-consistency judge is unavailable.",
         )
     try:
-        groups, decisions = await adjudicate_page(wikitext, judge)
+        decisions = await adjudicate_groups(groups, judge)
         response = AuditPageResponse(
-            status="ok",
+            status="partial" if truncated else "ok",
             flags=_page_consistency_flags(
                 groups, decisions, req.lang_code, req.page_title
             ),
@@ -648,12 +687,17 @@ async def audit_page(
         )
     except Exception as exc:  # noqa: BLE001 - preserve a useful audit response
         response = AuditPageResponse(
-            status="error",
-            flags=[],
+            status="partial",
+            flags=_page_consistency_candidate_flags(
+                groups, req.lang_code, req.page_title
+            ),
             latency_ms=(time.perf_counter() - started) * 1000,
-            error=f"Page consistency adjudication failed: {type(exc).__name__}: {exc}",
+            error=(
+                f"Page consistency adjudication failed: {type(exc).__name__}: {exc}"
+                + (f" {note}" if note else "")
+            ),
         )
-    if response.status == "ok" and not truncated:
+    if response.status == "ok":
         write_result("audit-page", req, response)
     return response
 
@@ -859,38 +903,87 @@ def _access_date(value: str, months: Mapping[str, int] | None = None) -> date | 
     return citation_parameter_date(value, months or {})
 
 
+def _normalised_citation_url(url: str) -> str:
+    """Normalize source URLs enough to compare citation identity across an edit."""
+    parsed = urlsplit(url.strip())
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError:
+        return url.strip()
+    netloc = host
+    if port is not None and (parsed.scheme.lower(), port) not in {
+        ("http", 80),
+        ("https", 443),
+    }:
+        netloc = f"{host}:{port}"
+    return urlunsplit(
+        (parsed.scheme.lower(), netloc, parsed.path or "/", parsed.query, "")
+    )
+
+
+def _is_web_archive_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return any(
+        host == archive or host.endswith(f".{archive}")
+        for archive in _WEB_ARCHIVE_HOSTS
+    )
+
+
 def _citation_lifecycle_candidates(
     units: list[EditUnit],
     refs_by_unit: dict[int, list[str] | None],
     months: Mapping[str, int] | None = None,
+    old_wikitext: str | None = None,
 ) -> list[tuple[str, date | None, str]]:
-    """Changed-reference URLs paired with their citation date and local claim text."""
+    """New non-archive reference URLs paired with their local claim text."""
     candidates: list[tuple[str, date | None, str]] = []
     seen: set[str] = set()
+    old_urls = {
+        _normalised_citation_url(url)
+        for url in extract_ref_urls(
+            old_wikitext
+            if old_wikitext is not None
+            else "\n".join(unit.old_wikitext or "" for unit in units)
+        )
+    }
     for unit in units:
         changed = refs_by_unit[unit.index]
         if not changed:
             continue
         wikitext = unit.new_wikitext or unit.new_text
         for ref in _REF_TAG_RE.findall(wikitext):
-            urls = [url for url in extract_ref_urls(ref) if url in changed]
+            changed_urls = {_normalised_citation_url(url) for url in changed}
+            urls = [
+                url
+                for url in extract_ref_urls(ref)
+                if _normalised_citation_url(url) in changed_urls
+            ]
             if not urls:
                 continue
             match = _CITATION_PARAM_RE.search(ref)
             access_date = _access_date(match.group(2), months) if match else None
             for url in urls:
-                if url not in seen:
+                normalised = _normalised_citation_url(url)
+                if (
+                    normalised not in seen
+                    and normalised not in old_urls
+                    and not _is_web_archive_url(url)
+                ):
                     candidates.append((url, access_date, unit.new_text))
-                    seen.add(url)
+                    seen.add(normalised)
     return candidates
 
 
 async def _localized_citation_lifecycle_candidates(
-    units: list[EditUnit], refs_by_unit: dict[int, list[str] | None], lang_code: str
+    units: list[EditUnit],
+    refs_by_unit: dict[int, list[str] | None],
+    lang_code: str,
+    old_wikitext: str | None = None,
 ) -> list[tuple[str, date | None, str]]:
     """Read local MediaWiki month names before parsing citation parameters."""
     if lang_code == "en":
-        return _citation_lifecycle_candidates(units, refs_by_unit, {})
+        return _citation_lifecycle_candidates(units, refs_by_unit, {}, old_wikitext)
     try:
         async with httpx.AsyncClient(
             headers={"User-Agent": MEDIAWIKI_USER_AGENT}
@@ -898,7 +991,7 @@ async def _localized_citation_lifecycle_candidates(
             months = await month_names(client, lang_code)
     except (httpx.HTTPError, RuntimeError):
         months = {}
-    return _citation_lifecycle_candidates(units, refs_by_unit, months)
+    return _citation_lifecycle_candidates(units, refs_by_unit, months, old_wikitext)
 
 
 def _lifecycle_embedder() -> HashingEmbedder | GeminiEmbedder:
@@ -1103,9 +1196,13 @@ class JudgeUnavailableError(Exception):
         super().__init__("Judge backend unavailable: no verdict was produced.")
 
 
-def _unit_changed_refs(unit: EditUnit) -> list[str] | None:
+def _unit_changed_refs(
+    unit: EditUnit, reference_wikitext: str | None = None
+) -> list[str] | None:
     if unit.old_wikitext and unit.new_wikitext:
-        changed = refs_for_changed_sentences(unit.old_wikitext, unit.new_wikitext)
+        changed = refs_for_changed_sentences(
+            unit.old_wikitext, unit.new_wikitext, reference_wikitext
+        )
         old_urls = set(extract_ref_urls(unit.old_wikitext))
         for url in extract_ref_urls(unit.new_wikitext):
             if url not in old_urls and url not in changed:
@@ -1115,6 +1212,25 @@ def _unit_changed_refs(unit: EditUnit) -> list[str] | None:
         # A wholly added paragraph: every reference in it is new to the page.
         return extract_ref_urls(unit.new_wikitext)
     return None
+
+
+def _unit_render_refs(unit: EditUnit) -> list[str] | None:
+    """URLs introduced or changed by this edit that are eligible for render scanning."""
+    if unit.new_wikitext is None:
+        return None
+    archive_urls = set(_ARCHIVE_URL_PARAM_RE.findall(unit.new_wikitext))
+    if unit.old_wikitext is None:
+        return [
+            url
+            for url in extract_ref_urls(unit.new_wikitext)
+            if url not in archive_urls
+        ]
+    old_urls = set(extract_ref_urls(unit.old_wikitext))
+    return [
+        url
+        for url in extract_ref_urls(unit.new_wikitext)
+        if url not in old_urls and url not in archive_urls
+    ]
 
 
 def _verdict_rank(output: AuditOutput) -> int:
@@ -1227,6 +1343,12 @@ async def _judge_unit(
                 raise JudgeUnavailableError(stage0.latency_ms)
             ref_scans: list[ScanResult] = []
             pc.window = await _window_for(case, fetcher, ref_scans)
+            pc.linked_evidence = await linked_page_evidence(
+                strip_wikitext(unit.new_text),
+                unit.new_wikitext or unit.new_text,
+                case.lang,
+                fetcher,
+            )
             pc.ref_scan = _worst_scan(ref_scans)
             pc.stealth_ms = sum(s.scan_latency_ms for s in ref_scans)
             judged, latencies = await judge_with_latencies(backend, [pc])
@@ -1295,16 +1417,16 @@ async def audit_diff_logic(
     )
     context_budget = ContextReadBudget()
     unit_regions = _unit_regions(new_scan, units)
-    refs_by_unit = {u.index: _unit_changed_refs(u) for u in units}
-    # Edit-relative: render only refs the edit touched. Without wikitext the
-    # changed refs are unknown, so fall back to ref_urls unless Stage 0 says the
-    # unit is a typo/format-only change (nothing new to plant on a cited page).
+    refs_by_unit = {
+        unit.index: _unit_changed_refs(unit, req.new_wikitext) for unit in units
+    }
+    # A cited page is an untrusted third party: scan only URLs introduced or
+    # changed in the edit. Without wikitext that cannot be established.
     union_refs: list[str] = []
     for unit in units:
-        unit_refs = refs_by_unit[unit.index]
+        unit_refs = _unit_render_refs(unit)
         if unit_refs is None:
-            clean = prefilter(unit.old_text, unit.new_text, req.lang_code).clean
-            unit_refs = [] if clean else req.ref_urls
+            continue
         for url in unit_refs:
             if url not in union_refs:
                 union_refs.append(url)
@@ -1327,7 +1449,7 @@ async def audit_diff_logic(
         await citation_dates_started
     lifecycle_candidates = (
         await _localized_citation_lifecycle_candidates(
-            units, refs_by_unit, req.lang_code
+            units, refs_by_unit, req.lang_code, req.old_wikitext or req.old_text
         )
         if any(refs_by_unit.values())
         else []
@@ -1514,6 +1636,8 @@ async def audit_diff_logic(
                     else []
                 ),
                 window=o.pc.window,
+                linked_evidence=o.pc.linked_evidence,
+                changed_wikitext=o.unit.new_wikitext,
             )
             for o, unit_route, reason in zip(
                 outcomes, unit_routes, reasons, strict=True
@@ -1631,6 +1755,7 @@ async def audit_diff_logic(
                 "reviewer disabled" if not reviewer_enabled() else "no value change",
             )
         response_flags = suppress_out_of_sync_duplicates(response_flags)
+        response_flags = order_flags(response_flags)
         # A reviewer may lower ordinary candidates to review, but hard source-security
         # signals retain their existing escalation path above.
         candidate_route: Route = (
