@@ -128,3 +128,18 @@
  .entry-screen .entry-second-row>.entry-phrase{width:auto}
  .entry-screen>.entry-description{margin-top:24px}
 }
+
+/* Three explicit prompt lines: View, topic, then languages. */
+.entry-screen .entry-topic-row{margin-top:12px;flex-wrap:nowrap}
+.entry-screen .entry-topic-row .entry-topic-field{min-width:0}
+.entry-screen .entry-title-row .entry-heading{flex-basis:auto}
+@media(max-width:600px){
+ .entry-screen .entry-topic-row{gap:8px}
+ .entry-screen .entry-topic-row .entry-topic-field{width:auto;flex:1}
+ .entry-screen .entry-topic-row .entry-topic-field>input{font-size:25px}
+ .entry-screen .entry-second-row{flex-wrap:nowrap;gap:8px}
+ .entry-screen .entry-language-control{min-width:0;gap:4px}
+ .entry-screen #entry-language-pills{gap:4px}
+ .entry-screen .entry-language-pill{padding:4px;font-size:11px;gap:3px}
+ .entry-screen .entry-submit{padding:9px}
+}
