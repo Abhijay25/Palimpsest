@@ -952,7 +952,6 @@
 			}
 			section.appendChild( groupNode );
 		} );
-		section.appendChild( element( 'p', 'pb-muted', 'Last changed identifies the revision that changed the present wording; it does not prove who first introduced the idea.' ) );
 		panel.appendChild( section );
 	}
 
@@ -1062,7 +1061,6 @@
 			} );
 			section.appendChild( list );
 		}
-		section.appendChild( element( 'p', 'pb-muted', 'Last changed identifies the revision that changed the present wording; it does not prove who first introduced the idea.' ) );
 		panel.appendChild( section );
 	}
 
@@ -1162,7 +1160,7 @@
 			summary.appendChild( element( 'p', '', 'Available history: ' + formatUtc( coverage.earliest_timestamp ) + ' to ' + formatUtc( coverage.latest_timestamp ) + '.' ) );
 		}
 		if ( coverage.source_anchor_timestamp && data.snapshot && Date.parse( data.snapshot.timestamp ) > Date.parse( coverage.source_anchor_timestamp ) ) {
-			summary.appendChild( element( 'p', 'pb-warning', 'This local snapshot is later than the imported source cutoff; it does not establish the live source wiki’s state at that time.' ) );
+			summary.appendChild( element( 'p', 'pb-warning', 'This revision is outside the imported source history.' ) );
 		}
 		( coverage.reasons || [] ).forEach( function ( reason ) {
 			summary.appendChild( element( 'p', 'pb-warning', reason ) );
@@ -1331,7 +1329,7 @@
 		if ( !Number.isFinite( anchor ) || !Number.isFinite( bound ) || bound <= anchor ) {
 			return null;
 		}
-		return 'These bounds extend past imported source coverage ending ' + formatUtc( coverage.source_anchor_timestamp ) + '. Only available local revisions are listed; the latest matching result does not prove the live source wiki’s state at the requested date.';
+		return 'These bounds extend past imported source coverage ending ' + formatUtc( coverage.source_anchor_timestamp ) + '. Only imported revisions are available.';
 	}
 
 	function requestVersions( query, results, cursor, append ) {

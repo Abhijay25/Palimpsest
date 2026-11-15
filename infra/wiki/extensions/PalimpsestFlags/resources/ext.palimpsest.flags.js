@@ -34,12 +34,12 @@
 	function setLive( text ) { live.textContent = text; }
 	function setup() {
 		table = document.querySelector( 'table.diff' ); if ( !table || table.closest( '.pf-root' ) ) { return false; }
-		root = el( 'div', 'pf-root' ); summary = el( 'aside', 'pf-summary-bar' ); summary.setAttribute( 'aria-label', 'Palimpsest audit summary' ); tray = el( 'section', 'pf-unanchored-tray' ); workspace = el( 'div', 'pf-workspace' ); rail = el( 'aside', 'pf-rail' ); rail.setAttribute( 'aria-label', 'Palimpsest flags' ); list = el( 'ol', 'pf-rail__list' ); rail.appendChild( list ); live = el( 'div', 'pf-sr-live' ); live.setAttribute( 'role', 'status' ); live.setAttribute( 'aria-live', 'polite' ); live.setAttribute( 'aria-atomic', 'true' );
+		root = el( 'div', 'pf-root' ); summary = el( 'aside', 'pf-summary-bar' ); summary.setAttribute( 'aria-label', 'NeoWiki audit summary' ); tray = el( 'section', 'pf-unanchored-tray' ); workspace = el( 'div', 'pf-workspace' ); rail = el( 'aside', 'pf-rail' ); rail.setAttribute( 'aria-label', 'NeoWiki flags' ); list = el( 'ol', 'pf-rail__list' ); rail.appendChild( list ); live = el( 'div', 'pf-sr-live' ); live.setAttribute( 'role', 'status' ); live.setAttribute( 'aria-live', 'polite' ); live.setAttribute( 'aria-atomic', 'true' );
 		table.parentNode.insertBefore( root, table ); root.append( summary, tray, workspace, live ); workspace.append( table, rail );
 		new ResizeObserver( relayout ).observe( workspace ); new ResizeObserver( relayout ).observe( table ); window.addEventListener( 'resize', updateMode ); document.fonts && document.fonts.ready && document.fonts.ready.then( relayout );
 		mw.hook && mw.hook( 'wikipage.diff' ).add( function () { updateMode(); relayout(); } ); document.addEventListener( 'keydown', shortcuts ); document.addEventListener( 'pointerdown', function ( event ) { if ( state.filterOpen && !event.target.closest( '.pf-filter-menu, .pf-filter-control' ) ) { closeFilterMenu(); } } ); return true;
 	}
-	function loading() { root.dataset.pfState = 'loading'; summary.replaceChildren( el( 'span', 'pf-brand', 'Palimpsest' ), el( 'span', 'pf-spinner' ), el( 'span', 'pf-loading-text', 'Checking this edit…' ) ); summary.setAttribute( 'aria-busy', 'true' ); window.setTimeout( function () { var t = summary.querySelector( '.pf-loading-text' ); if ( root.dataset.pfState === 'loading' && t ) { t.textContent = 'Checking this edit… reading the cited sources'; } }, 5000 ); }
+	function loading() { root.dataset.pfState = 'loading'; summary.replaceChildren( el( 'span', 'pf-brand', 'NeoWiki' ), el( 'span', 'pf-spinner' ), el( 'span', 'pf-loading-text', 'Checking this edit…' ) ); summary.setAttribute( 'aria-busy', 'true' ); window.setTimeout( function () { var t = summary.querySelector( '.pf-loading-text' ); if ( root.dataset.pfState === 'loading' && t ) { t.textContent = 'Checking this edit… reading the cited sources'; } }, 5000 ); }
 	function api( retry ) {
 		loading(); var controller = new AbortController(), timedOut = false, timer = window.setTimeout( function () { timedOut = true; controller.abort(); }, 75000 );
 		var params = new URLSearchParams( { action: 'palimpsestflags', format: 'json', formatversion: '2', oldid: String( cfg.oldid ), diff: String( cfg.diff ) } );
@@ -53,13 +53,13 @@
 	function receive( data ) {
 		A.unwrap( table ); state.flags = Array.isArray( data.flags ) ? data.flags : []; state.filter = new Set(); state.filterOpen = false; var resolved = A.resolve( table, state.flags ); state.anchored = resolved.anchored; state.unanchored = resolved.unanchored; root.dataset.pfState = state.flags.length ? 'ready' : 'empty'; updateMode(); renderSummary(); renderTray(); renderCards();
 		var admins = state.flags.filter( function ( f ) { return f.tier === 'admin'; } ).length, reviews = state.flags.length - admins;
-		setLive( state.flags.length ? 'Palimpsest found ' + admins + ' admin flags and ' + reviews + ' review flags. Press right bracket for next flag.' : 'No issues flagged.' );
+		setLive( state.flags.length ? 'NeoWiki found ' + admins + ' admin flags and ' + reviews + ' review flags. Press right bracket for next flag.' : 'No issues flagged.' );
 	}
 	function error( message ) { root.dataset.pfState = 'error'; summary.removeAttribute( 'aria-busy' ); summary.replaceChildren(); summary.append( chip( 'warning', message ), retryButton() ); rail.replaceChildren( list ); tray.hidden = true; setLive( message ); }
 	function retryButton() { var b = button( 'cdx-button cdx-button--weight-quiet', 'Retry' ); b.addEventListener( 'click', function () { api( true ); } ); return b; }
 	function chip( status, label ) { var c = el( 'span', 'cdx-info-chip cdx-info-chip--' + status ); if ( Vue && Codex && Codex.CdxInfoChip ) { Vue.createApp( { render: function () { return Vue.h( Codex.CdxInfoChip, { status: status }, { default: function () { return label; } } ); } } ).mount( c ); } else { c.appendChild( el( 'span', 'cdx-info-chip__text', label ) ); } return c; }
 	function renderSummary() {
-		summary.removeAttribute( 'aria-busy' ); summary.replaceChildren(); var brand = el( 'span', 'pf-brand', 'Palimpsest' ); summary.append( brand );
+		summary.removeAttribute( 'aria-busy' ); summary.replaceChildren(); var brand = el( 'span', 'pf-brand', 'NeoWiki' ); summary.append( brand );
 		if ( !state.flags.length ) { summary.append( el( 'span', 'pf-summary__text pf-summary__text--ok', '✓ No issues flagged in this edit' ) ); floatBar(); return; }
 		var admins = state.flags.filter( function ( f ) { return f.tier === 'admin'; } ).length, reviews = state.flags.length - admins, parts = [];
 		if ( admins ) { parts.push( admins + ' for admin review' ); } if ( reviews ) { parts.push( reviews + ' worth a look' ); }

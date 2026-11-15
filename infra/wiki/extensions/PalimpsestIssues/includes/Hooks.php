@@ -52,19 +52,18 @@ final class Hooks {
             $page = SourceMap::page( $title );
             $local = $output->getRevisionId() ?: $title->getLatestRevID();
             $matches = array_values( array_filter( $page['revisions'], static fn ( $r ) => (int)$r['local_revision_id'] === $local ) );
-            $message = count( $matches ) === 1 ? 'Imported source article body. Templates, media and structured data use the installed dependency versions.' :
-                'This local article revision has no verified public-source mapping. Archived Issues retain their own exact source identities.';
+            $message = count( $matches ) === 1 ? '' : 'Source revision unavailable.';
             $dependencies = $page['rendering_dependencies'] ?? null;
             if ( !$dependencies || ( $dependencies['state'] ?? '' ) !== 'complete' ) {
-                $message .= ' Rendering dependencies are incomplete or unverified; templates, references or layout may be missing.';
+                $message .= ' Some article formatting or media may be unavailable.';
             }
-            $notice = \MediaWiki\Html\Html::element( 'p', [ 'class' => 'mw-message-box mw-message-box-notice' ], $message );
+            $notice = trim( $message ) === '' ? '' : \MediaWiki\Html\Html::element( 'p', [ 'class' => 'mw-message-box mw-message-box-notice' ], trim( $message ) );
             if ( count( $matches ) === 1 ) {
                 $mapped = SourceMap::resolve( $title, (int)$matches[0]['source_revision_id'], $skin->getUser() );
                 $language = MediaWikiServices::getInstance()->getMainConfig()->get( 'LanguageCode' );
                 $output->addModuleStyles( self::articleStyles( $language ) );
                 $notice .= \MediaWiki\Html\Html::rawElement( 'p', [ 'class' => 'palimpsest-source-attribution' ],
-                    \MediaWiki\Html\Html::element( 'a', [ 'href' => 'https://' . $language . '.wikipedia.org/w/index.php?oldid=' . $mapped['record']['source_revision_id'], 'rel' => 'noopener' ], 'Wikipedia source and contributors' )
+                    \MediaWiki\Html\Html::element( 'a', [ 'href' => 'https://' . $language . '.wikipedia.org/w/index.php?oldid=' . $mapped['record']['source_revision_id'], 'rel' => 'noopener' ], 'Original source and contributors' )
                 );
             }
             $output->prependHTML( $notice );
@@ -90,7 +89,7 @@ final class Hooks {
         }
         unset( $group );
         $query = self::selectionQuery( $skin->getRequest(), $title );
-        $links['views']['issues'] = [ 'text' => 'Issues',
+        $links['views']['issues'] = [ 'text' => 'Issues (New!)',
             'href' => $title->getLocalURL( [ 'action' => 'issues' ] + $query ),
             'class' => $skin->getRequest()->getVal( 'action' ) === 'issues' ? 'selected' : '' ];
         if ( $skin->getRequest()->getVal( 'action' ) === 'issues' && isset( $links['views']['view'] ) ) {
