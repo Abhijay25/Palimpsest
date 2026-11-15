@@ -47,3 +47,99 @@
 .summary-counts button.summary-type{border:1px solid transparent;background:transparent;padding:5px 6px;border-radius:2px;font:inherit;display:inline-flex;align-items:center;gap:5px;color:#54595d}.summary-counts button.summary-type:hover{background:#f8f9fa;border-color:#c8ccd1}.summary-counts button.summary-type.inactive{opacity:.5}.summary-counts button.summary-type.inactive .type-key{background:#fff;border:1px solid #a2a9b1}.summary-counts button.summary-type.inactive strong{text-decoration:line-through}.restore-categories{border:1px solid #a2a9b1;border-radius:2px;background:#f8f9fa;color:#3366cc;padding:5px 9px;font:11px Arial,sans-serif}.category-empty{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#54595d;font:14px Arial,sans-serif;gap:8px}
 
 .highlight-note{margin:0 0 16px;padding:9px 12px;border-left:3px solid #c8ccd1;background:#f8f9fa;color:#54595d;font:12px/1.6 Arial,Helvetica,sans-serif}
+
+/* Detector classes retain their exact names; labels accompany every color. */
+.type-key.FACT{background:#32669b}.overview-bar.FACT{fill:#32669b}
+.type-key.FRAMING{background:#70478b}.overview-bar.FRAMING{fill:#70478b}
+.type-key.MOTIVE{background:#087f70}.overview-bar.MOTIVE{fill:#087f70}
+.type-key.REMOVED_CONTEXT{background:#a34124}.overview-bar.REMOVED_CONTEXT{fill:#a34124}
+.type-key.HIDDEN_TEXT{background:#5d5e15}.overview-bar.HIDDEN_TEXT{fill:#5d5e15}
+.type-key.CITATION_DATE{background:#165563}.overview-bar.CITATION_DATE{fill:#165563}
+.type-key.CITED_PAGE{background:#9a3b75}.overview-bar.CITED_PAGE{fill:#9a3b75}
+.type-key.CHERRY_PICK{background:#536835}.overview-bar.CHERRY_PICK{fill:#536835}
+.type-key.OUT_OF_SYNC{background:#535b83}.overview-bar.OUT_OF_SYNC{fill:#535b83}
+.overview-bar{stroke:#fff;stroke-width:.75}.summary-counts{flex-wrap:wrap}.histogram-time-note{font:12px/1.5 Arial,sans-serif;color:#54595d;max-width:90ch;margin:8px 0}.summary-counts .summary-type:focus-visible{outline:2px solid #36c;outline-offset:2px}
+.results-mode .matrix-card{padding-bottom:28px}.results-mode .matrix-footer{position:static;display:block;flex-shrink:0;margin-top:8px;padding:6px 0;font-size:11px}.results-mode .summary-counts{gap:4px 12px;margin-top:5px}.detector-types{position:relative;margin-left:auto;font-size:12px}.detector-types>summary{cursor:pointer;color:#36c;padding:6px}.detector-type-options{position:absolute;right:0;bottom:calc(100% + 5px);z-index:30;width:360px;max-width:calc(100vw - 40px);background:#fff;border:1px solid #a2a9b1;box-shadow:0 4px 12px #20212226;padding:8px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}.detector-types:not([open]) .detector-type-options{display:none}.detector-type-options button.summary-type{font-size:12px;text-align:left;justify-content:start}.detector-type-options strong{font-weight:400}.detector-type-options .type-key{flex-shrink:0}.histogram-time-note{margin-bottom:0;font-size:11px}@media(max-width:700px){.results-mode .matrix-card{padding-bottom:46px}.results-mode .summary-counts{gap:2px 6px}.results-mode .summary-counts button.summary-type{font-size:11px}.detector-types{margin-left:0}.detector-type-options{left:0;right:auto}.histogram-time-note{line-height:1.4}}
+/* One stable headline; the categories roll without moving the form. */
+.entry-heading{position:relative;text-align:center;width:100%;max-width:850px;margin:0 auto}
+.entry-heading h1{margin:0;font:400 clamp(34px,4.4vw,58px)/1.16 Georgia,'Times New Roman',serif;letter-spacing:-.025em;color:#202122}
+.word-roll{display:grid;overflow:hidden;padding:4px 0 10px;color:#3366cc;isolation:isolate}
+.word-roll>span{grid-area:1/1;visibility:hidden;opacity:0;transform:translateY(105%);transition:transform .35s cubic-bezier(.16,1,.3,1),opacity .35s,visibility .35s}
+.word-roll>span.is-current{visibility:visible;opacity:1;transform:translateY(0)}
+.word-roll>span.is-previous{visibility:hidden;opacity:0;transform:translateY(-105%)}
+.entry-screen>.entry-description{margin:20px 0 30px;font:14px/1.6 Arial,sans-serif;color:#54595d;max-width:520px}
+.entry-screen .entry-form{max-width:760px}
+.entry-screen .entry-phrase{font-size:26px}
+.entry-screen .entry-topic-field>input{font-size:27px}
+.entry-screen .entry-topic-field{width:410px}
+.entry-screen .entry-examples{margin-top:12px}
+.entry-screen .entry-examples button{font-size:11px;min-height:36px}
+.entry-screen .entry-examples small{font-size:10px}
+@media(max-width:600px){
+ .entry-screen{padding:25px 0 40px}
+ .entry-heading h1{font-size:clamp(28px,7.5vw,38px)}
+ .entry-screen>.entry-description{font-size:13px;margin:18px 0 26px;max-width:320px}
+ .entry-screen .entry-form{max-width:360px}
+ .entry-screen .entry-row{gap:10px;justify-content:center}
+ .entry-screen .entry-topic-field{width:100%}
+ .entry-screen .entry-topic-field>input{font-size:25px}
+ .entry-screen .entry-second-row{justify-content:center}
+ .entry-screen .entry-second-row>.entry-phrase{width:100%;text-align:center;font-size:22px}
+}
+@media(prefers-reduced-motion:reduce){.word-roll>span{transition:none;transform:none}}
+
+/* The chart uses the remaining viewport; every issue type shares one legend. */
+.results-mode .overview-graph{overflow:hidden;min-width:0;min-height:0;flex:1 1 0}
+.results-mode .overview-graph>svg{display:block;width:100%;height:100%;max-width:100%}
+.results-mode .matrix-footer{border-top:1px solid #eaecf0;margin-top:12px;padding-top:10px}
+.results-mode .summary-counts{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:4px 14px;margin-top:6px}
+.results-mode .summary-counts button.summary-type{font:12px/1.4 Arial,sans-serif;min-height:30px;padding:4px 2px;gap:6px}
+.results-mode .summary-counts .summary-type strong{font-weight:400}
+.results-mode .summary-value{font-size:11px;font-variant-numeric:tabular-nums}
+.entry-screen>.entry-description{margin:8px 0 12px}
+@media(max-width:700px){
+ .results-mode .matrix-footer{margin-top:6px;padding-top:6px}
+ .results-mode .summary-counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 8px}
+ .results-mode .summary-counts button.summary-type{font-size:11px;min-height:27px;white-space:normal;text-align:left}
+ .results-mode .summary-value{margin-left:auto}
+ .entry-screen>.entry-description{margin:8px 0 12px}
+}
+
+/* A sentence-sized prompt, matching the original entry layout. */
+.entry-screen .entry-form{width:100%;max-width:1100px}
+.entry-screen .entry-heading{width:auto;max-width:none;margin:0}
+.entry-screen .entry-heading h1,.entry-screen .entry-phrase,.entry-screen .entry-topic-field>input{font:400 34px/1.3 Georgia,'Times New Roman',serif;letter-spacing:-.015em}
+.entry-heading h1>span[aria-hidden]{display:flex;align-items:baseline;gap:9px}
+.entry-heading .word-roll{display:inline-grid;padding:3px 0 6px;vertical-align:bottom;text-align:center}
+.entry-screen .entry-row{gap:12px}
+.entry-screen .entry-topic-field{width:390px}
+.entry-screen .entry-second-row{margin-top:17px}
+.entry-screen>.entry-description{margin-top:30px}
+@media(max-width:959px){
+ .entry-screen .entry-heading h1,.entry-screen .entry-phrase,.entry-screen .entry-topic-field>input{font-size:29px}
+ .entry-screen .entry-form{max-width:740px}
+}
+@media(max-width:600px){
+ .entry-screen .entry-heading h1,.entry-screen .entry-phrase,.entry-screen .entry-topic-field>input{font-size:27px}
+ .entry-screen .entry-form{max-width:360px}
+ .entry-screen .entry-heading{flex-basis:100%}
+ .entry-heading h1>span[aria-hidden]{justify-content:center}
+ .entry-screen .entry-topic-field{width:100%}
+ .entry-screen .entry-second-row>.entry-phrase{width:auto}
+ .entry-screen>.entry-description{margin-top:24px}
+}
+
+/* Three explicit prompt lines: View, topic, then languages. */
+.entry-screen .entry-topic-row{margin-top:12px;flex-wrap:nowrap}
+.entry-screen .entry-topic-row .entry-topic-field{min-width:0}
+.entry-screen .entry-title-row .entry-heading{flex-basis:auto}
+@media(max-width:600px){
+ .entry-screen .entry-topic-row{gap:8px}
+ .entry-screen .entry-topic-row .entry-topic-field{width:auto;flex:1}
+ .entry-screen .entry-topic-row .entry-topic-field>input{font-size:25px}
+ .entry-screen .entry-second-row{flex-wrap:nowrap;gap:8px}
+ .entry-screen .entry-language-control{min-width:0;gap:4px}
+ .entry-screen #entry-language-pills{gap:4px}
+ .entry-screen .entry-language-pill{padding:4px;font-size:11px;gap:3px}
+ .entry-screen .entry-submit{padding:9px}
+}

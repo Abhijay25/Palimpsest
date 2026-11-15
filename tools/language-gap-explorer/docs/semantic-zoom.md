@@ -1,5 +1,7 @@
 # Semantic zoom: questions → months → years
 
+> Historical design record: the Constellation presentation described here has been retired. `/explore` uses the histogram and issue-table UI; shared period, search and preparation APIs remain supported. See [the exploration registry](../../../docs/explorations/README.md#retired-presentations-and-3d-library).
+
 **Latest presentation:** bare `/explore` is the centered article/language prompt. The main results use Wikipedia styling, a compact floating toolbar and one viewport-filling monthly histogram across the available source range. Zoom changes the date window and adapts to yearly buckets for longer spans; month is the finest time unit. Clicking a bucket opens its searchable issue table rather than zooming. Click an issue to open a wide side-by-side evidence dialog; selected-question deep links restore it directly. The constellation view is removed; older sections and endpoint names below record earlier implementation history.
 
 The source pane explains observed differences using exact passages, machine translations, highlights, revision provenance and the existing article discrepancy tracker. Draft editing was explicitly removed from the visualization's scope: its purpose is awareness and understanding for readers and editors.
@@ -67,7 +69,7 @@ The queue is durable and resume is explicit. Browsing never queues acquisition, 
 
 ## Verification
 
-Run the scoped AGENTS regression command (111 pure research checks at integration), `node test_skyline_model.js`, `node --check static/constellation.js`, and the independent viewer tests. Zoom-specific checks cover period unions, repeated pairs/passages, selected-pair categories, strongest/latest support, language order, unknown/zero/outside states, exact-date filtering, 215-question pagination, cached/provisional labels, eligibility-scoped search and tracker/back context. Provider tests enforce the narrow naming gate and cached call reuse without network traffic. Root browser acceptance must cover desktop/mobile zoom levels, actual search, daily selector uniqueness, direct historical evidence, keyboard controls and browser Back.
+Run the scoped AGENTS regression command (111 pure research checks at integration), `node test_skyline_model.js`, `node --check static/lab-explorer.js`, and the independent viewer tests. Zoom-specific checks cover period unions, repeated pairs/passages, selected-pair categories, strongest/latest support, language order, unknown/zero/outside states, exact-date filtering, 215-question pagination, cached/provisional labels, eligibility-scoped search and tracker/back context. Provider tests enforce the narrow naming gate and cached call reuse without network traffic. Root browser acceptance must cover desktop/mobile zoom levels, actual search, daily selector uniqueness, direct historical evidence, keyboard controls and browser Back.
 
 ## Integration run status
 

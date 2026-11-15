@@ -67,6 +67,18 @@ def database_error(error):
     app.logger.error('Database unavailable: %s',error)
     return render_template('error.html'),503
 
+@app.template_global()
+def article_view_url(topic, tab, language=None, evidence_context=None):
+    from urllib.parse import urlencode
+    args=request.args.copy()
+    args.poplist('tab');args.poplist('scan')
+    if language:args.setlist('lang',[language])
+    if tab=='article' and evidence_context and evidence_context.get('run'):
+        for key in ('run','group','stamp'):args.setlist(key,[evidence_context[key]])
+    args.setlist('tab',[tab])
+    return '/article/'+topic+('/issues' if tab=='issues' else '')+'?'+urlencode(list(args.items(multi=True)))
+
+
 @app.get('/')
 def home():
     return redirect('/explore')
@@ -126,6 +138,11 @@ def article_page(topic):
 @app.get('/langcompare/<topic>')
 @app.get('/topic/<topic>')
 def topic_page(topic):
+    from issues_routes import legacy
+    if any(key in request.args for key in ('run','group','stamp','occurrence')):return legacy(topic)
+    if not request.args.get('legacy'):
+        args=request.args.copy();args['origin']='language'
+        return redirect('/article/'+topic+'/issues?'+__import__('urllib.parse',fromlist=['urlencode']).urlencode(list(args.items(multi=True))))
     if not re.fullmatch(r'Q\d+',topic): abort(404)
     if any(key in request.args for key in ('run','group','stamp','occurrence')):
         from skyline import tracker_context
@@ -254,6 +271,8 @@ if _MYSQL_AVAILABLE:
     app.register_blueprint(discrepancy_explorer_blueprint)
 from flags_routes import bp as flags_blueprint
 app.register_blueprint(flags_blueprint)
+from issues_routes import bp as issues_blueprint
+app.register_blueprint(issues_blueprint)
 
 if __name__=='__main__':
     from pipeline import init

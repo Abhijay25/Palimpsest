@@ -25,7 +25,10 @@ EXT_CHECK = ROOT / "infra/wiki/runtime/check_extensions.php"
 LANGS = ("fi", "sv", "en")
 DEFAULT_PORTS = (8081, 8082, 8083)
 MARKER = ".palimpsest-runtime.json"
-RUNTIME_OWNED_PATHS = ("db", "init", "config", "uploads", "secrets", ".env", MARKER, "runtime.json")
+NATIVE_PROFILE = "native-profile.json"
+PROFILE_OVERRIDES = {"issues": ROOT / "infra/wiki/compose.issues.override.yaml", "rendering": ROOT / "infra/wiki/compose.rendering.override.yaml"}
+PROFILE_ENV_KEYS = {"PALIMPSEST_ISSUES_SERVICE_URL", "PALIMPSEST_ISSUES_SECRET_FILE", "PALIMPSEST_ISSUES_EXPLORER_URL", "PALIMPSEST_WIKIBASE_ROOT", "PALIMPSEST_CLDR_ROOT", "PALIMPSEST_LST_ROOT", "PALIMPSEST_GEODATA_ROOT"}
+RUNTIME_OWNED_PATHS = ("db", "init", "config", "uploads", "secrets", ".env", MARKER, "runtime.json", NATIVE_PROFILE)
 COMPOSE_ENV_KEYS = {
     "PROJECT", "DATA_ROOT", "MEDIAWIKI_IMAGE", "MARIADB_IMAGE", "PORT_FI", "PORT_SV", "PORT_EN",
     "INSTALL_DB_NAME", "INSTALL_DB_USER", "INSTALL_LANG", "INSTALL_SERVER", "INSTALL_DIR", "INSTALL_SECRET_DIR",
@@ -33,6 +36,8 @@ COMPOSE_ENV_KEYS = {
 EXTENSIONS = (
     "Cite", "ParserFunctions", "Scribunto", "TemplateData", "TemplateStyles",
     "Linter", "Echo", "VisualEditor", "WikiEditor", "DiscussionTools",
+    "MultimediaViewer", "PageImages", "TextExtracts", "CiteThisPage",
+    "CategoryTree", "ImageMap", "Poem", "SyntaxHighlight_GeSHi",
 )
 
 
@@ -164,8 +169,32 @@ def write_env_file(path: Path, values: dict[str, str]) -> None:
     path.chmod(0o600)
 
 
+def native_profile(data_root: Path) -> dict[str, Any]:
+    path = data_root / NATIVE_PROFILE
+    if not path.exists():
+        return {"overrides": [], "environment": {}}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise RuntimeErrorExit("Native runtime profile is unreadable; existing state was preserved.") from exc
+    if not isinstance(value, dict):
+        raise RuntimeErrorExit("Native runtime profile must be an object; existing state was preserved.")
+    marker = project_marker(data_root)
+    overrides = value.get("overrides")
+    environment = value.get("environment")
+    if (value.get("schema_version") != 1 or not marker or value.get("project") != marker.get("project") or
+        not isinstance(overrides, list) or not overrides or any(not isinstance(name, str) for name in overrides) or len(set(overrides)) != len(overrides) or
+        any(name not in PROFILE_OVERRIDES for name in overrides) or not isinstance(environment, dict) or
+        set(environment) - PROFILE_ENV_KEYS or any(not isinstance(v, str) for v in environment.values())):
+        raise RuntimeErrorExit("Native runtime profile identity/options are invalid; existing state was preserved.")
+    return value
+
+
 def compose_prefix(docker: str, env_file: Path) -> list[str]:
-    return [docker, "compose", "--project-directory", str(ROOT), "-f", str(COMPOSE_FILE), "--env-file", str(env_file)]
+    prefix = [docker, "compose", "--project-directory", str(ROOT), "-f", str(COMPOSE_FILE), "--env-file", str(env_file)]
+    for name in native_profile(env_file.parent)["overrides"]:
+        prefix += ["-f", str(PROFILE_OVERRIDES[name])]
+    return prefix
 
 
 def project_marker(data_root: Path) -> dict[str, Any] | None:
@@ -377,8 +406,8 @@ def append_runtime_settings(root: Path, lang: str) -> None:
     runtime_settings.chmod(0o644)
 
 
-def secure_configs(root: Path) -> None:
-    for lang in LANGS:
+def secure_configs(root: Path, languages=LANGS) -> None:
+    for lang in languages:
         settings = root / f"config/{lang}/LocalSettings.php"
         runtime_settings = root / f"config/{lang}/runtime-settings.php"
         if not settings.is_file() or not runtime_settings.is_file():
@@ -407,11 +436,11 @@ def configure_runtime_settings(root: Path, lang: str, prefix: list[str], env: di
         # not run the helper. A real helper changes ownership to uid 33.
         if (root / f"config/{lang}/LocalSettings.php").stat().st_uid == os.getuid():
             append_runtime_settings(root, lang)
-            secure_configs(root)
+            secure_configs(root, (lang,))
     else:
         # Docker Desktop bind mounts are host-owned, retaining the established macOS behavior.
         append_runtime_settings(root, lang)
-        secure_configs(root)
+        secure_configs(root, (lang,))
 
 
 def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, Any], docker: str, docker_env: dict[str, str]) -> None:
@@ -502,6 +531,7 @@ def setup(project: str, data_root: Path, ports: dict[str, int], lock: dict[str, 
         marker["initialized"][lang] = True
         write_json_atomic(data_root / MARKER, marker)
 
+    secure_configs(data_root)
     run(prefix + ["up", "-d", "wiki-fi", "wiki-sv", "wiki-en"], env=docker_env)
     for lang in LANGS:
         wait_service(prefix, env_file, f"wiki-{lang}", docker_env, timeout=180)
@@ -551,6 +581,7 @@ def runtime_main(ns: argparse.Namespace) -> int:
     docker, env = resolve_docker()
     env_file = root / ".env"
     prefix = compose_prefix(docker, env_file)
+    env.update(native_profile(root)["environment"])
     if ns.command == "manifest":
         marker = project_marker(root)
         if marker and marker.get("project") != project:

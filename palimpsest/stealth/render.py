@@ -411,6 +411,17 @@ def _tile_starts(page_height: int) -> tuple[list[int], bool]:
 
 def _resolve_chromium() -> str:
     path = os.environ.get("CHROMIUM_PATH") or shutil.which("chromium")
+    if not path and os.name == "nt":
+        # Use an installed Chromium browser; do not download another browser.
+        candidates = [
+            Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
+            / "Microsoft/Edge/Application/msedge.exe",
+            Path(os.environ.get("PROGRAMFILES", "C:/Program Files"))
+            / "Google/Chrome/Application/chrome.exe",
+        ]
+        path = next(
+            (str(candidate) for candidate in candidates if candidate.is_file()), None
+        )
     if not path:
         raise RuntimeError(
             "No chromium found: set CHROMIUM_PATH or put chromium on PATH"

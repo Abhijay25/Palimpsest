@@ -7,7 +7,7 @@ managed=/tmp/palimpsest-config/runtime-settings.php
 [ -f "$settings" ] || { echo "missing installer settings" >&2; exit 1; }
 
 # The runtime include owns these bundled extension/skin loads.
-sed -i -E "/^[[:space:]]*wfLoad(Skin|Extension)\([[:space:]]*['\"](Cite|ParserFunctions|Scribunto|TemplateData|TemplateStyles|Linter|Echo|VisualEditor|WikiEditor|DiscussionTools|Vector)['\"][[:space:]]*\);[[:space:]]*$/d" "$settings"
+sed -i -E "/^[[:space:]]*wfLoad(Skin|Extension)\([[:space:]]*['\"](Cite|ParserFunctions|Scribunto|TemplateData|TemplateStyles|Linter|Echo|VisualEditor|WikiEditor|DiscussionTools|MultimediaViewer|PageImages|TextExtracts|CiteThisPage|CategoryTree|ImageMap|Poem|SyntaxHighlight_GeSHi|Vector)['\"][[:space:]]*\);[[:space:]]*$/d" "$settings"
 grep -Fqx "require_once '/etc/palimpsest/runtime-settings.php';" "$settings" || printf "\nrequire_once '/etc/palimpsest/runtime-settings.php';\n" >> "$settings"
 cp /usr/local/share/palimpsest/runtime-settings.php "$managed"
 

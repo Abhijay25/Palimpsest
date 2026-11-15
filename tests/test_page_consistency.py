@@ -807,3 +807,40 @@ def test_audit_page_truncation_is_explicit() -> None:
     )
     assert response.status_code == 200
     assert "truncated" in response.json()["error"]
+
+
+def test_gemini_sends_strict_pydantic_schema_as_json_schema():
+    from types import SimpleNamespace
+
+    from palimpsest.backends.gemini import _GeminiCaller
+    from palimpsest.page_consistency import PageConsistencyAnswers
+
+    class Models:
+        async def generate_content(self, *, model, contents, config):
+            # extra="forbid" emits additionalProperties, which must use the
+            # JSON Schema API rather than Gemini's legacy response_schema.
+            assert config.response_schema is None
+            assert config.response_json_schema["additionalProperties"] is False
+            assert "$defs" in config.response_json_schema
+            return SimpleNamespace(text='{"answers": []}')
+
+    client = SimpleNamespace(aio=SimpleNamespace(models=Models()))
+    caller = _GeminiCaller("configured-test-model", client, 0)
+    answer, _ = asyncio.run(
+        caller.generate("system", "contents", PageConsistencyAnswers)
+    )
+    assert isinstance(answer, PageConsistencyAnswers)
+
+
+def test_page_judge_uses_configurable_bounded_deadline(monkeypatch):
+    from types import SimpleNamespace
+
+    from palimpsest.page_consistency import GeminiPageConsistencyJudge
+
+    client = SimpleNamespace(aio=SimpleNamespace(models=object()))
+    monkeypatch.setenv("PALIMPSEST_PAGE_TIMEOUT_SECONDS", "65")
+    judge = GeminiPageConsistencyJudge(client=client)
+    assert judge.deadline == 65
+    assert judge._caller.timeout == 65
+    monkeypatch.setenv("PALIMPSEST_PAGE_TIMEOUT_SECONDS", "999")
+    assert GeminiPageConsistencyJudge(client=client).deadline == 75

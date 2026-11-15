@@ -74,7 +74,7 @@ class HeatmapTests(unittest.TestCase):
             self.assertEqual(client.post('/explore/api/search',json={'query':'peace'}).status_code,403)
 
     def test_matrix_read_has_no_inference(self):
-        with patch('paired_history.summary',return_value=fixture()),patch('heatmap.public_catalog',return_value=dict(rows=[])),patch('heatmap.query_vector',side_effect=AssertionError('GET must not embed')):
+        with patch('paired_history.summary',return_value=fixture()),patch('heatmap.public_catalog',return_value=dict(rows=[])),patch('native_issues.detector_catalog',return_value=dict(rows=[],coverage=[],assessments=[],undated=0)),patch('native_issues.native_url',return_value=None),patch('heatmap.query_vector',side_effect=AssertionError('GET must not embed')),patch('flags_routes.response_payload',side_effect=AssertionError('GET must not scan')):
             with app.test_client() as client:self.assertEqual(client.get('/explore/api/matrix').status_code,200)
 
     def test_invalid_occurrence_is_rejected_before_database_read(self):

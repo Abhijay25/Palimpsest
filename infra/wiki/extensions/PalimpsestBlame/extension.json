@@ -29,7 +29,6 @@
 		}
 	},
 	"Hooks": {
-		"SkinTemplateNavigation::Universal": "MediaWiki\\Extension\\PalimpsestBlame\\Hooks::onSkinTemplateNavigation",
 		"LoadExtensionSchemaUpdates": "MediaWiki\\Extension\\PalimpsestBlame\\Hooks::onLoadExtensionSchemaUpdates"
 	},
 	"ServiceWiringFiles": [

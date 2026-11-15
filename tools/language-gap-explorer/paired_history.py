@@ -281,7 +281,8 @@ def store_occurrences(run_id,checkpoint,pairs,verdicts,assignments):
 def prepare(since='2020-01-01',languages=('en','fi','ru'),workers=6):
     global WORKERS
     WORKERS=workers;init();started=time.monotonic();manifest=json.loads((storage.CACHE/'manifest.json').read_text(encoding='utf-8'))
-    recent=storage.schedule(manifest,languages,20);window=storage.wide_schedule(manifest,languages,since,recent);config=dict(since=since,languages=list(languages),window=[c['stamp'] for c in window],version=VERSION)
+    from pipeline import PASSAGE_VERSION
+    recent=storage.schedule(manifest,languages,20);window=storage.wide_schedule(manifest,languages,since,recent);config=dict(since=since,languages=list(languages),window=[c['stamp'] for c in window],version=VERSION,passage_policy=PASSAGE_VERSION)
     run_id=storage.digest(config);baseline=storage.ledger()
     with connect() as db,db.cursor() as c:
         c.execute('SELECT status,summary FROM paired_run WHERE id=%s',(run_id,));old=c.fetchone()

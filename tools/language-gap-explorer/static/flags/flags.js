@@ -1,88 +1,106 @@
-/* Optional revision-audit tab; mirrors the native Palimpsest Flags reading order. */
-/* Standalone port of ext.palimpsest.flags.js: no mw APIs, same audit interaction. */
-(function () {
-  'use strict';
-  var $ = function (selector) { return document.querySelector(selector); };
-  var labels = { FACT: 'Fact', MOTIVE: 'Motive', FRAMING: 'Wording', REMOVED_CONTEXT: 'Removed context', HIDDEN_TEXT: 'Hidden text', CITATION_DATE: 'Citation date', CITED_PAGE: 'Cited page', CHERRY_PICK: 'Selective quote', OUT_OF_SYNC: 'Out of sync' };
-  var icons = { FACT: '⚠', MOTIVE: '◉', FRAMING: '❝', REMOVED_CONTEXT: '−', HIDDEN_TEXT: '◌', CITATION_DATE: '◷', CITED_PAGE: '⌁', CHERRY_PICK: '❝', OUT_OF_SYNC: '↔' };
-  var root = $('#flags-audit'), table, auditFlags = [], pageFlags = [], rail;
-  if (!root || !window.PalimpsestRail || !window.PalimpsestFlagsAnchoring) return;
-  function esc(value) { return String(value || '').replace(/[&<>"']/g, function (character) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]; }); }
-  function safeUrl(value) { try { var url = new URL(value, location.href); return /^https?:$/.test(url.protocol) ? url.href : ''; } catch (_) { return ''; } }
-  function el(tag, cls, text) { var node = document.createElement(tag); if (cls) node.className = cls; if (text !== undefined) node.textContent = text; return node; }
-  function action(cls, text) { var node = el('button', cls, text); node.type = 'button'; return node; }
-  function current() { var select = $('#flags-revision'); return { topic: root.dataset.topic, lang: select && select.selectedOptions[0] ? select.selectedOptions[0].dataset.lang : root.dataset.lang, revision: Number(select && select.value) }; }
-  function auditUrl(path) { var url = new URL(path, location.origin), source = new URL(location); ['run', 'group', 'stamp', 'occurrence', 'fresh'].forEach(function (key) { if (source.searchParams.has(key)) url.searchParams.set(key, source.searchParams.get(key)); }); return url.pathname + url.search; }
-  function sourceName(source) { return ({ cited: 'Cited source', old: 'Prior revision', new: 'Selected revision', page: 'Elsewhere on this page' })[source] || 'Evidence'; }
-  function reviewKey(flag) { var row = current(); return 'palimpsest-flags-reviewed-' + row.topic + '-' + row.lang + '-' + row.revision + '-' + flag.id; }
-  function reviewed(flag) { try { return localStorage.getItem(reviewKey(flag)) === 'reviewed'; } catch (_) { return false; } }
-  function setReviewed(flag, value) { try { localStorage.setItem(reviewKey(flag), value ? 'reviewed' : 'pending'); } catch (_) {} }
-  function appendEvidence(body, flag) {
-    (flag.evidence || []).filter(function (item) { return String(item.quote || '').trim(); }).forEach(function (item) {
-      var wrap = el('section', 'flag-card__evidence-wrap'), quote = el('blockquote', 'flag-card__evidence', item.quote), meta = el('div', 'flag-card__evidence-meta'), href = safeUrl(item.url);
-      if (href) { var link = el('a', '', sourceName(item.source)); link.href = href; link.target = '_blank'; link.rel = 'noopener noreferrer'; meta.appendChild(link); } else meta.appendChild(el('span', '', sourceName(item.source)));
-      if (item.section) meta.appendChild(el('span', 'flag-card__section', item.section)); wrap.append(quote, meta); body.appendChild(wrap);
-    });
+(()=>{
+ 'use strict';
+ const $=selector=>document.querySelector(selector);
+ const esc=value=>String(value||'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+ const safeUrl=value=>/^https?:\/\//.test(String(value||''))?String(value):'';
+ const labels={contradiction:'Contradiction',framing:'Framing difference',coverage:'Missing context',FACT:'Fact',FRAMING:'Wording',MOTIVE:'Motive',REMOVED_CONTEXT:'Removed context',HIDDEN_TEXT:'Hidden text',CITATION_DATE:'Citation date',CITED_PAGE:'Cited page',CHERRY_PICK:'Selective quote',OUT_OF_SYNC:'Out of sync'};
+ const root=$('#flags-audit'),rail=$('.flags-rail__list'),summary=$('.flags-summary-bar'),tray=$('.flags-unanchored-tray');
+ const fetchFlags=(...args)=>window.PalimpsestNativeIssues?window.PalimpsestNativeIssues.fetchFlags(...args):fetch(...args);
+ let flags=[],active=-1,hovered=-1,filter=new Set(),busy=false,serviceReady=false,anchoredRows=[],layoutFrame=0;
+ const scanControls=['#scan-revisions','#rescan-revisions','#check-page','#rescan-page'];
+ function controls(){for(const selector of scanControls){const button=$(selector);if(button)button.disabled=busy||!serviceReady||Boolean(window.PalimpsestNativeIssues&&!window.PalimpsestNativeIssues.canScan)||!$('#flags-revision')?.options.length;}if($('#flags-revision'))$('#flags-revision').disabled=busy;}
+ async function health(){const status=$('#detector-service-status');if(!status)return;try{const response=await fetchFlags('/api/flags/health'),data=await response.json();serviceReady=response.ok&&data.available&&data.configured;status.textContent=data.message||'The detector is unavailable.';}catch(error){serviceReady=false;status.textContent='Cannot check the detector. Retry the connection.';}controls();}
+ function clearPage(){const cards=$('.page-consistency-cards'),view=$('.page-text-view');cards?.replaceChildren();view?.replaceChildren();if($('#page-status'))$('#page-status').textContent='';if($('#rescan-page'))$('#rescan-page').hidden=true;}
+
+ const visibleFlags=()=>flags.filter(flag=>!filter.size||filter.has(flag.kind));
+ const representative=flag=>flag.comment_group?flags.find(item=>item.comment_group===flag.comment_group):flag;
+ const indexOf=flag=>flags.indexOf(representative(flag));
+ function card(flag,index){
+  const item=document.createElement('li');item.className='flags-rail__item';item.dataset.flagId=flag.id;
+  const article=document.createElement('article');article.className='flag-card flag-card--'+String(flag.kind||'').toLowerCase()+(flag.tier==='admin'?' flag-card--admin':'');article.dataset.flagId=flag.id;article.tabIndex=0;article.setAttribute('role','button');article.setAttribute('aria-expanded','false');
+  article.innerHTML=`<div class="flag-card__meta"><span class="flag-card__pill">${esc(labels[flag.kind]||flag.kind)}</span><span class="flag-card__confidence">${flag.confidence?Math.round(flag.confidence*100)+'% confidence':''}</span></div><div class="flag-card__title">${esc(flag.title||labels[flag.kind]||'Flag')}</div><div class="flag-card__body"><p class="flag-card__reason">${esc(flag.reason)}</p>${(flag.evidence||[]).map(e=>`<blockquote class="flag-card__evidence">${e.source?`<strong>${esc(e.source)}:</strong> `:''}${esc(e.quote)}${safeUrl(e.url)?` <a href="${esc(safeUrl(e.url))}" target="_blank" rel="noopener">source</a>`:''}</blockquote>`).join('')}${flag.neutral_rewrite?`<p class="flag-card__suggestion-label">Suggested wording</p><div class="flag-card__suggestion">${esc(flag.neutral_rewrite)}</div>`:''}</div>`;
+  article.addEventListener('mouseenter',()=>setHover(index,true));article.addEventListener('mouseleave',()=>setHover(index,false));
+  article.addEventListener('click',()=>activate(index,true));article.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();activate(index,true);}});
+  item.append(article);return item;
+ }
+ function syncHighlights(){
+  const activeId=flags[active]?.id,hoveredId=flags[hovered]?.id;
+  const sameGroup=(id,index)=>id===flags[index]?.id||Boolean(flags[index]?.comment_group&&flags.some(f=>f.id===id&&f.comment_group===flags[index].comment_group));
+  document.querySelectorAll('.diff-anchor').forEach(mark=>mark.classList.toggle('is-active',sameGroup(mark.dataset.flagId,active)||sameGroup(mark.dataset.flagId,hovered)));
+  document.querySelectorAll('.flag-card').forEach(card=>card.classList.toggle('is-active',card.dataset.flagId===activeId||card.dataset.flagId===hoveredId));
+ }
+ function setHover(index,on){hovered=on?index:-1;syncHighlights();}
+ function activate(index,scroll){
+  active=active===index?-1:index;
+  document.querySelectorAll('.flag-card').forEach(card=>{const open=card.dataset.flagId===flags[active]?.id;card.classList.toggle('is-open',open);card.setAttribute('aria-expanded',String(open));card.classList.remove('flag-card--near-bottom');});
+  syncHighlights();scheduleLayout();showPopover();
+  if(scroll&&active>=0)document.querySelector(`.diff-anchor[data-flag-id="${CSS.escape(flags[active].id)}"]`)?.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+ }
+ function renderSummary(){
+  if(!flags.length){summary.hidden=true;return;}summary.hidden=false;summary.replaceChildren();
+  const count=document.createElement('span');count.className='flags-summary-count';const logical=flags.filter(flag=>representative(flag)===flag),admins=logical.filter(flag=>flag.tier==='admin').length;
+  count.innerHTML=`<strong>${logical.length} ${root?.dataset.issueView?'comment':'flag'}${logical.length===1?'':'s'}</strong>${admins?` · <em>${admins} for admin review</em>`:''}`;summary.append(count);
+  const details=document.createElement('details');details.className='flags-filter';
+  const trigger=document.createElement('summary');trigger.className='flags-filter__trigger';trigger.textContent='Filter types';details.append(trigger);
+  const menu=document.createElement('div');menu.className='flags-filter__menu';menu.setAttribute('aria-label','Filter flags by type');
+  const kinds=[...new Set(flags.map(flag=>flag.kind))];
+  for(const kind of kinds){const label=document.createElement('label'),box=document.createElement('input');box.type='checkbox';box.checked=!filter.size||filter.has(kind);box.addEventListener('change',()=>{const next=filter.size?new Set(filter):new Set(kinds);if(box.checked)next.add(kind);else next.delete(kind);filter=next.size===kinds.length?new Set():next;renderCards();renderSummary();});label.append(box,document.createTextNode(labels[kind]||kind));menu.append(label);}
+  details.append(menu);summary.append(details);
+  const stepper=document.createElement('div');stepper.className='flags-stepper';
+  for(const [word,delta] of [['Previous',-1],['Next',1]]){const button=document.createElement('button');button.type='button';button.textContent=word;button.addEventListener('click',()=>{const rows=visibleFlags().filter(flag=>representative(flag)===flag);if(!rows.length)return;const position=rows.indexOf(flags[active]);activate(indexOf(rows[(position+delta+rows.length)%rows.length]),true);});stepper.append(button);}summary.append(stepper);
+ }
+ function renderCards(){
+  if(!rail||!root)return;closePopover();rail.replaceChildren();const table=$('#flags-diff table');if(table){table.querySelectorAll('.flag-inline-pin').forEach(pin=>pin.remove());window.PalimpsestFlagsAnchoring.unwrap(table);}
+  const visible=visibleFlags(),resolved=table?window.PalimpsestFlagsAnchoring.resolve(table,visible):{anchored:[],unanchored:visible};
+  anchoredRows=resolved.anchored;
+  const renderedGroups=new Set();
+  resolved.anchored.forEach(({flag,marks})=>{const index=indexOf(flag);marks.forEach(mark=>{mark.addEventListener('mouseenter',()=>setHover(index,true));mark.addEventListener('mouseleave',()=>setHover(index,false));mark.tabIndex=0;mark.setAttribute('role','button');mark.setAttribute('aria-label','Inspect issue: '+flag.title);mark.addEventListener('click',event=>{event.stopPropagation();activate(index,false);});mark.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();activate(index,false);}});});const key=flag.comment_group||flag.id;if(!renderedGroups.has(key)){rail.append(card(representative(flag),index));renderedGroups.add(key);}});
+  tray.replaceChildren();tray.hidden=!resolved.unanchored.length;
+  if(resolved.unanchored.length){const heading=document.createElement('h3');heading.textContent='Unanchored flags';const list=document.createElement('ol');list.className='flags-unanchored-list';resolved.unanchored.forEach(flag=>list.append(card(flag,indexOf(flag))));tray.append(heading,list);}
+  active=-1;hovered=-1;syncHighlights();scheduleLayout();
+ }
+ function railMode(){const workspace=$('.flags-workspace');return innerWidth>=1000&&workspace?.clientWidth>=760;}
+ function closePopover(){document.querySelector('.flag-anchored-popover')?.remove();}
+ function showPopover(){
+  closePopover();if(railMode()||active<0)return;
+  const row=anchoredRows.find(row=>indexOf(row.flag)===active);if(!row)return;
+  const pop=document.createElement('section');pop.className='flag-anchored-popover';pop.setAttribute('role','dialog');pop.setAttribute('aria-label','Issue: '+row.flag.title);
+  const close=document.createElement('button');close.type='button';close.className='flag-popover-close';close.textContent='Close';close.setAttribute('aria-label','Close issue comment');close.onclick=()=>{active=-1;syncHighlights();closePopover();row.mark.focus({preventScroll:true});};
+  const content=card(row.flag,active).firstElementChild;content.classList.add('is-open');content.setAttribute('aria-expanded','true');pop.append(close,content);document.body.append(pop);positionPopover();
+ }
+ function positionPopover(){const pop=document.querySelector('.flag-anchored-popover'),row=anchoredRows.find(row=>indexOf(row.flag)===active);if(!pop||!row)return;const rect=row.mark.getBoundingClientRect();pop.style.left=Math.max(8,Math.min(innerWidth-pop.offsetWidth-8,rect.left))+'px';const below=rect.bottom+8;pop.style.top=Math.max(8,Math.min(below,innerHeight-pop.offsetHeight-8))+'px';}
+ function scheduleLayout(){if(!layoutFrame)layoutFrame=requestAnimationFrame(()=>{layoutFrame=0;layoutComments();});}
+ function layoutComments(){
+  const workspace=$('.flags-workspace'),table=$('#flags-diff table'),aside=$('.flags-rail');if(!workspace||!table||!aside)return;
+  const mode=railMode()?'rail':'compact',changed=workspace.dataset.layout!==mode;workspace.dataset.layout=mode;
+  table.querySelectorAll('.flag-inline-pin').forEach(pin=>pin.remove());
+  if(mode==='compact'){
+   rail.style.minHeight='';aside.style.minHeight='';anchoredRows.forEach((row,index)=>{const pin=document.createElement('button');pin.type='button';pin.className='flag-inline-pin';pin.textContent=String(indexOf(row.flag)+1);pin.setAttribute('aria-label','Issue '+(indexOf(row.flag)+1)+': '+row.flag.title);pin.onclick=()=>activate(indexOf(row.flag),false);row.mark.after(pin);});if(changed&&active>=0)showPopover();positionPopover();return;
   }
-  function cardFor(item, expanded, select) {
-    var flag = item.flag, isReviewed = reviewed(flag), kind = String(flag.kind || 'OUT_OF_SYNC').toLowerCase();
-    var card = el('article', 'flag-card flag-card--' + kind + ' flag-card--' + (flag.tier || 'review') + (isReviewed ? ' flag-card--reviewed' : ''));
-    card.tabIndex = 0; card.setAttribute('role', 'button'); card.setAttribute('aria-label', (labels[flag.kind] || flag.kind) + ': ' + (flag.title || 'Flag'));
-    var head = el('div', 'flag-card__meta'), pill = el('span', 'flag-card__pill flag-card__pill--' + (flag.tier || 'review'));
-    pill.append(el('span', 'flag-card__icon', icons[flag.kind] || '•'), document.createTextNode(' ' + (labels[flag.kind] || flag.kind || 'Out of sync')));
-    head.append(pill, el('strong', 'flag-card__tier', flag.tier === 'admin' ? 'Admin' : 'Review'));
-    if (flag.side === 'old') head.appendChild(el('span', 'flag-card__old', '← OLD'));
-    var review = action('flag-card__review', isReviewed ? 'Reviewed' : 'Mark reviewed'); review.setAttribute('aria-pressed', String(isReviewed));
-    review.addEventListener('click', function (event) { event.stopPropagation(); setReviewed(flag, !isReviewed); rail.render(); }); head.appendChild(review);
-    card.appendChild(head);
-    if (expanded && !isReviewed) {
-      var body = el('div', 'flag-card__body');
-      var anchored = flag.anchor_text || flag.context_sentence || flag.related_anchor_text;
-      if (anchored) card.appendChild(el('blockquote', 'flag-card__quote', anchored));
-      card.appendChild(el('div', 'flag-card__title', flag.title || labels[flag.kind] || 'Flag'));
-      if (flag.reason) body.appendChild(el('p', 'flag-card__reason', flag.reason));
-      appendEvidence(body, flag);
-      if (flag.neutral_rewrite) { body.append(el('p', 'flag-card__suggestion-label', 'Suggested neutral wording'), el('div', 'flag-card__suggestion', flag.neutral_rewrite)); }
-      body.appendChild(el('small', '', 'Found by: ' + (flag.check || (item.page ? 'consistency check against the rest of the page' : 'audit')))); card.appendChild(body);
-    } else {
-      card.appendChild(el('div', 'flag-card__title', flag.title || labels[flag.kind] || 'Flag'));
-      if (!isReviewed) card.appendChild(el('div', 'flag-card__preview', flag.reason || ''));
-    }
-    card.addEventListener('click', select); card.addEventListener('keydown', function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); select(); } }); return card;
-  }
-  function allItems() { return auditFlags.concat(pageFlags); }
-  function anchorPageFlag(flag, index) {
-    var view = $('.page-text-view'), quote = String(flag.context_sentence || flag.anchor_text || flag.related_anchor_text || '').trim(); if (!view || !quote) return null;
-    var walker = document.createTreeWalker(view, NodeFilter.SHOW_TEXT), node;
-    while ((node = walker.nextNode())) { var at = node.nodeValue.indexOf(quote); if (at < 0) continue; var after = node.splitText(at + quote.length), selected = node.splitText(at), mark = document.createElement('mark'); mark.className = 'page-anchor palimpsest-anchor'; mark.dataset.palimpsestId = 'page-' + index; selected.parentNode.replaceChild(mark, selected); mark.appendChild(selected); void after; return mark; }
-    return null;
-  }
-  function rebuild() {
-    table = $('#flags-diff table');
-    if (table) {
-      window.PalimpsestFlagsAnchoring.unwrap(table);
-      var resolved = window.PalimpsestFlagsAnchoring.resolve(table, auditFlags.map(function (item) { return item.flag || item; }));
-      auditFlags = resolved.anchored.map(function (row) { return { id: 'audit-' + row.flag.id, kind: row.flag.kind, tier: row.flag.tier, flag: row.flag, anchor: row.mark, anchors: row.marks }; });
-      var tray = $('.flags-unanchored-tray'); tray.replaceChildren(); tray.hidden = !resolved.unanchored.length;
-      if (resolved.unanchored.length) { var details = document.createElement('details'), summary = document.createElement('summary'); details.open = true; summary.textContent = 'Unanchored flags (' + resolved.unanchored.length + ')'; details.appendChild(summary); resolved.unanchored.forEach(function (flag) { details.appendChild(cardFor({ flag: flag }, true, function () {})); }); tray.appendChild(details); }
-    }
-    rail.update(allItems());
-  }
-  function summaryCount(items) { var admins = items.filter(function (item) { return item.flag.tier === 'admin'; }).length, reviews = items.length - admins, page = items.filter(function (item) { return item.page; }).length, parts = []; if (admins) parts.push(admins + ' Admin'); if (reviews) parts.push(reviews + ' Review'); return parts.join(' · ') + (page ? ' · ' + page + ' page consistency' : ''); }
-  rail = window.PalimpsestRail.create({ root: root, summary: $('.flags-summary-bar'), workspace: $('.flags-workspace'), surface: $('.flags-diff-pane'), rail: $('.flags-rail'), list: $('.flags-rail__list'), kindLabel: function (kind) { return labels[kind] || kind; }, countText: summaryCount, filterAriaLabel: 'Filter flags by type', cardFor: cardFor });
-  function stored(data) { return data.stored && data.stored_at ? 'Stored result from ' + data.stored_at : ''; }
-  function receive(data) {
-    var pane = $('.flags-diff-pane'), diff = $('#flags-diff');
-    if (data.status !== 'ok') { if (diff) diff.remove(); pane.innerHTML = '<p class="flags-unavailable">' + esc(data.error || 'Audit unavailable') + '</p>'; auditFlags = []; rebuild(); return; }
-    if (!diff) { diff = document.createElement('div'); diff.id = 'flags-diff'; pane.replaceChildren(diff); }
-    if (data.diff_html) diff.innerHTML = data.diff_html; pane.querySelector('.flags-page-created-note') && pane.querySelector('.flags-page-created-note').remove();
-    if (data.page_created) { var note = document.createElement('p'); note.className = 'flags-page-created-note'; note.textContent = 'Page created — the whole first version is treated as added text.' + (data.truncated ? ' Only the first part of this first version was checked.' : ''); pane.insertBefore(note, diff); }
-    auditFlags = (Array.isArray(data.flags) ? data.flags : []).slice(); rebuild(); var status = $('#scan-status'); if (status) status.textContent = stored(data);
-  }
-  function renderSeverity() { var option = $('#flags-revision') && $('#flags-revision').selectedOptions[0], chips = $('.flags-severity-chips'); if (!option || !chips) return; chips.textContent = (option.dataset.admin || 0) + ' admin · ' + (option.dataset.review || 0) + ' review'; }
-  async function audit(scan) { var status = $('#scan-status'); if (status) status.textContent = 'Checking revision…'; try { var response = await fetch(auditUrl('/api/flags/audit'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign(current(), { scan: scan })) }), data = await response.json(); if (!response.ok || data.status === 'error') throw Error(data.error || 'Audit unavailable'); receive(data); if (status) status.textContent = stored(data) || (data.status === 'ok' ? 'Audit loaded' : 'Not scanned'); } catch (error) { if (status) status.textContent = error.message; } }
-  async function scanAll() { var select = $('#flags-revision'), original = select.value; for (var index = 0; index < select.options.length; index++) { select.selectedIndex = index; await audit(true); } select.value = original; await audit(false); }
-  function receivePage(data) { var view = $('.page-text-view'), status = $('#page-status'), pane = $('.flags-diff-pane'); if (!view || !pane) return; view.innerHTML = data.page_html || ''; pane.appendChild(view); pageFlags = (Array.isArray(data.flags) ? data.flags : []).map(function (flag, index) { return { id: 'page-' + index, kind: flag.kind || 'OUT_OF_SYNC', tier: flag.tier, flag: flag, page: true, anchor: anchorPageFlag(flag, index) }; }).filter(function (item) { return item.anchor; }); rebuild(); if (status) status.textContent = stored(data) || (data.flags && data.flags.length ? data.flags.length + ' page consistency flags.' : 'No page consistency flags returned.'); }
-  async function checkPage() { var status = $('#page-status'); if (status) status.textContent = 'Checking page consistency…'; try { var response = await fetch(auditUrl('/api/flags/page'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign(current(), { scan: true })) }), data = await response.json(); if (!response.ok || data.status === 'error') throw Error(data.error || 'Page consistency unavailable'); receivePage(data); } catch (error) { if (status) status.textContent = error.message; } }
-  $('#flags-revision') && $('#flags-revision').addEventListener('change', function () { renderSeverity(); audit(false); }); $('#scan-revisions') && $('#scan-revisions').addEventListener('click', scanAll); $('#check-page') && $('#check-page').addEventListener('click', checkPage); renderSeverity(); try { var initial = JSON.parse($('#flags-data') ? $('#flags-data').textContent : 'null'); if (initial) receive(initial); } catch (_) {} if (new URLSearchParams(location.search).get('scan') === '1') scanAll();
-}());
+  closePopover();const origin=rail.getBoundingClientRect().top,items=[...rail.children].map(node=>{const row=anchoredRows.find(row=>representative(row.flag).id===node.dataset.flagId);return row?{id:row.flag.id,tier:row.flag.tier,idealY:Math.max(0,row.mark.getBoundingClientRect().top-origin),left:row.mark.getBoundingClientRect().left,height:node.getBoundingClientRect().height,node}:null;}).filter(Boolean);
+  const result=window.PalimpsestFlagsStacking.computePositions(items,flags[active]?.id);for(const item of result.items)item.node.style.transform=`translateY(${item.y}px)`;const height=Math.max(table.offsetHeight,result.height);rail.style.minHeight=height+'px';aside.style.minHeight=height+'px';
+ }
+ window.addEventListener('resize',scheduleLayout);window.addEventListener('scroll',positionPopover,{passive:true});document.addEventListener('keydown',event=>{if(event.key==='Escape'&&document.querySelector('.flag-anchored-popover')){event.preventDefault();const row=anchoredRows.find(row=>indexOf(row.flag)===active);active=-1;closePopover();syncHighlights();row?.mark.focus({preventScroll:true});}});
+ if(window.ResizeObserver&&$('.flags-diff-pane'))new ResizeObserver(scheduleLayout).observe($('.flags-diff-pane'));
+ document.fonts?.ready.then(scheduleLayout);
+ function receive(data){
+  flags=Array.isArray(data.flags)?data.flags:[];let diff=$('#flags-diff'),pane=$('.flags-diff-pane');
+  if(data.diff_html&&!diff){diff=document.createElement('div');diff.id='flags-diff';pane.querySelector('.flags-unavailable')?.remove();pane.prepend(diff);}
+  if(diff&&data.diff_html)diff.innerHTML=data.diff_html;
+  if(!data.diff_html){diff?.remove();let message=pane?.querySelector('.flags-unavailable');if(!message&&pane){message=document.createElement('p');message.className='flags-unavailable';pane.prepend(message);}if(message)message.textContent=data.error||'Not scanned yet. Select Scan to check this revision.';}
+  if(data.status==='ok'){const option=$('#flags-revision')?.selectedOptions[0];if(option){option.dataset.admin=flags.filter(f=>f.tier==='admin').length;option.dataset.review=flags.filter(f=>f.tier==='review').length;option.textContent=option.textContent.replace(/ · \d+ admin · \d+ review$/,'')+` · ${option.dataset.admin} admin · ${option.dataset.review} review`;renderSeverity();}}
+  renderSummary();renderCards();
+ }
+ function current(){const select=$('#flags-revision');return {topic:root.dataset.topic,lang:select.selectedOptions[0]?.dataset.lang||root.dataset.lang,revision:Number(select.value)};}
+ function auditUrl(path){const url=new URL(path,location.origin),source=new URL(location);for(const key of ['run','group','stamp','occurrence','skyline'])if(source.searchParams.has(key))url.searchParams.set(key,source.searchParams.get(key));for(const language of source.searchParams.getAll('languages'))url.searchParams.append('languages',language);return url.pathname+url.search;}
+ function renderSeverity(){const option=$('#flags-revision')?.selectedOptions[0],chips=$('.flags-severity-chips');if(!option||!chips)return;const admin=Number(option.dataset.admin||0),review=Number(option.dataset.review||0);chips.replaceChildren();if(admin){const chip=document.createElement('span');chip.className='flags-severity-chip flags-severity-chip--admin';chip.textContent=admin+' admin';chips.append(chip);}if(review){const chip=document.createElement('span');chip.className='flags-severity-chip';chip.textContent=review+' review';chips.append(chip);}}
+ async function audit(scan,fresh=false){const status=$('#scan-status');status.textContent='Checking revision…';try{const response=await fetchFlags(auditUrl('/api/flags/audit'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...current(),scan,fresh})}),data=await response.json();if(!response.ok||data.status==='error'){const message=data.error||'The revision scan could not be completed.';receive({status:'error',flags:[],error:message});throw Error(message);}receive(data);status.textContent=data.status==='ok'?(data.flags.length?`${data.flags.length} detector suggestions loaded.`:'Scan complete. No detector suggestions returned.'):data.error||'Not scanned';return {ok:data.status==='ok',message:status.textContent};}catch(error){status.textContent=error instanceof TypeError?'Cannot reach the preview. Check the connection and try again.':error.message;return {ok:false,message:status.textContent};}}
+ async function scanAll(fresh=false){if(busy||!serviceReady)return;if(window.PalimpsestNativeIssues){busy=true;controls();try{await audit(true,fresh);}finally{busy=false;controls();}return;}const select=$('#flags-revision'),status=$('#scan-status'),original=select.value;let completed=0,failure='';busy=true;controls();clearPage();try{for(let index=0;index<select.options.length;index++){select.selectedIndex=index;const result=await audit(true,fresh);if(!result.ok){failure=result.message;break;}completed++;}select.value=original;await audit(false);status.textContent=failure?`Scan stopped after ${completed} of ${select.options.length} revisions. ${failure}`:`Scanned ${completed} revisions. Showing the selected revision.`;}finally{select.value=original;busy=false;controls();}}
+ function pageCard(flag){const card=document.createElement('article');card.className='flag-card is-open flag-card--'+String(flag.kind||'out_of_sync').toLowerCase()+(flag.tier==='admin'?' flag-card--admin':'');card.tabIndex=0;card.setAttribute('role','button');card.setAttribute('aria-label','Find passage: '+(flag.title||'Page consistency'));const quote=flag.context_sentence||flag.anchor_text||'',evidence=Array.isArray(flag.evidence)?flag.evidence:[];card.innerHTML=`<div class="flag-card__meta"><span class="flag-card__pill">${esc(labels[flag.kind]||flag.kind||'Out of sync')}</span></div><div class="flag-card__title">${esc(flag.title||'Page consistency')}</div><div class="flag-card__body page-flag-card__body"><p class="flag-card__reason">${esc(flag.reason||'')}</p><blockquote class="flag-card__evidence"><strong>Page:</strong> ${esc(quote)}</blockquote>${evidence.map(item=>`<blockquote class="flag-card__evidence"><strong>${esc(item.source||'Evidence')}:</strong> ${esc(item.quote||'')}${item.section?` <small>(${esc(item.section)})</small>`:''}</blockquote>`).join('')}<p class="page-anchor-status" role="status"></p></div>`;const jump=()=>{const found=highlightPageSentence(quote||flag.related_anchor_text||flag.anchor_text||'');card.querySelector('.page-anchor-status').textContent=found?'Passage highlighted in the article below.':'This quote could not be anchored in the rendered article. Review the quoted evidence directly.';};card.addEventListener('click',jump);card.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();jump();}});return card;}
+ function highlightPageSentence(quote){const view=$('.page-text-view');if(!view||!quote)return false;view.querySelectorAll('mark.page-anchor').forEach(mark=>mark.replaceWith(...mark.childNodes));const walker=document.createTreeWalker(view,NodeFilter.SHOW_TEXT);let node;while(node=walker.nextNode()){const index=node.nodeValue.indexOf(quote);if(index<0)continue;const after=node.splitText(index+quote.length),selected=node.splitText(index),mark=document.createElement('mark');mark.className='page-anchor';selected.parentNode.replaceChild(mark,selected);mark.append(selected);mark.scrollIntoView({block:'center',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});void after;return true;}return false;}
+ function receivePage(data){const results=$('#page-consistency-results'),cards=$('.page-consistency-cards'),view=$('.page-text-view'),status=$('#page-status');if(!results||!cards||!view)return;cards.replaceChildren();view.innerHTML=data.page_html||'';window.PalimpsestNativeIssues?.pageRendered?.(view,data);(Array.isArray(data.flags)?data.flags:[]).forEach(flag=>cards.append(pageCard(flag)));status.textContent=data.flags?.length?`${data.flags.length} page consistency flag${data.flags.length===1?'':'s'}.`:'No page consistency flags returned.';$('#rescan-page').hidden=false;}
+ async function readPageCache(){if(busy)return;const status=$('#page-status');busy=true;controls();clearPage();status.textContent='Reading saved page check…';try{const response=await fetchFlags(auditUrl('/api/flags/page'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...current(),scan:false})}),data=await response.json();if(!response.ok||data.status!=='ok')throw Error(data.error||'No saved page check is available for this exact revision.');receivePage(data);}catch(error){status.textContent=error.message;}finally{busy=false;controls();}}
+ async function checkPage(fresh=false){if(busy||!serviceReady)return;const status=$('#page-status');busy=true;controls();clearPage();status.textContent='Checking page consistency…';try{const response=await fetchFlags(auditUrl('/api/flags/page'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...current(),scan:true,fresh})}),data=await response.json();if(!response.ok||!['ok','partial'].includes(data.status))throw Error(data.error||'Page consistency could not be completed.');receivePage(data);if(data.status==='partial')status.textContent=data.error||'Page consistency is partial; no unverified findings are shown.';}catch(error){status.textContent=error instanceof TypeError?'Cannot reach the preview. Check the connection and try again.':error.message;}finally{busy=false;controls();}}
+ $('#flags-revision')?.addEventListener('change',()=>{const revision=$('#flags-revision').value,url=new URL(location);url.searchParams.set('revision',revision);url.searchParams.delete('scan');history.replaceState(null,'',url);document.querySelectorAll('.article-workspace-tabs a').forEach(link=>{const destination=new URL(link.href);destination.searchParams.set('revision',revision);link.href=destination.pathname+destination.search;});const original=$('#original-revision-diff');if(original){const destination=new URL(original.href);destination.searchParams.set('diff',revision);original.href=destination.href;}clearPage();receive({status:'unavailable',flags:[],error:'Loading the selected revision…'});renderSeverity();audit(false);});$('#scan-revisions')?.addEventListener('click',()=>scanAll(false));$('#rescan-revisions')?.addEventListener('click',()=>scanAll(true));$('#read-page-cache')?.addEventListener('click',readPageCache);$('#check-page')?.addEventListener('click',()=>checkPage(false));$('#rescan-page')?.addEventListener('click',()=>checkPage(true));renderSeverity();$('#retry-detector')?.addEventListener('click',health);controls();health();
+ try{const data=JSON.parse($('#flags-data')?.textContent||'null');if(data)receive(data);}catch(error){}
+})();

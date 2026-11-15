@@ -1,16 +1,60 @@
 # NeoWiki agent context
 
+## Native Issues integration work
+
+`infra/wiki/extensions/PalimpsestIssues` now implements an opt-in native article
+action/API backed by the signed standalone `native_issues_server.py` service.
+Normal article rendering stays in pinned upstream MediaWiki. Existing verified
+provenance bundles reconcile source/local IDs and hashes; missing imports never
+fall back to current snapshots. Native permissions/CSRF gate scans/reviews.
+`unified_native_review` retains wiki/edition/observation-scoped native account
+markers with SVT, separately from preview markers. Explicit `issues.py init`
+adds its table; reads never create schema or backfill.
+
+The read-only histogram matrix includes all detector classifications with source
+edit time separate from assessment time and independent coverage metadata. Set
+`PALIMPSEST_NATIVE_WIKIS` only to the actual owned native installations to enable
+native bucket/finding handoffs. Shared anchoring/comments assets must pass
+`python scripts/sync_issues_assets.py --check`. See [native setup and acceptance](docs/native-issues.md).
+The owned `palimpsest-issues-native` runtime now runs FI/SV/EN on 18091/18092/18093.
+Real native checks verified exact source/local article links, saved scans,
+authenticated review/undo, histogram finding/period presets and desktop/mobile
+comments. The runtime now uses pinned official Wikibase Repo/Client, CLDR,
+Labeled Section Transclusion and GeoData packages, with 143 captured Wikidata
+entities reconciled in each edition. The three Winter War revisions parse without
+Lua errors, match source section/reference/image counts, and load all images in
+the browser. FI/SV normalized text matches; EN differs only in romanization-label
+spacing. FI/SV Mänttä normalized article/citation text now matches exactly,
+including real coordinates and Finnish municipality code 506. Actual 390-pixel
+mobile checks cover all three editions. Dependency acquisition remains partial;
+these selected checks do not establish every historical article's fidelity. Preserve the real
+source data; do not suppress errors or fabricate dependencies. See the acceptance record.
+The implementation is not yet accepted as native parity. Preserve both previews
+until the user explicitly verifies complete content and interactions in MediaWiki.
+
+## Unified Issues contract (current)
+
+The article preview now exposes Article / Issues. Language discrepancies and detector flags share a latest-assessed-set list and full-page evidence viewer. The default selects the newest indexed language run at its latest published checkpoint, plus the newest successful detector assessment per edition/check type; it must never union all old runs or resurrect every historical issue. History exposes older sets without claiming resolution. Show language/flag counts separately.
+
+This is an interim Flask implementation. The intended destination is native MediaWiki article pages and a native Issues tab/extension, using MediaWiki permissions, accounts, revision lookup and navigation. Do not treat the preview as the final architecture or bypass source-to-local revision reconciliation when porting it. Upstream MediaWiki core remains in its pinned image. Do not silently merge the separate incomplete NeoWikiReview branch.
+
+The next approved delivery is native MediaWiki Issues with complete, correctly rendered wiki article content and parity with every existing Flags interaction. Keep the previews available until the user explicitly verifies native parity. Extend the history histogram to include every detector classification alongside language discrepancies, with distinguishable colors and filters. Histogram navigation must preset the native article Issues selection and retain exact historical identity and return state; browsing must never initiate inference.
+
+`tools/language-gap-explorer/issues.py` owns the derived index and explicit backfill. MariaDB system-versioned tables retain issue metadata, coverage and edition-scoped review-marker changes; successful assessments and evidence observations are immutable. Source edit time, observation checkpoint, assessment time and database system time are different. Browsing must not create schema, backfill evidence, start inference or retry failed paid calls. Preserve original sources, language-run/group identity and exact occurrence links.
+
+The current review action is a shared local-preview marker per observation and article edition, not a confirmed error, dismissal, resolution or authenticated native reviewer decision. Old browser-local markers are not silently promoted to database decisions. Native migration must add wiki-scoped reviewer identity and permissions. See the exploration registry for setup, verification and remaining native work.
+
 ## Current hackathon surface
 
-The latest user-approved research journey is prompt-first at bare `/explore`, then a viewport-filling monthly histogram across the available history with a floating toolbar. Zoom changes the date window and adapts to yearly buckets only for longer ranges; month is the finest unit. Clicking a bucket opens a searchable issue table for that period; clicking an issue opens exact evidence. Bucket selection is not zoom. The evidence pane starts closed; selected-question deep links restore it. Earlier constellation and crowded split-inspection layouts below are recorded exploration history, not instructions to restore their default layout.
+The latest user-approved research journey is prompt-first at bare `/explore`, then a viewport-filling monthly histogram across the available history with a floating toolbar. Zoom changes the date window and adapts to yearly buckets only for longer ranges; month is the finest unit. With native Issues configured, clicking a bucket opens the article's period-filtered Issues list directly. Do not render the visualization's own list or rewrite its history entry first: browser Back and the article's return link must restore the histogram with its existing zoom and filters. Older bucket-list URLs without an exact selected finding also restore the histogram. Exact finding deep links remain compatible. Bucket selection is not zoom. Earlier constellation and crowded split-inspection layouts below are recorded exploration history, not instructions to restore their default layout.
 
 The user subsequently restored the original Wikipedia styling: white/gray surfaces, blue links/actions, serif headings and familiar sans-serif controls aligned with the article tracker. Preserve the cleaner graph interaction; do not restore the superseded parchment/brown editorial skin.
 
-Month is the finest timeline scale in the main research viewer. Exact checkpoint dates still identify evidence; do not render week/day/minute grids. Preserve alternate experiments and stored historical data.
+Month is the finest timeline scale in the main research viewer. Exact checkpoint dates still identify evidence; do not render week/day/minute grids. Preserve stored historical data. The retired browser presentations and separate 3D Library app were removed in the cleanup described in docs/explorations/README.md; Git retains their source history.
 
-The user removed the constellation view from this research app. `/explore` always serves the main UI, with no alternate-view link. Older constellation source/read-endpoint names below are historical compatibility, not an exposed viewer. The independently runnable tool in `tools/divergence-explorer` remains a separate PR boundary.
+The user removed the constellation view from this research app. `/explore` always serves the main UI, with no alternate-view link. Older constellation read-endpoint names below are historical compatibility, not an exposed viewer. Its unused template and browser assets have been removed. The independently runnable tool in `tools/divergence-explorer` remains a separate PR boundary.
 
-The user explicitly removed Draft edit from the visualization. Its purpose is surfacing and explaining discrepancies to readers and editors, with source Wikipedia links and the existing tracker. Preserve exact occurrence identity through tracker and browser-back links. Optional review markers remain browser-local. Read [the delivery goal](docs/hackathon-goal.txt) and [judge walkthrough](docs/hackathon-walkthrough.md).
+The user explicitly removed Draft edit from the visualization. Its purpose is surfacing and explaining discrepancies to readers and editors, with source Wikipedia links and the existing tracker. Preserve exact occurrence identity through tracker and browser-back links. The unified Issues review marker is persisted per observation and edition; older explorer-only markers remain browser-local. Read [the delivery goal](docs/hackathon-goal.txt) and [judge walkthrough](docs/hackathon-walkthrough.md).
 
 The later visualization paths are deliberately PROVISIONAL: the wide popup comparison/diff viewer and link into the article discrepancy tracker work with real stored evidence, but their UX, routing and resolution workflow are not finalized and will change. Do not describe their data as mock fixtures or treat this handoff as the final native MediaWiki integration. Historical observations are not automatically current open issues; a current/resolved status requires a fresh verified check.
 
@@ -22,6 +66,8 @@ Read [the exploration registry](docs/explorations/README.md) before extending a 
 - PR #4 (`feature/divergence-visualization`) adds the independent optional tool under `tools/divergence-explorer`. It does not install a native extension or include the historical inference worker.
 - The follow-up `feature/interlanguage-comparisons` branch directly copies the existing working app into `tools/language-gap-explorer`, with source hashes and no implementation rewrite. It is based on PR #4. Keep the PR stacked against `feature/divergence-visualization` while #4 remains open; retarget after it merges.
 - The separate `feature/neowiki-review-tools` implementation is an unpublished native extension/worker experiment. Do not silently include its unverified import/recovery work in the standalone tool PRs, modify upstream MediaWiki core, or conflate source revision timestamps with system-versioning processing timestamps.
+
+> Historical implementation notes below describe earlier iterations. The delivery contract above takes precedence; retired browser assets are available through Git history.
 
 ## Product and evidence rules
 
@@ -45,4 +91,4 @@ The follow-up on the same skyline branch combines a compact count skyline with a
 
 Current presentation supersedes the crowded heatmap: semantic zoom in `/explore` uses one constellation canvas, monthly blobs and yearly blobs. Periods now count the UNION of distinct observed question IDs, not the previous latest-snapshot rule. One question is counted once across dates/passages/pairs; use the strongest actual selected-pair category in that period. Unassessed/outside periods remain explicit. Question dots link directly to the existing historical article tracker. See `tools/language-gap-explorer/docs/semantic-zoom.md` for the active UI, naming/search pipeline and general-article preparation commands. Structured text generation is now explicitly authorized only for cached evidence-grounded question naming, off the browse path; preserve the narrowly gated provider policy and all request reservations.
 
-Current delivery expands to the judge-ready Finnish-history evidence workflow in docs/hackathon-goal.txt. The constellation is retained at /explore?layout=constellation. Do not revert to the crowded multi-chart interface or add editing tools to the visualization; the latest focus is discrepancy awareness.
+Current delivery expands to the judge-ready Finnish-history evidence workflow in docs/hackathon-goal.txt. The constellation presentation is retired; /explore?layout=constellation serves the main histogram viewer. Do not revert to the crowded multi-chart interface or add editing tools to the visualization; the latest focus is discrepancy awareness.

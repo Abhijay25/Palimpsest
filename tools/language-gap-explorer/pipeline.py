@@ -4,8 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from core import connect,MODEL,vector_bytes
 from live_api import init as init_api,structured,decisions,object_schema,APIError,BudgetError
 
-VERSION='paragraph-v2-k3-decisions-only-v1'
-PASSAGE_VERSION='paragraph-v2-k3-claims-v1-luna'
+VERSION='paragraph-v2-k3-decisions-only-v2-reference-sections'
+PASSAGE_VERSION='paragraph-v2-k3-claims-v2-reference-sections'
 STRING={'type':'string'}
 def digest(value): return hashlib.sha256(json.dumps(value,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
 def init():
@@ -40,6 +40,7 @@ def enqueue(topic):
     return identity
 
 def split_article(article,tokenizer):
+    from candidate_eligibility import normalized_heading,REFERENCE_HEADINGS
     from tokenizers import Tokenizer
     tokenizer=Tokenizer.from_str(tokenizer.to_str()); tokenizer.no_truncation(); tokenizer.no_padding()
     text=article['text']; heading='Introduction'; ordinal=0
@@ -55,6 +56,7 @@ def split_article(article,tokenizer):
             else: remaining.append(line)
         body=''.join(remaining).rstrip()
         if not body or heading.casefold() in ('references','external links','lähteet','viitteet','källor','externa länkar'): continue
+        if normalized_heading(heading) in REFERENCE_HEADINGS.get(article['lang'].casefold(),()):continue
         # Tables are kept in source text but excluded from prose matching.
         if sum('|' in line for line in body.splitlines())>1: continue
         encoded=tokenizer.encode(body,add_special_tokens=False); offsets=encoded.offsets

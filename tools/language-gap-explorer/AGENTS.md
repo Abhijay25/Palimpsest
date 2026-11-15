@@ -1,8 +1,50 @@
 # Existing research implementation
 
+## Native bridge and detector histogram
+
+`native_issues.py` and `native_issues_server.py` expose the derived index to the
+opt-in PalimpsestIssues MediaWiki extension without running a Flask application.
+Only signed server-to-server requests are accepted. Native reviews use
+`unified_native_review` with SVT and wiki/edition/observation/account identity;
+the preview table is unchanged. Reads never start a scan or preparation. Cached
+and archived successful results remain readable independently of working caches.
+
+The existing matrix route adds detector metadata from immutable assessments and
+observations. Preserve original uppercase detector kinds, original language
+groups and exact observations/occurrences. `static/issues-histogram.js` documents
+source-edit time for flags; assessment time never becomes the histogram date.
+Do not infer continuous detector coverage. Native URLs must be explicitly
+configured, and Back presets must retain selected detector observation as well
+as language occurrence identity. See `../../docs/native-issues.md`.
+
+Native histogram bar clicks go directly to the article's Issues list. Preserve
+the origin histogram state/history entry; never switch it to the explorer's
+internal list before leaving. Both browser Back and the article's return link
+restore the histogram's zoom/filters. Legacy bucket-list URLs without an exact
+selected finding normalize to the histogram when native Issues is configured.
+`node test_bucket_navigation.js` checks this routing and legacy restoration.
+
+## Unified Issues implementation (current)
+
+`issues.py` is the Flask-independent derived data layer; `issues_routes.py` serves the Article / Issues list, evidence pages, JSON reads and CSRF-protected review updates. The preview is temporary: this functionality must eventually live on native MediaWiki article pages, using native revisions, permissions and wiki-scoped accounts. Preserve public source IDs separately from local wiki IDs during that move. Do not modify or fork upstream core.
+
+Keep the previews until the user verifies parity in MediaWiki, including the complete article content and every Flags interaction. The next histogram iteration must include all detector classifications and link to native Issues with the selected languages, period, type and exact evidence preset, while preserving Back navigation. Do not start inference from navigation.
+
+Use explicit `python issues.py init` and `python issues.py backfill [--topic Q…]` in this directory with the existing research environment. The source records and working flag caches remain authoritative; no automatic backfill or inference occurs on GET. Metadata, coverage and review markers use MariaDB SVT (`WITH SYSTEM VERSIONING`). Assessments/observations are immutable. Language evidence references its immutable paired-occurrence record with an integrity hash; missing/changed evidence fails explicitly.
+
+Default to the newest complete/partial published language checkpoint in the newest indexed run, not the last sighting of every past issue. Detector sets select the newest assessed source revision per edition and check type. A newer successful empty set stays empty; failed/unassessed work does not count as empty. History and explicit run/observation/occurrence URLs preserve older evidence. Snapshot-only comparisons remain separately labeled and filterable. Keep provisional groups scoped to their original run; never group by title or silently merge detector and language issues.
+
+Successful scans are written to a private pending-evidence file and transactionally indexed before replacing a working cache. Failed storage preserves the pending result for saving without another provider call. Cached scans must retain their original assessment identity/time. Exact historical occurrence, selected languages and explorer/list return state survive every handoff. Review markers are shared within this local preview, per observation/edition; they do not resolve issues.
+
+Verification: the pure research regression command includes `test_issues`; opt-in `PALIMPSEST_TEST_ISSUES_DB=1 python -m unittest test_issues -v` creates uniquely named temporary tables and proves SVT history, rescan immutability, idempotence and successful empty-set behavior. It drops only its own test tables. Backfill rereads must not invoke providers or modify source histories. The standalone divergence viewer and native wiki remain separate.
+
+## Previous unified article preview
+
+Article, Language differences and Flags share `templates/article_shell.html`. Preserve exact historical context and repeated language query values across views. Legacy reader/comparison routes remain compatible. `/article/<topic>` defaults to Article. Detector scans require an explicit button; `scan=1` links do not auto-scan. Historical reader mode shows source excerpts/links, never an unrelated snapshot. This is still a Flask preview; do not describe it as native MediaWiki.
+
 ## Latest delivery contract
 
-Main `/explore` uses `lab_explorer.html` and `static/lab-explorer.js/.css`: bare URL opens the centered article/language prompt; explicit topic opens a monthly histogram across the complete source range. Floating zoom controls change the date window, with yearly buckets only when a longer range requires them; month is the finest time unit. Clicking a bucket opens a searchable issue table, not a zoom transition. Counts are period UNIONs with exact selected-pair categories. Clicking an issue opens a wide side-by-side evidence dialog. The constellation view and its link are removed; legacy read APIs/source remain compatibility only. The historical notes below describe earlier iterations.
+Main `/explore` uses `lab_explorer.html` and `static/lab-explorer.js/.css`: bare URL opens the centered article/language prompt; explicit topic opens a monthly histogram across the complete source range. Floating zoom controls change the date window, with yearly buckets only when a longer range requires them; month is the finest time unit. Clicking a bucket opens a searchable issue table, not a zoom transition. Counts are period UNIONs with exact selected-pair categories. Clicking an issue opens its full-page Issues evidence; older popup deep links remain compatible. The constellation view, its unused template/browser assets and its link are removed; legacy read APIs remain compatibility only. The historical notes below describe earlier iterations.
 
 `/explore/api/showcase` reads the curated Finnish-history collection and actual preparation status. Partial runs stay visibly partial and usable; an unassessed comparison is not agreement or zero. `article_pipeline.py` can publish successful cached assessments while retaining failed/unresolved cases as unknown, with no failed reservation reset or automatic resend. Unknown grouping checks defer potential duplicate assignments.
 
@@ -38,6 +80,8 @@ node test_skyline_model.js
 
 These tests do not download models or invoke the provider. Other source tests/browser scripts have database, model or runtime requirements; distinguish their fixtures, stored observations and actual live runs. See `PORT.md` for the migration boundaries.
 
+> Historical implementation notes below describe earlier iterations. The delivery contract above takes precedence; retired browser assets are available through Git history.
+
 ## Searchable heatmap iteration
 
 `static/heatmap.js` now drives `/explore`; the old skyline-only JS remains as provenance and is no longer loaded. A compact all-question skyline sits above a virtualized question matrix. The real cohort is unchanged: 324 all-time questions, 313 represented by the latest observations in the initial yearly columns, 128 in the latest checkpoint. Do not confuse these scopes. Rows are unbounded and scrollable; only visible rows are rendered. Year/Month/Week/Day buttons, period navigation, double-click zoom, category/pair filters, observed category-change filtering and keyboard arrows operate on stored data. Borderless adjacent colored cells provide visual continuity; explicit unknown gaps and the sampling notice must remain. A missing row finding is not agreement or resolution.
@@ -46,7 +90,7 @@ These tests do not download models or invoke the provider. Other source tests/br
 
 “Most controversial” is an explained ordinal sort: possible contradiction, framing, then context, scoped to displayed observations and actual pair classifications. It does not use passage counts or claim calibrated controversy. Pair-specific category metadata and exact occurrence IDs survive the evidence preview and historical article handoff. Search, filters, selected cell, observation, scroll and date window are kept in the return URL. Initial label text uses source sections/question types, without new generated summaries.
 
-Checks: `python -m unittest test_heatmap test_skyline test_paired_history test_historical_divergence test_discrepancy_explorer test_showcase test_update_issues test_decisions_only` (61 checks), `node test_skyline_model.js`, `node --check static/heatmap.js`, plus the independent viewer's 15 tests. Browser verification covered desktop/mobile, hybrid search against real vectors, seven-day view, monthly zoom, bottom-sheet evidence, exact EN–SV and FI–SV destinations, browser-back restoration, keyboard arrows, all 313 currently displayed rows through virtualization and zero console errors. No Decisions calls were made. Native MediaWiki and the independent viewer remain untouched.
+Checks: `python -m unittest test_heatmap test_skyline test_paired_history test_historical_divergence test_discrepancy_explorer test_showcase test_update_issues test_decisions_only` (61 checks), `node test_skyline_model.js`, `node --check static/lab-explorer.js`, plus the independent viewer's 15 tests. Browser verification covered desktop/mobile, hybrid search against real vectors, seven-day view, monthly zoom, bottom-sheet evidence, exact EN–SV and FI–SV destinations, browser-back restoration, keyboard arrows, all 313 currently displayed rows through virtualization and zero console errors. No Decisions calls were made. Native MediaWiki and the independent viewer remain untouched.
 
 ## Current semantic zoom and corpus pipeline
 
@@ -58,6 +102,10 @@ Question naming is an explicit background step in `question_titles.py`: narrow s
 
 `article_pipeline.py` removes Winter War-only preparation scope through article/edition anchors, article-scoped run/cache/group identities, snapshot/history jobs and a durable MariaDB queue. The local dataset currently has 7,256 eligible multilingual article IDs (EN/FI/SV); that number is corpus eligibility, not completed comparisons. New history preparation assesses monthly as-of checkpoints plus bounded recent daily revision checkpoints, reusing unchanged revision tuples and passage embeddings. Existing legacy runs remain readable. First validate Winter War, then a ten-article pilot; enqueueing the remaining corpus is explicit and separate. Do not claim the entire corpus has been assessed merely because article lookup lists it.
 
-Use `docs/semantic-zoom.md` for commands and contracts. Current pure regression suite: `python -m unittest test_zoom_read test_api_title_gate test_question_titles test_question_search test_article_pipeline test_heatmap test_skyline test_paired_history test_historical_divergence test_discrepancy_explorer test_showcase test_update_issues test_decisions_only` (111 checks when recorded). Also run `node test_skyline_model.js`, `node --check static/constellation.js` and the independent viewer suite. Root performs the bounded desktop/mobile browser journey. Native MediaWiki and the independent viewer remain separate.
+Use `docs/semantic-zoom.md` for commands and contracts. Current pure regression suite: `python -m unittest test_zoom_read test_api_title_gate test_question_titles test_question_search test_article_pipeline test_heatmap test_skyline test_paired_history test_historical_divergence test_discrepancy_explorer test_showcase test_update_issues test_decisions_only` (111 checks when recorded). Also run `node test_skyline_model.js`, `node --check static/lab-explorer.js` and the independent viewer suite. Root performs the bounded desktop/mobile browser journey. Native MediaWiki and the independent viewer remain separate.
 
 The earlier supplied editorial matrix used pinned evidence, scoped search, local review/citation export and panning; the latest floating graph-first presentation supersedes that layout. The earlier constellation remains through layout=constellation. Final original pilot: v2 War86/86 checkpoints,431all-time groups,11404occurrences; latest135(123context12framing0contradictions). All10:519groups11498occurrences;22996excerpt checks/192revisions,0invalid. Oldv1counts324/128 and RU520 are different cohorts. See ../../docs/hackathon-goal.txt for the focused20 Finnish-history evidence delivery, final verification and PR.
+
+## Retired-presentation cleanup verification
+
+Cleanup verification: 166 research/article/flags regression tests and all 15 independent-viewer tests pass; the JS aggregation checks and syntax checks for retained viewer entrypoints pass. HTTP smoke checks returned 200 for `/explore`, the retired layout query, all three active histogram assets, the curated showcase and a real cached EN/FI/SV Winter War overview, with provider calls blocked. Desktop/mobile browser acceptance was not repeated because computer control could not establish the browser URL reliably. No inference, database reset, dataset deletion or native runtime rebuild was performed.

@@ -1,6 +1,57 @@
 # NeoWiki exploration registry
 
+## Language quality and issue context
+
+[Language evidence quality](../../tools/language-gap-explorer/docs/language-quality.md) documents source-bound contextual comments, lazy cached English translations beneath foreign diff paragraphs, exact-witness Decisions question preparation, and conservative offline policy replay. Published source observations and historical identities remain unchanged. Real cached failures and a separate controlled synthetic baseline have regression coverage; independently verified multilingual precision/recall gains are still unestablished. No paid assessment or model training ran for this iteration.
+
+## Native Issues integration (in verification)
+
+The later [Wikipedia-style defaults](../wikipedia-defaults.md) retire the legacy
+Blame tab and align supported reading/editor defaults while preserving native
+Issues, provenance and explicit inference controls.
+
+The opt-in `infra/wiki/extensions/PalimpsestIssues` extension and independent
+signed `tools/language-gap-explorer/native_issues_server.py` now share the unified
+index and exact evidence presentation with the previews. Native account review
+markers have their own wiki/observation/edition-scoped SVT table; preview markers
+are preserved. Source/local reconciliation is checked before exact native article
+links/scans. The existing read-only histogram includes all nine detector classes,
+separate source-edit/assessment times, sparse coverage states and configured native
+period/exact-evidence presets with explorer return context.
+
+Histogram bar handoffs now leave the visualization on its histogram and open
+only the article's native Issues list for the selected period. Browser Back and
+the article's return link retain the histogram zoom and filters. Older bucket-list
+URLs without an exact finding also restore the histogram. Real browser checks
+covered both return paths and an old URL; `test_bucket_navigation.js` covers
+monthly/yearly routing, filters, history preservation and exact-link compatibility.
+
+This is ongoing implementation/verification, not completion of the native
+migration. The previews remain available and the separate NeoWikiReview stack
+has not been merged or replaced. The owned FI/SV/EN native runtime now has
+reconciled issue-source revisions. Real native browser/API checks cover cached
+results, review/undo, exact article links, histogram handoffs and mobile comments.
+Pinned official Wikibase Repo/Client, CLDR, Labeled Section Transclusion and
+GeoData are installed; 143 captured Wikidata entities reconcile independently in
+each edition. Winter War has matching source section/reference/image counts and
+no Lua errors; FI/SV normalized text matches, with only romanization-label spacing
+different in EN. All article images load in the browser and actual 390-pixel
+mobile checks fit each edition. FI/SV Mänttä also match normalized article/citation
+text after repairing real coordinate and municipality-code dependencies.
+These selected checks do not establish every historical article's fidelity or
+user acceptance of native parity.
+See [setup, temporal semantics and acceptance record](../native-issues.md) for
+the precise boundary and remaining native journeys.
+
 These experiments answer different questions. They share evidence conventions, but their counts, dates, identities and review states are not interchangeable. The existing research app is copied directly into [tools/language-gap-explorer](../../tools/language-gap-explorer/PORT.md). Prototype source paths below refer to that directory. Its source manifest records 82 byte-for-byte copied files; databases, secrets, model caches and reports are excluded. The native extension remains a separate unpublished branch.
+
+## Retired presentations and 3D Library
+
+The current research UI is `tools/language-gap-explorer/templates/lab_explorer.html`, `static/lab-explorer.js` and `static/lab-explorer.css`, with the shared `static/skyline-model.js`. The unused Constellation template and browser assets, earlier skyline/heatmap browser scripts and styles, and copied legacy discrepancy-viewer assets have been removed. `/explore?layout=constellation` continues to serve the current histogram UI. Historical descriptions below record previous iterations, not supported alternate layouts.
+
+The separate `apps/library` spatial bookshelf/corridor app was retired along with its Three.js dependency, isolated setup scripts, tests and `docs/library` implementation documents. Its source and verification history remain in Git. This source cleanup does not delete existing local datasets, models, database volumes or imported article histories.
+
+Shared research code (`skyline.py`, `heatmap.py`, `zoom_read.py` and their read APIs) remains for the current histogram, exact evidence/tracker handoff and compatibility. The independently runnable `tools/divergence-explorer` sample viewer remains supported. `SOURCE_MANIFEST.json` records the original source port, not the current file inventory.
 
 ## Map of independent explorations
 
@@ -86,3 +137,31 @@ Final data preparation: the curated 20 EN/FI/SV articles all have published find
 Final user navigation replaces the prior click-year/month hierarchy: default monthly histogram over the full available history, zoom changes its date window and adapts to yearly buckets for longer ranges, clicking a bucket opens a searchable issue table, then selecting an issue opens evidence. Month is the finest timeline unit; the issue table has no large colored temporal bands. The latest presentation uses Wikipedia's white/gray/blue style and has no draft-editing controls.
 
 The popup comparison viewer and subsequent article-tracker navigation are intentionally provisional UX, backed by real cached evidence rather than fabricated examples. Their design/routing and the distinction between historical observations and current actionable issues will be iterated later; no finalized native MediaWiki lifecycle is implied.
+
+## Unified article preview
+
+The reader (`/wiki/<topic>`), snapshot/historical comparison (`/langcompare/<topic>`) and detector interface now share `article_shell.html` and one Article / Language differences / Flags navigation bar. `/article/<topic>?tab=article|language|flags` exposes the combined preview; existing routes remain compatible. Tab links retain repeated language selections, run, question, observation, exact occurrence, return context and selected detector revision. Changing revision in Flags updates the tab destinations. Opening a view does not trigger a detector scan, including old `scan=1` links.
+
+The Article view reads the existing dataset snapshot. For a historical evidence selection it shows exact archived excerpts and original revision links rather than substituting the snapshot. If a selected detector revision differs from the snapshot, the reader labels the difference. Full historical article rendering in this preview is not implemented. Snapshot language findings and historical findings keep their separate data scopes. Flags remain detector suggestions; unavailable cached audits are explicit.
+
+This is a consolidation of the Flask preview, not a native MediaWiki integration. Native wiki core remains in its pinned Docker image, with PalimpsestBlame and PalimpsestFlags extensions under `infra/wiki/extensions`; their code and databases are unchanged.
+
+### Flags runtime and anchored comments
+
+The preview launcher (`scripts/preview.py`) starts the detector and reader together using one private environment file. Detector health gates scan controls; cached audits remain readable. Failed detector responses cannot become successful cache entries, transport errors are presented without internal addresses, and revision changes clear stale evidence. Gemini structured results use JSON Schema with local Pydantic validation. Whole-page consistency has a bounded configurable deadline, rather than the earlier eight-second cutoff. Windows rendering can reuse installed Edge/Chrome.
+
+Revision comments share the native MediaWiki extension's stacking implementation: desktop cards follow their exact source marks, with collision handling; narrow screens use inline markers and anchored popovers. Real verification on Winter War revision 1301539037 returned three detector suggestions and a successful whole-page consistency response with zero suggestions (about 11 seconds). Those are model results, not verified errors or an accuracy evaluation. Cached browser checks covered Scan, page consistency, source highlights and comment placement on desktop/mobile, with no browser script errors. Original source text and histories were preserved.
+
+## Unified Issues and SVT follow-up
+
+Article / Issues replaces the three-tab preview. The list combines stored language discrepancies and detector flags, but defaults to one latest assessed set: newest indexed historical run at its newest published checkpoint, plus newest assessed source revision per detector mode/edition. History retains older runs and observations. Winter War's initial index contains 1,275 language-group identities across three different cohorts (431, 324 and 520) plus three detector flags; the default correctly shows 135 findings from the latest language checkpoint plus those three flags (138), not their all-time union. Counts are provisional findings, not verified factual errors.
+
+The MariaDB `unified_issue`, `unified_coverage` and `unified_review` tables use system versioning. `unified_assessment` and `unified_observation` are append-only successful evidence records. System time does not replace source-edit, observation or assessment timestamps. Explicit backfill imports successful paired-history, snapshot and detector results without inference. Language observations pin their original paired-occurrence payload with a hash. Detector results are archived before their working cache is replaced, with a private pending-result recovery file if indexing fails.
+
+Review markers persist per exact observation and article edition; they are shared within this localhost prototype. They do not establish confirmation, dismissal, current presence or resolution. Full-page evidence uses the Flags highlight/comment renderer with distinct edition, edit and within-revision comparison modes. Historical and weaker-occurrence links preserve their identity and explorer return state. Failed or missing evidence never falls back to a different occurrence/current snapshot.
+
+This remains an interim Flask surface. The required destination is a native MediaWiki article Issues tab and evidence workflow, using native revision lookup, accounts, permissions and navigation. The pinned upstream core and separate native extension experiments remain untouched; source Wikipedia IDs must be reconciled rather than assumed equal to local revision IDs.
+
+Verification: 187 research regression tests passed (one opt-in database check skipped in the pure run); that database check also passed separately against uniquely named temporary tables, including immutable rescans, idempotence, empty assessed sets and SVT histories. The separate divergence viewer's 15 tests passed. Real backfill imported 21,248 historical language occurrences, 533 snapshot records and nine successful flag-cache assessments without inference; repeating an import left the total 21,789 observations unchanged. These import counts describe source records, not distinct issues. Browser checks covered persisted review/undo, desktop and mobile anchored comments, and exact histogram-to-evidence navigation with restored explorer state.
+
+The next user-approved goal is native MediaWiki delivery with complete, correctly rendered article content and all preview Flags behavior carried over. Do not delete the previews until the user explicitly verifies native parity. Expand the history histogram to include all detector classifications with distinguishable colors and type filters; navigation into native Issues must preset the selected period, languages, classifications and exact historical evidence, then restore the explorer on Back. Keep paid scans explicit and preserve source/local revision identity.

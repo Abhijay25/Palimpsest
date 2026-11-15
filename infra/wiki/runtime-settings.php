@@ -3,7 +3,35 @@
 $wgLanguageCode = getenv('MW_LANG') ?: $wgLanguageCode;
 $wgLocaltimezone = 'UTC';
 $wgDefaultSkin = 'vector-2022';
-$wgVectorDefaultSkinVersion = '2'; // Vector 2022
+// Reader/editor defaults checked against Wikimedia production configuration.
+// Saved personal preferences continue to take precedence.
+$wgDefaultUserOptions = array_replace( $wgDefaultUserOptions ?? [], [
+    'vector-font-size' => 1,
+    'vector-theme' => 'day',
+    'vector-limited-width' => 1,
+    'usebetatoolbar' => 1,
+    'watchdefault' => 0,
+    'watchmoves' => 0,
+    'watchrollback' => 0,
+    'watchcreations' => 1,
+    'watchlistdays' => 3,
+    'rcdays' => 1,
+    'usenewrc' => 0,
+    'extendwatchlist' => 0,
+    'thumbsize' => 5,
+] );
+$wgThumbnailSteps = [ 20, 40, 60, 120, 250, 330, 500, 960, 1280, 1920, 3840 ];
+// MediaWiki 1.46 still uses ThumbLimits for the thumbnail preference selector.
+$wgThumbLimits = $wgThumbnailSteps;
+$wgGalleryOptions['imageWidth'] = $wgLanguageCode === 'sv' ? 150 : 120;
+$wgGalleryOptions['imageHeight'] = $wgLanguageCode === 'sv' ? 150 : 120;
+$wgVectorMaxWidthOptions = [
+    'exclude' => [ 'mainpage' => true,
+        'querystring' => [ 'action' => '(history|edit)', 'diff' => '.+' ],
+        'namespaces' => [ NS_SPECIAL, NS_CATEGORY ],
+    ],
+    'include' => [ 'Special:Preferences', 'Special:Userlogin', 'Special:CreateAccount' ],
+];
 $wgLogos = [
     '1x' => '/palimpsest-logo.svg',
     'icon' => '/palimpsest-icon.svg',
@@ -33,6 +61,14 @@ wfLoadExtension('Linter');
 wfLoadExtension('Echo');
 wfLoadExtension('VisualEditor');
 wfLoadExtension('DiscussionTools');
+wfLoadExtension('MultimediaViewer');
+wfLoadExtension('PageImages');
+wfLoadExtension('TextExtracts');
+wfLoadExtension('CiteThisPage');
+wfLoadExtension('CategoryTree');
+wfLoadExtension('ImageMap');
+wfLoadExtension('Poem');
+wfLoadExtension('SyntaxHighlight_GeSHi');
 
 $wgVisualEditorEnableWikitext = true;
 $wgDefaultUserOptions['visualeditor-editor'] = 'visualeditor';

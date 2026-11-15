@@ -4,6 +4,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 data/
+!/tests/data/
+/tests/data/*
+!/tests/data/test_*.py
 cache/
 eval/runs/*/batches/
 eval/runs/*/results/
@@ -23,8 +26,6 @@ playwright-report/
 test-results/
 artifacts/
 .impeccable/questions/
-apps/library/dist/
-apps/library/*.tsbuildinfo
 infra/wiki/data/
 infra/wiki/.env
 infra/wiki/verification.local.json

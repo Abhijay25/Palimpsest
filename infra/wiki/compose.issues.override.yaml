@@ -1,0 +1,24 @@
+# Opt in on a separately owned runtime. Never apply this to another checkout's
+# experiment. Uses the pinned upstream images from compose.yaml unchanged.
+x-issues-environment: &issues-environment
+  PALIMPSEST_ISSUES_SERVICE_URL: ${PALIMPSEST_ISSUES_SERVICE_URL}
+  PALIMPSEST_ISSUES_SECRET_FILE: /run/secrets/issues-bridge
+  PALIMPSEST_ISSUES_EXPLORER_URL: ${PALIMPSEST_ISSUES_EXPLORER_URL:-}
+
+services:
+  wiki-fi:
+    environment: *issues-environment
+    secrets: [issues-bridge]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  wiki-sv:
+    environment: *issues-environment
+    secrets: [issues-bridge]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+  wiki-en:
+    environment: *issues-environment
+    secrets: [issues-bridge]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+
+secrets:
+  issues-bridge:
+    file: ${PALIMPSEST_ISSUES_SECRET_FILE}

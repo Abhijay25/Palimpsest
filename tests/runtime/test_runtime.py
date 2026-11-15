@@ -27,6 +27,21 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertNotIn("password", serialized)
         self.assertNotIn("token", serialized)
 
+    def test_native_profile_preserves_addons_without_changing_image_pins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            (root/runtime.MARKER).write_text(json.dumps({'project':'owned'}))
+            profile={'schema_version':1,'project':'owned','overrides':['issues','rendering'],'environment':{'PALIMPSEST_ISSUES_SERVICE_URL':'http://private:8766'}}
+            path=root/runtime.NATIVE_PROFILE;path.write_text(json.dumps(profile))
+            prefix=runtime.compose_prefix('docker',root/'.env')
+            self.assertIn(str(runtime.PROFILE_OVERRIDES['issues']),prefix)
+            self.assertIn(str(runtime.PROFILE_OVERRIDES['rendering']),prefix)
+            self.assertEqual(runtime.native_profile(root)['environment'],profile['environment'])
+            profile['environment']['MEDIAWIKI_IMAGE']='unreviewed:latest';path.write_text(json.dumps(profile))
+            with self.assertRaises(runtime.RuntimeErrorExit):runtime.native_profile(root)
+            profile['environment'].pop('MEDIAWIKI_IMAGE');profile['project']='another';path.write_text(json.dumps(profile))
+            with self.assertRaises(runtime.RuntimeErrorExit):runtime.native_profile(root)
+
     def test_bad_port_tuple_fails_as_invalid_configuration(self):
         for ports in ("18081,18082", "18081,18081,18083", "0,18082,18083", "abc,2,3"):
             with self.subTest(ports=ports), self.assertRaises(runtime.RuntimeErrorExit) as caught:
@@ -99,6 +114,18 @@ class RuntimeContractTests(unittest.TestCase):
             (config / "LocalSettings.php").chmod(0o644)
             runtime.secure_configs(root)
             self.assertEqual((config / "LocalSettings.php").stat().st_mode & 0o777, 0o600)
+
+    def test_first_language_config_does_not_require_uninstalled_languages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            first=root/'config/fi'
+            first.mkdir(parents=True)
+            (first/'LocalSettings.php').write_text('<?php\n')
+            with patch.object(runtime,'config_needs_container_helper',return_value=False):
+                runtime.configure_runtime_settings(root,'fi',[],{})
+            self.assertTrue((first/'runtime-settings.php').is_file())
+            # Steady-state validation still requires all three configurations.
+            with self.assertRaises(runtime.RuntimeErrorExit):runtime.secure_configs(root)
 
     def test_runtime_reset_preserves_data_tool_files_and_rejects_symlinked_runtime_path(self):
         with tempfile.TemporaryDirectory() as tmp:

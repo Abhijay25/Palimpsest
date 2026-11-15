@@ -27,19 +27,94 @@ except ModuleNotFoundError:  # stdlib fallback keeps fixture tests dependency-fr
     class _Requests:
         class RequestException(Exception): pass
         @staticmethod
+        def get(url, timeout):
+            try: return _Response(urlopen(url, timeout=timeout))
+            except (OSError, URLError) as error: raise _Requests.RequestException(str(error)) from error
+        @staticmethod
         def post(url, json, timeout, headers=None):
             try:
                 request_headers = {"Content-Type": "application/json", **(headers or {})}
                 return _Response(urlopen(Request(url, data=__import__('json').dumps(json).encode(), headers=request_headers), timeout=timeout))
             except (OSError, URLError) as error: raise _Requests.RequestException(str(error)) from error
     requests=_Requests()
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, abort, jsonify, render_template, request, send_file, redirect
 
 from flags_tab import RevisionRef, audit_payload, block_revisions, rank_revisions
 from revision_text import cache_root, fetch_history, fetch_revision
 
 bp = Blueprint("flags", __name__)
 PAGE_CREATION_TEXT_LIMIT = 60_000
+
+
+@bp.get("/assets/flags/stacking.js")
+def shared_flag_stacking():
+    # Both the native extension and preview use the same collision-aware layout.
+    path = Path(__file__).resolve().parents[2] / "infra/wiki/extensions/PalimpsestFlags/resources/stacking.js"
+    return send_file(path, mimetype="application/javascript")
+
+
+def detector_failure(error: Exception) -> str:
+    """Keep transport errors, internal addresses and provider details out of the UI."""
+    if type(error).__name__=="PersistenceError":return str(error)
+    if isinstance(error, requests.RequestException):
+        response = getattr(error, "response", None)
+        code = getattr(response, "status_code", None)
+        if code in (401, 403):
+            return "The detector could not authenticate. Check its provider credentials."
+        if code == 429:
+            return "The detector is rate limited. Wait before trying again."
+        if code in (502, 503, 504):
+            return "The detector is unavailable or its provider is not configured. Check the detector service and try again."
+        if code == 422:
+            return "The detector rejected this revision. Its request format or text size is unsupported."
+        return "Cannot reach the detector. Start the detector service, then try again."
+    if isinstance(error, DetectorResultError):
+        return str(error)
+    if isinstance(error, RuntimeError):
+        return "The selected revision text is unavailable. Try another revision."
+    return "The scan could not be completed. Please try again; no successful result was saved."
+
+
+class DetectorResultError(ValueError):
+    pass
+
+
+def validate_detector_result(result):
+    if not isinstance(result, dict) or not isinstance(result.get("flags"), list):
+        raise DetectorResultError("The detector returned an invalid response. No result was saved.")
+    if result.get("status", "ok") != "ok":
+        if "timeout" in str(result.get("error", "")).lower():
+            raise DetectorResultError("The detector timed out before finishing. Retry the check or choose another revision; no successful result was saved.")
+        raise DetectorResultError("The detector could not complete the scan. Check its provider configuration and try again; no successful result was saved.")
+    return result
+
+
+def validate_page_result(result):
+    """Accept a completed page audit or its explicit partial result."""
+    if not isinstance(result, dict) or not isinstance(result.get("flags"), list):
+        raise DetectorResultError("The detector returned an invalid response. No result was saved.")
+    if result.get("status", "ok") not in {"ok", "partial"}:
+        return validate_detector_result(result)
+    return result
+
+
+@bp.get("/api/flags/health")
+def detector_health():
+    if fixture_enabled():
+        return jsonify(available=True, configured=True, message="Offline fixture; scans stay local.")
+    base = os.environ.get("PALIMPSEST_API_URL", "http://127.0.0.1:8765").rstrip("/")
+    try:
+        response = requests.get(base + "/healthz", timeout=3)
+        response.raise_for_status()
+        data = response.json()
+        configured = isinstance(data, dict) and data.get("judge_configured") is True
+        return jsonify(available=True, configured=configured, message=(
+            "Detector ready. Scans run only when requested." if configured else
+            "Detector is running, but Gemini is not configured. Configure its credentials and enable Gemini to scan."
+        ))
+    except (requests.RequestException, OSError, ValueError):
+        return jsonify(available=False, configured=False,
+                       message="Detector is offline. Start the preview with its detector service, then retry.")
 
 
 def fixture_enabled() -> bool:
@@ -109,12 +184,12 @@ def page_path(ref: RevisionRef) -> Path:
 
 def cached_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str, Any] | None:
     fixture = context.get("audits", {}).get(str(ref.revision_id)) if isinstance(context.get("audits"), Mapping) else None
-    if isinstance(fixture, dict):
+    if isinstance(fixture, dict) and fixture.get("status", "ok") == "ok":
         return dict(fixture)
     try:
         path = audit_path(ref)
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or data.get("status", "ok") != "ok":
             return None
         data.setdefault("status", "ok")
         data.setdefault(
@@ -281,17 +356,64 @@ def diff_html(old: str, new: str) -> str:
     )
 
 
+def pending_result(ref, context, mode):
+    if not context.get('topic') or fixture_enabled():return None
+    path=cache_root()/'pending-issues'/f'{mode}-{ref.lang}-{ref.revision_id}.json'
+    if not path.exists():return None
+    data=json.loads(path.read_text(encoding='utf-8'))
+    if data.get('topic')!=context['topic']:raise RuntimeError('The pending assessment does not match this article.')
+    return validate_detector_result(data['result'])
+
+
+def save_issue_scan(ref,result,context,mode,cached=False):
+    if not context.get('topic') or fixture_enabled():return result
+    import issues
+    from dataclasses import replace
+    from revision_text import cached_revision
+    record=cached_revision(ref.lang,ref.revision_id) or {}
+    ref=replace(ref,parent_id=ref.parent_id or record.get('parent_id'),timestamp=ref.timestamp or record.get('timestamp',''))
+    result=dict(result)
+    if cached and not result.get('_issue_assessment'):
+        result['_issue_assessment']=issues.identity('cache',context['topic'],ref.lang,ref.revision_id,mode,result)
+        cache=page_path(ref) if mode=='page' else audit_path(ref)
+        if cache.exists():result.setdefault('_issue_assessed_at',__import__('datetime').datetime.fromtimestamp(cache.stat().st_mtime,__import__('datetime').timezone.utc).isoformat())
+    result.setdefault('_issue_assessment',issues.identity('scan',__import__('uuid').uuid4().hex))
+    result.setdefault('_issue_assessed_at',issues.now())
+    path=cache_root()/'pending-issues'/f'{mode}-{ref.lang}-{ref.revision_id}.json'
+    path.parent.mkdir(parents=True,exist_ok=True)
+    path.write_text(json.dumps(dict(topic=context['topic'],result=result),ensure_ascii=False),encoding='utf-8')
+    output=issues.store_scan(context['topic'],ref,result,mode)
+    path.unlink(missing_ok=True)
+    return output
+
+
+def coverage_scan(ref,context,mode,state,note=''):
+    if context.get('topic') and not fixture_enabled():
+        from issues import scan_coverage
+        scan_coverage(context['topic'],ref,mode,state,note)
+
+
+def scan_failed(ref,context,mode,error):
+    try:coverage_scan(ref,context,mode,'failed',detector_failure(error))
+    except RuntimeError:pass
+
+
 def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, fresh: bool = False) -> dict[str, Any]:
     # The synthetic fixture remains offline even when exercising the fresh UI.
-    audit = cached_audit(ref, context) if (not fresh or isinstance(context.get("audits"), Mapping)) else None
+    recovered=pending_result(ref,context,'revision') if scan else None
+    audit = recovered or (cached_audit(ref, context) if (not fresh or isinstance(context.get("audits"), Mapping)) else None)
     if audit is not None:
         old = str(audit.get("old_wikitext", "")); new = str(audit.get("new_wikitext", ""))
         if not old and not new:
             return {"status": "unavailable", "error": "Cached audit has no revision text; no empty diff was rendered.", "flags": []}
+        if scan:
+            try:audit=save_issue_scan(ref,audit,context,'revision',cached=True)
+            except (RuntimeError,OSError) as error:return {'status':'error','flags':[],'error':detector_failure(error)}
         return dict(audit, stored=True, diff_html=diff_html(old, new))
     if not scan:
         return {"status": "unavailable", "flags": [], "error": "Not scanned yet. Select Scan to make an explicit detector request."}
     try:
+        coverage_scan(ref,context,'revision','running')
         new_record = fetch_revision(ref.lang, ref.revision_id)
         parent_value = new_record.get("parent_id")
         parent = int(parent_value if parent_value is not None else ref.parent_id or 0)
@@ -314,9 +436,7 @@ def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, f
         response = requests.post(api_url, json=body, timeout=90,
                                  headers={"X-Palimpsest-Fresh": "1"} if fresh else {})
         response.raise_for_status()
-        result = response.json()
-        if not isinstance(result, dict):
-            raise ValueError("invalid detector response")
+        result = validate_detector_result(response.json())
         result.update(
             status="ok",
             old_wikitext=body["old_wikitext"],
@@ -325,11 +445,13 @@ def response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool, f
         )
         if page_created:
             result.update(page_created=True, truncated=truncated)
+        result = save_issue_scan(scoped,result,context,'revision')
         path = audit_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
         return dict(result, diff_html=diff_html(body["old_wikitext"], body["new_wikitext"]))
     except (requests.RequestException, OSError, RuntimeError, ValueError, KeyError) as error:
-        return {"status": "error", "flags": [], "error": f"Audit unavailable: {error}"}
+        scan_failed(ref,context,'revision',error)
+        return {"status": "error", "flags": [], "error": detector_failure(error)}
 
 
 def rendered_page_html(wikitext: str, lang: str, title: str) -> str:
@@ -361,12 +483,12 @@ def rendered_page_html(wikitext: str, lang: str, title: str) -> str:
 
 def cached_page_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str, Any] | None:
     fixture = context.get("page_audits", {}).get(str(ref.revision_id)) if isinstance(context.get("page_audits"), Mapping) else None
-    if isinstance(fixture, dict):
+    if isinstance(fixture, dict) and fixture.get("status", "ok") == "ok":
         return dict(fixture)
     try:
         path = page_path(ref)
         data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
+        if not isinstance(data, dict) or data.get("status", "ok") != "ok":
             return None
         data.setdefault(
             "stored_at",
@@ -378,14 +500,16 @@ def cached_page_audit(ref: RevisionRef, context: Mapping[str, Any]) -> dict[str,
 
 
 def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bool,
-                          fresh: bool = False) -> dict[str, Any]:
+                          fresh: bool = False, *, render_page: bool = True) -> dict[str, Any]:
     # Fixture re-checks are deterministic and must not contact a detector.
-    result = cached_page_audit(ref, context) if (not fresh or isinstance(context.get("page_audits"), Mapping)) else None
+    recovered=pending_result(ref,context,'page') if scan else None
+    result = recovered or (cached_page_audit(ref, context) if (not fresh or isinstance(context.get("page_audits"), Mapping)) else None)
     stored = result is not None
     if result is None and not scan:
         return {"status": "unavailable", "flags": [], "error": "Not checked yet. Select Check this page to make an explicit detector request."}
     try:
         if result is None:
+            coverage_scan(ref,context,'page','running')
             fixture_article = context.get("articles", {}).get(ref.lang) if isinstance(context.get("articles"), Mapping) else None
             if isinstance(fixture_article, Mapping) and fixture_enabled():
                 wikitext = str(fixture_article.get("text", ""))
@@ -397,34 +521,62 @@ def page_response_payload(ref: RevisionRef, context: Mapping[str, Any], scan: bo
             response = requests.post(api_url, json=body, timeout=110,
                                      headers={"X-Palimpsest-Fresh": "1"} if fresh else {})
             response.raise_for_status()
-            result = response.json()
-            if not isinstance(result, dict):
-                raise ValueError("invalid detector response")
+            result = validate_page_result(response.json())
             result.update(wikitext=wikitext)
-            if result.get("status", "ok") == "ok":
+            if result.get("status", "ok") == "partial":
+                result["partial"] = True
+            else:
                 result["stored_at"] = datetime.now(UTC).replace(microsecond=0).isoformat()
+                result = save_issue_scan(ref,result,context,'page')
                 path = page_path(ref); path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+        if scan and result.get("status", "ok") == "ok" and (
+            recovered or not result.get('_issue_assessment')
+        ):
+            result = save_issue_scan(ref,result,context,'page',cached=True)
         output = dict(result)
         output.setdefault("status", "ok")
         output.setdefault("flags", [])
         if stored:
             output["stored"] = True
-        wikitext = str(output.get("wikitext") or context.get("articles", {}).get(ref.lang, {}).get("text", ""))
-        output["page_html"] = rendered_page_html(wikitext, ref.lang, ref.title)
+        if render_page:
+            wikitext = str(output.get("wikitext") or context.get("articles", {}).get(ref.lang, {}).get("text", ""))
+            output["page_html"] = rendered_page_html(wikitext, ref.lang, ref.title)
+        else:
+            # Native MediaWiki supplies the exact local ParserOutput itself.
+            # Do not wait on a redundant source/preview renderer for saved reads.
+            output.pop("page_html", None)
         return output
     except (requests.RequestException, OSError, RuntimeError, ValueError, KeyError) as error:
-        return {"status": "error", "flags": [], "error": f"Page consistency is unavailable: {error}"}
+        scan_failed(ref,context,'page',error)
+        return {"status": "error", "flags": [], "error": detector_failure(error)}
 
 
 @bp.get("/article/<topic>")
 def article(topic: str):
     if not (topic == "Q-demo" and fixture_enabled()) and not re.fullmatch(r"Q\d{1,15}", topic):
         abort(404)
+    tab = request.args.get("tab", "article")
+    if tab not in ("article", "language", "flags", "issues"):
+        abort(400, description="Choose Article, Language differences or Flags.")
+    historical = any(key in request.args for key in ("run", "group", "stamp", "occurrence"))
+    fixture = fixture_context(topic)
+    if tab in ('language','flags','issues') and fixture is None and not request.args.get('tools'):
+        from issues_routes import legacy
+        if historical and tab=='language':return legacy(topic)
+        from urllib.parse import urlencode
+        args=request.args.copy();args.poplist('tab');args.poplist('scan')
+        if tab!='issues':args['origin']='language' if tab=='language' else 'flags'
+        return redirect('/article/'+topic+'/issues?'+urlencode(list(args.items(multi=True))))
+    if tab == "article" and not historical:
+        from app import article_page
+        return article_page(topic)
+    if tab == "language" and fixture is None:
+        from app import topic_page
+        return topic_page(topic)
     context = tracker_or_fixture(topic)
-    tab = request.args.get("tab", "language")
-    if tab not in ("language", "flags"):
-        abort(400, description="Choose the Language or Flags tab.")
+    if tab == "article":
+        return render_template("historical_article.html", **context)
     refs = revision_rows(context)
     selected = request.args.get("revision", type=int) or (refs[0]["revision"] if refs else None)
     selected_ref = next((ref for ref in block_revisions(context) if ref.revision_id == selected), None)

@@ -18,6 +18,7 @@ from palimpsest.backends.gemini import (
     DEFAULT_BACKOFF_SECONDS,
     DEFAULT_JUDGE_MODEL,
     GeminiClient,
+    _env_number,
     _GeminiCaller,
 )
 from palimpsest.display_text import plain
@@ -294,8 +295,13 @@ class GeminiPageConsistencyJudge:
         page_caller: _GeminiCaller | None = None,
         verify_caller: _GeminiCaller | None = None,
     ) -> None:
+        self.deadline = min(
+            75.0, _env_number("PALIMPSEST_PAGE_TIMEOUT_SECONDS", DEADLINE_S)
+        )
         self._caller = caller or _GeminiCaller(
-            DEFAULT_JUDGE_MODEL, client, DEFAULT_BACKOFF_SECONDS
+            os.environ.get("GEMINI_JUDGE_MODEL") or DEFAULT_JUDGE_MODEL,
+            client,
+            DEFAULT_BACKOFF_SECONDS,
         )
         self._page_caller = page_caller or (
             caller
@@ -316,14 +322,14 @@ class GeminiPageConsistencyJudge:
             )
         )
         if caller is None:
-            self._caller.timeout = DEADLINE_S
+            self._caller.timeout = self.deadline
             self._caller.thinking = types.ThinkingConfig(
                 thinking_level=types.ThinkingLevel.LOW
             )
         if page_caller is None and caller is None:
-            self._page_caller.timeout = DEADLINE_S
+            self._page_caller.timeout = self.deadline
         if verify_caller is None and caller is None:
-            self._verify_caller.timeout = DEADLINE_S
+            self._verify_caller.timeout = self.deadline
 
     async def __call__(
         self, groups: Sequence[CandidateGroup]
@@ -349,7 +355,7 @@ class GeminiPageConsistencyJudge:
                 json.dumps(payload, ensure_ascii=False),
                 PageConsistencyAnswers,
             ),
-            DEADLINE_S,
+            self.deadline,
         )
         if isinstance(answer, str):
             raise TypeError(answer)
@@ -368,7 +374,7 @@ class GeminiPageConsistencyJudge:
                 json.dumps({"page_text": page_text}, ensure_ascii=False),
                 WholePageConsistencyAnswers,
             ),
-            DEADLINE_S,
+            self.deadline,
         )
         if isinstance(answer, str):
             raise TypeError(answer)
@@ -402,7 +408,7 @@ class GeminiPageConsistencyJudge:
                 json.dumps(payload, ensure_ascii=False),
                 PageConsistencyVerificationAnswers,
             ),
-            DEADLINE_S,
+            self.deadline,
         )
         if isinstance(answer, str):
             raise TypeError(answer)
@@ -773,6 +779,7 @@ async def adjudicate_groups(
 ) -> list[PageConsistencyDecision]:
     """Adjudicate grouped and whole-page candidates within one deadline."""
     started = asyncio.get_running_loop().time()
+    deadline = min(DEADLINE_S, getattr(judge, "deadline", DEADLINE_S))
 
     async def grouped() -> list[PageConsistencyDecision]:
         if not groups:
@@ -808,12 +815,12 @@ async def adjudicate_groups(
         )
     results = await asyncio.wait_for(
         asyncio.gather(grouped(), *page_tasks),
-        _deadline_remaining(started),
+        _deadline_remaining(started, deadline),
     )
     grouped_decisions = cast(list[PageConsistencyDecision], results[0])
     if not page_pass or context is None:
         return await _verify_conflicts(
-            groups, grouped_decisions, judge, context, started
+            groups, grouped_decisions, judge, context, started, deadline
         )
     conflicts = [
         conflict
@@ -852,11 +859,13 @@ async def adjudicate_groups(
         )
     )
     ordered_decisions = [decisions_by_id[group.group_id] for group in groups]
-    return await _verify_conflicts(groups, ordered_decisions, judge, context, started)
+    return await _verify_conflicts(
+        groups, ordered_decisions, judge, context, started, deadline
+    )
 
 
-def _deadline_remaining(started: float) -> float:
-    return max(0.001, DEADLINE_S - (asyncio.get_running_loop().time() - started))
+def _deadline_remaining(started: float, deadline: float = DEADLINE_S) -> float:
+    return max(0.001, deadline - (asyncio.get_running_loop().time() - started))
 
 
 def _deterministically_matching_event_and_section(group: CandidateGroup) -> bool:
@@ -871,6 +880,7 @@ async def _verify_conflicts(
     judge: PageConsistencyJudge,
     context: _PagePassContext | None,
     started: float,
+    deadline: float,
 ) -> list[PageConsistencyDecision]:
     verify = getattr(judge, "verify", None)
     if not callable(verify) or context is None:
@@ -894,7 +904,7 @@ async def _verify_conflicts(
     try:
         results = await asyncio.wait_for(
             asyncio.gather(*(verify(batch, context.sentences) for batch in batches)),
-            _deadline_remaining(started),
+            _deadline_remaining(started, deadline),
         )
         expected = {group.group_id for group in pairs}
         by_id = {

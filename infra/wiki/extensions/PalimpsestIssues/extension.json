@@ -1,0 +1,94 @@
+{
+  "name": "PalimpsestIssues",
+  "version": "0.1.0",
+  "type": "other",
+  "requires": {
+    "MediaWiki": ">= 1.46.0",
+    "platform": {
+      "php": ">= 8.2"
+    }
+  },
+  "AutoloadNamespaces": {
+    "MediaWiki\\Extension\\PalimpsestIssues\\": "includes/"
+  },
+  "Actions": {
+    "issues": {
+      "class": "MediaWiki\\Extension\\PalimpsestIssues\\IssuesAction"
+    }
+  },
+  "APIModules": {
+    "palimpsestissues": "MediaWiki\\Extension\\PalimpsestIssues\\IssuesApi"
+  },
+  "Hooks": {
+    "SkinTemplateNavigation::Universal": "MediaWiki\\Extension\\PalimpsestIssues\\Hooks::navigation",
+    "BeforePageDisplay": "MediaWiki\\Extension\\PalimpsestIssues\\Hooks::articleNotice",
+    "ParserFirstCallInit": "MediaWiki\\Extension\\PalimpsestIssues\\Hooks::parserInit"
+  },
+  "AvailableRights": [
+    "palimpsest-review",
+    "palimpsest-scan"
+  ],
+  "GroupPermissions": {
+    "user": {
+      "palimpsest-review": true
+    },
+    "sysop": {
+      "palimpsest-scan": true
+    }
+  },
+  "config": {
+    "PalimpsestIssuesServiceUrl": {
+      "value": ""
+    },
+    "PalimpsestIssuesSecretFile": {
+      "value": ""
+    },
+    "PalimpsestIssuesProvenanceDirectory": {
+      "value": "/etc/palimpsest"
+    },
+    "PalimpsestIssuesExplorerUrl": {
+      "value": ""
+    },
+    "PalimpsestIssuesWikiId": {
+      "value": "",
+      "description": "Stable unique native wiki identity; empty derives from canonical server, DB name and prefix."
+    }
+  },
+  "ResourceFileModulePaths": {
+    "localBasePath": "resources",
+    "remoteExtPath": "PalimpsestIssues/resources"
+  },
+  "ResourceModules": {
+    "ext.palimpsest.issues.article.fi": {
+      "styles": [ "source-fi.css" ]
+    },
+    "ext.palimpsest.issues": {
+      "scripts": [
+        "issue-translations.js",
+        "issues.js"
+      ],
+      "styles": [
+        "issues.css",
+        "flags.css"
+      ],
+      "dependencies": [
+        "mediawiki.api",
+        "mediawiki.util"
+      ]
+    },
+    "ext.palimpsest.issues.evidence": {
+      "scripts": [
+        "anchoring.js",
+        "stacking.js",
+        "flags.js"
+      ],
+      "dependencies": [
+        "ext.palimpsest.issues"
+      ]
+    }
+  },
+  "manifest_version": 2,
+  "ExtensionMessagesFiles": {
+    "PalimpsestIssuesMagic": "magic.php"
+  }
+}
